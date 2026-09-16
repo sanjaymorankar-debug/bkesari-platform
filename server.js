@@ -1,0 +1,248 @@
+const path = require('path');
+const crypto = require('crypto');
+const express = require('express');
+const createDb = require('./db');
+
+/* ============================================================
+   bkesari.com
+     /            -> welcome portal (public/index.html)
+     /tasks/      -> Task Tracker UI (public/tasks/index.html)
+     /tasks/api/  -> Task Tracker REST API
+   ============================================================ */
+
+const STATUSES = ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'];
+const TYPES = { projects: 'project', tasks: 'task' };
+
+// UTC "YYYY-MM-DD HH:MM:SS" - same format for MySQL DATETIME and SQLite TEXT.
+function nowUtc() {
+  return new Date().toISOString().slice(0, 19).replace('T', ' ');
+}
+
+class HttpError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+
+function cleanText(v, max) {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  if (max && s.length > max) throw new HttpError(400, `Text is too long (max ${max} characters)`);
+  return s;
+}
+
+function cleanDate(v, label) {
+  const s = cleanText(v);
+  if (!s) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || isNaN(Date.parse(s + 'T00:00:00Z'))) {
+    throw new HttpError(400, `${label} must be a valid date`);
+  }
+  return s;
+}
+
+// Shared fields for projects and tasks; `nameField` is "name" or "title".
+function readItem(body, nameField) {
+  body = body || {};
+  const item = {
+    [nameField]: cleanText(body[nameField], 250),
+    description: cleanText(body.description, 5000),
+    owner: cleanText(body.owner, 120),
+    status: cleanText(body.status) || 'Not Started',
+    planned_start: cleanDate(body.planned_start, 'Planned start date'),
+    planned_end: cleanDate(body.planned_end, 'Planned end date'),
+    actual_start: cleanDate(body.actual_start, 'Actual start date'),
+    actual_end: cleanDate(body.actual_end, 'Actual end date'),
+    current_step: cleanText(body.current_step, 5000),
+    next_step: cleanText(body.next_step, 5000),
+  };
+  if (!item[nameField]) throw new HttpError(400, nameField === 'name' ? 'Project name is required' : 'Task title is required');
+  if (!STATUSES.includes(item.status)) throw new HttpError(400, 'Invalid status');
+  if (item.planned_start && item.planned_end && item.planned_end < item.planned_start) {
+    throw new HttpError(400, 'Planned end date cannot be before planned start date');
+  }
+  if (item.actual_start && item.actual_end && item.actual_end < item.actual_start) {
+    throw new HttpError(400, 'Actual end date cannot be before actual start date');
+  }
+  return item;
+}
+
+const LATEST_COMMENT = (type, alias) => `
+  (SELECT c.body FROM comments c WHERE c.id = (SELECT MAX(id) FROM comments WHERE entity_type='${type}' AND entity_id=${alias}.id)) AS latest_comment,
+  (SELECT c.created_at FROM comments c WHERE c.id = (SELECT MAX(id) FROM comments WHERE entity_type='${type}' AND entity_id=${alias}.id)) AS latest_comment_at,
+  (SELECT COUNT(*) FROM comments WHERE entity_type='${type}' AND entity_id=${alias}.id) AS comment_count`;
+
+function basicAuth(req, res, next) {
+  const user = process.env.TRACKER_USER;
+  const pass = process.env.TRACKER_PASSWORD;
+  if (!user || !pass) return next();
+  const [scheme, encoded] = (req.headers.authorization || '').split(' ');
+  if (scheme === 'Basic' && encoded) {
+    const decoded = Buffer.from(encoded, 'base64').toString();
+    const i = decoded.indexOf(':');
+    const same = (a, b) => {
+      const ha = crypto.createHash('sha256').update(a).digest();
+      const hb = crypto.createHash('sha256').update(b).digest();
+      return crypto.timingSafeEqual(ha, hb);
+    };
+    if (i >= 0 && same(decoded.slice(0, i), user) & same(decoded.slice(i + 1), pass)) return next();
+  }
+  res.set('WWW-Authenticate', 'Basic realm="bkesari Task Tracker", charset="UTF-8"');
+  res.status(401).send('Login required');
+}
+
+const wrap = fn => (req, res, next) => fn(req, res, next).catch(next);
+
+async function main() {
+  const db = await createDb();
+  const app = express();
+  app.disable('x-powered-by');
+  app.use(express.json({ limit: '1mb' }));
+
+  const api = express.Router();
+
+  async function findProject(id) {
+    return db.get(`SELECT p.*, ${LATEST_COMMENT('project', 'p')},
+      (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS task_count
+      FROM projects p WHERE p.id = ?`, [id]);
+  }
+
+  async function findTask(id) {
+    return db.get(`SELECT t.*, p.name AS project_name, ${LATEST_COMMENT('task', 't')}
+      FROM tasks t LEFT JOIN projects p ON p.id = t.project_id WHERE t.id = ?`, [id]);
+  }
+
+  async function requireProjectId(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const id = Number(value);
+    if (!Number.isInteger(id) || !(await db.get('SELECT id FROM projects WHERE id = ?', [id]))) {
+      throw new HttpError(400, 'Selected project does not exist');
+    }
+    return id;
+  }
+
+  api.get('/meta', (req, res) => res.json({ statuses: STATUSES }));
+
+  // Everything the dashboard needs in one call.
+  api.get('/overview', wrap(async (req, res) => {
+    const projects = await db.all(`SELECT p.*, ${LATEST_COMMENT('project', 'p')},
+      (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS task_count
+      FROM projects p ORDER BY p.id DESC`);
+    const tasks = await db.all(`SELECT t.*, p.name AS project_name, ${LATEST_COMMENT('task', 't')}
+      FROM tasks t LEFT JOIN projects p ON p.id = t.project_id ORDER BY t.id DESC`);
+    res.json({ projects, tasks, statuses: STATUSES });
+  }));
+
+  /* ---------- Projects ---------- */
+  api.get('/projects/:id', wrap(async (req, res) => {
+    const project = await findProject(req.params.id);
+    if (!project) throw new HttpError(404, 'Project not found');
+    const tasks = await db.all(`SELECT t.*, ${LATEST_COMMENT('task', 't')} FROM tasks t WHERE t.project_id = ? ORDER BY t.id DESC`, [project.id]);
+    res.json({ ...project, tasks });
+  }));
+
+  api.post('/projects', wrap(async (req, res) => {
+    const p = readItem(req.body, 'name');
+    const now = nowUtc();
+    const r = await db.run(`INSERT INTO projects (name, description, owner, status, planned_start, planned_end, actual_start, actual_end, current_step, next_step, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [p.name, p.description, p.owner, p.status, p.planned_start, p.planned_end, p.actual_start, p.actual_end, p.current_step, p.next_step, now, now]);
+    res.status(201).json(await findProject(r.insertId));
+  }));
+
+  api.put('/projects/:id', wrap(async (req, res) => {
+    if (!(await findProject(req.params.id))) throw new HttpError(404, 'Project not found');
+    const p = readItem(req.body, 'name');
+    await db.run(`UPDATE projects SET name=?, description=?, owner=?, status=?, planned_start=?, planned_end=?, actual_start=?, actual_end=?, current_step=?, next_step=?, updated_at=? WHERE id=?`,
+      [p.name, p.description, p.owner, p.status, p.planned_start, p.planned_end, p.actual_start, p.actual_end, p.current_step, p.next_step, nowUtc(), req.params.id]);
+    res.json(await findProject(req.params.id));
+  }));
+
+  // Deleting a project keeps its tasks; they become independent tasks.
+  api.delete('/projects/:id', wrap(async (req, res) => {
+    await db.run('UPDATE tasks SET project_id = NULL WHERE project_id = ?', [req.params.id]);
+    await db.run("DELETE FROM comments WHERE entity_type='project' AND entity_id = ?", [req.params.id]);
+    await db.run('DELETE FROM projects WHERE id = ?', [req.params.id]);
+    res.json({ ok: true });
+  }));
+
+  /* ---------- Tasks ---------- */
+  api.get('/tasks/:id', wrap(async (req, res) => {
+    const task = await findTask(req.params.id);
+    if (!task) throw new HttpError(404, 'Task not found');
+    res.json(task);
+  }));
+
+  api.post('/tasks', wrap(async (req, res) => {
+    const t = readItem(req.body, 'title');
+    const projectId = await requireProjectId(req.body.project_id);
+    const now = nowUtc();
+    const r = await db.run(`INSERT INTO tasks (project_id, title, description, owner, status, planned_start, planned_end, actual_start, actual_end, current_step, next_step, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [projectId, t.title, t.description, t.owner, t.status, t.planned_start, t.planned_end, t.actual_start, t.actual_end, t.current_step, t.next_step, now, now]);
+    res.status(201).json(await findTask(r.insertId));
+  }));
+
+  api.put('/tasks/:id', wrap(async (req, res) => {
+    if (!(await findTask(req.params.id))) throw new HttpError(404, 'Task not found');
+    const t = readItem(req.body, 'title');
+    const projectId = await requireProjectId(req.body.project_id);
+    await db.run(`UPDATE tasks SET project_id=?, title=?, description=?, owner=?, status=?, planned_start=?, planned_end=?, actual_start=?, actual_end=?, current_step=?, next_step=?, updated_at=? WHERE id=?`,
+      [projectId, t.title, t.description, t.owner, t.status, t.planned_start, t.planned_end, t.actual_start, t.actual_end, t.current_step, t.next_step, nowUtc(), req.params.id]);
+    res.json(await findTask(req.params.id));
+  }));
+
+  api.delete('/tasks/:id', wrap(async (req, res) => {
+    await db.run("DELETE FROM comments WHERE entity_type='task' AND entity_id = ?", [req.params.id]);
+    await db.run('DELETE FROM tasks WHERE id = ?', [req.params.id]);
+    res.json({ ok: true });
+  }));
+
+  /* ---------- Comments (status updates), newest first ---------- */
+  api.get('/:kind(projects|tasks)/:id/comments', wrap(async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 0, 0), 1000);
+    const rows = await db.all(
+      `SELECT id, body, created_at FROM comments WHERE entity_type = ? AND entity_id = ? ORDER BY id DESC${limit ? ' LIMIT ' + limit : ''}`,
+      [TYPES[req.params.kind], req.params.id]);
+    res.json(rows);
+  }));
+
+  // The timestamp is always taken from the server clock at the moment of posting.
+  api.post('/:kind(projects|tasks)/:id/comments', wrap(async (req, res) => {
+    const type = TYPES[req.params.kind];
+    const table = req.params.kind;
+    if (!(await db.get(`SELECT id FROM ${table} WHERE id = ?`, [req.params.id]))) throw new HttpError(404, `${type} not found`);
+    const body = cleanText((req.body || {}).body, 5000);
+    if (!body) throw new HttpError(400, 'Comment cannot be empty');
+    const now = nowUtc();
+    const r = await db.run('INSERT INTO comments (entity_type, entity_id, body, created_at) VALUES (?,?,?,?)', [type, req.params.id, body, now]);
+    await db.run(`UPDATE ${table} SET updated_at = ? WHERE id = ?`, [now, req.params.id]);
+    res.status(201).json({ id: r.insertId, body, created_at: now });
+  }));
+
+  api.use((req, res) => res.status(404).json({ error: 'Not found' }));
+  api.use((err, req, res, next) => {
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  });
+
+  // Express treats /tasks and /tasks/ as the same route, so check the raw path.
+  app.get('/tasks', (req, res, next) => {
+    if (req.path.endsWith('/')) return next();
+    res.redirect(302, '/tasks/');
+  });
+  app.use('/tasks', basicAuth);
+  app.use('/tasks/api', api);
+  app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
+
+  const port = process.env.PORT || 3000;
+  app.listen(port, () => {
+    console.log(`bkesari portal running at http://localhost:${port}`);
+    console.log(`Task Tracker at http://localhost:${port}/tasks/`);
+    if (!process.env.TRACKER_PASSWORD) console.warn('WARNING: TRACKER_USER/TRACKER_PASSWORD not set - the tracker is open to anyone who can reach it.');
+  });
+}
+
+main().catch(err => {
+  console.error('Failed to start:', err.message);
+  process.exit(1);
+});
