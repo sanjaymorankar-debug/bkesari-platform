@@ -1,0 +1,33 @@
+*.log
+.DS_Store
+.env
+.env.backup
+.env.production
+.phpactor.json
+.phpunit.result.cache
+/.claude
+/.codex
+/.cursor/
+/.idea
+/.nova
+/.phpunit.cache
+/.vscode
+/.zed
+/auth.json
+/node_modules
+# Hostinger has no Node.js — built assets are committed so deployment
+# doesn't depend on running `npm run build` on the server.
+/public/fonts-manifest.dev.json
+/public/hot
+/public/storage
+/storage/*.key
+/storage/pail
+/storage/app/private/*
+!/storage/app/private/.gitkeep
+/vendor
+*.sqlite
+*.sqlite-journal
+_ide_helper.php
+Homestead.json
+Homestead.yaml
+Thumbs.db
