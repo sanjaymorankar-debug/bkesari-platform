@@ -70,7 +70,7 @@
   const cfg = window.BKESARI;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const hrefOf = s => s.url ? s.url : `https://${cfg.ENV_PREFIX}${s.sub}.${cfg.DOMAIN}`.toLowerCase();
-  const labelOf = s => s.url ? `${cfg.DOMAIN}${s.url}` : hrefOf(s).replace('https://', '');
+  const labelOf = s => s.url ? `${location.host}${s.url}` : hrefOf(s).replace('https://', '');
 
   document.getElementById('topMenu').innerHTML =
     cfg.SITES.map(s => `<a href="${esc(hrefOf(s))}">${esc(s.name)}</a>`).join('');

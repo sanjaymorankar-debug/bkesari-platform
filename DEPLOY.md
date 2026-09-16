@@ -1,0 +1,137 @@
+# Deploying bkesari.com and test.bkesari.com
+
+Nothing here can be done from this repo automatically; these are hPanel and SSH steps.
+Do **test.bkesari.com first**, check it, then repeat for bkesari.com.
+
+| | test | production |
+|---|---|---|
+| Git branch | `staging` | `main` |
+| Portal (Node) | test.bkesari.com | bkesari.com |
+| Education (PHP) | testedu.bkesari.com | edu.bkesari.com |
+| MySQL database | its own | its own (never share with test) |
+
+The repository is **private**. Hostinger's GitHub connection (step 1) asks for access to it,
+and the SSH clone in part 2 needs a GitHub Personal Access Token or a deploy key.
+
+---
+
+## Part 1: Portal, Task Tracker and ATIP viewer (Node.js)
+
+### 1. Point the site at this repo
+
+**test.bkesari.com currently runs the GoKesari staging app. These steps replace it.**
+Before you start, note down its environment variables in case you want GoKesari back later.
+
+hPanel → Websites → **test.bkesari.com** (Node.js Web App) → Settings / Deployments:
+
+- Repository: `sanjaymorankar-debug/bkesari-platform`
+- Branch: `staging`
+- Build command: *(leave empty)*
+- Start command: `npm start`
+- Node version: 20 or 22
+
+If hPanel won't let you change the repository of an existing app, delete the
+test.bkesari.com Node app and add a new Node.js Web App for the same domain with the settings above.
+
+For **bkesari.com**, do the same with branch `main`.
+
+### 2. Database
+
+hPanel → Databases → MySQL: create a database and user (for example `u…_bk_test`).
+In phpMyAdmin, run `portal/sql/mysql_schema.sql`. It is safe to re-run, and the app also creates missing tables on start.
+
+### 3. Environment variables
+
+| Variable | Value |
+|---|---|
+| `DB_CLIENT` | `mysql` |
+| `DB_HOST` | `localhost` (or what hPanel shows) |
+| `DB_NAME`, `DB_USER`, `DB_PASSWORD` | from step 2 |
+| `TRACKER_USER`, `TRACKER_PASSWORD` | login for `/tasks/` |
+| `ATIP_USER`, `ATIP_PASSWORD` | login for `/atip/` |
+| `ATIP_PUBLISH_TOKEN` | long random secret. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Use a different one for test and production. |
+
+Redeploy. Check:
+- `https://test.bkesari.com/` shows the menu with a **TEST** badge
+- `/tasks/` asks for a login
+- `/atip/` asks for a login, then says *No dashboard snapshot has been published yet*
+
+---
+
+## Part 2: Education (Laravel, PHP)
+
+Same pattern as the existing `edu/DEPLOYMENT.md`, except that the app now lives in the `edu/` folder of this repo.
+
+1. hPanel → create the website/subdomain **testedu.bkesari.com** (PHP 8.3) and a MySQL database for it.
+2. SSH in and clone:
+
+```bash
+cd ~/domains/testedu.bkesari.com
+git clone -b staging https://github.com/sanjaymorankar-debug/bkesari-platform.git platform
+cd platform/edu
+composer install --no-dev --optimize-autoloader
+cp .env.example .env
+nano .env        # APP_URL=https://testedu.bkesari.com, APP_DEBUG=false, DB_* from step 1
+php artisan key:generate --force
+php artisan migrate --force
+php artisan db:seed --force      # first time only
+```
+
+3. Wire up the web root:
+
+```bash
+cp -r ~/domains/testedu.bkesari.com/platform/edu/public/. ~/domains/testedu.bkesari.com/public_html/
+ln -sfn ../platform/edu/storage/app/public ~/domains/testedu.bkesari.com/public_html/storage
+nano ~/domains/testedu.bkesari.com/public_html/index.php
+#   require __DIR__.'/../platform/edu/vendor/autoload.php';
+#   require_once __DIR__.'/../platform/edu/bootstrap/app.php';
+#   (and the maintenance-mode line: __DIR__.'/../platform/edu/storage/framework/maintenance.php')
+php artisan config:cache && php artisan route:cache && php artisan view:cache
+```
+
+4. Cron (hourly analytics), via `crontab -e`:
+
+```
+* * * * * cd ~/domains/testedu.bkesari.com/platform/edu && php artisan schedule:run >> /dev/null 2>&1
+```
+
+**Redeploy later:** `cd ~/domains/testedu.bkesari.com/platform && git pull`, then in `edu/` run
+`composer install --no-dev --optimize-autoloader && php artisan migrate --force`. Copy `public/.` again and re-run the three `cache` commands.
+
+For production, repeat with `edu.bkesari.com` and branch `main`.
+The existing site at edutest.agtci.com is unaffected and keeps using the old `edu` repo until you retire it.
+
+---
+
+## Part 3: ATIP snapshot upload (on your PC)
+
+ATIP keeps running exactly as it does now (`python main.py`). Only the uploader is new.
+
+1. Create `D:\Projects\ATIP\atip_data\publish.json` (never committed):
+
+```json
+{
+  "targets": [
+    {"url": "https://test.bkesari.com/atip/api/snapshot", "token": "<ATIP_PUBLISH_TOKEN of test.bkesari.com>"},
+    {"url": "https://bkesari.com/atip/api/snapshot",      "token": "<ATIP_PUBLISH_TOKEN of bkesari.com>"}
+  ]
+}
+```
+
+2. Try it once: `cd D:\Projects\ATIP` then `python publish_snapshot.py`. Each target should log a ✓.
+3. Schedule it every 5 minutes (PowerShell):
+
+```powershell
+$a = New-ScheduledTaskAction -Execute 'D:\Projects\ATIP\publish_snapshot.bat'
+$t = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
+Register-ScheduledTask -TaskName 'ATIP publish snapshot' -Action $a -Trigger $t -Description 'Upload read-only ATIP dashboard to bkesari.com'
+```
+
+Output goes to `atip_data\publish.log`. The viewer's banner shows how old the snapshot is, so a stopped PC is obvious.
+
+---
+
+## Part 4: Other menu subdomains
+
+The menu also links to `(test)ladwani`, `(test)asmymilk` and `(test)driving`.bkesari.com. Those apps aren't in this repo.
+Each needs its own site in hPanel, or its card will lead to an error page. Edit `portal/public/sites.js` to change or remove any of them.

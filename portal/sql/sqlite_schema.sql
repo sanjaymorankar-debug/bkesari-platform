@@ -38,3 +38,10 @@ CREATE TABLE IF NOT EXISTS comments (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_comments_entity ON comments(entity_type, entity_id, id);
+CREATE TABLE IF NOT EXISTS atip_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  html TEXT NOT NULL,
+  trade_date TEXT,
+  generated_at TEXT,
+  received_at TEXT NOT NULL
+);

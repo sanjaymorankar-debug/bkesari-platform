@@ -1,0 +1,17 @@
+{
+  "name": "bkesari-platform",
+  "version": "2.0.0",
+  "private": true,
+  "description": "bkesari.com: welcome portal, Task Tracker and read-only ATIP dashboard. Education (Laravel) and ATIP (Python) live in edu/ and atip/.",
+  "main": "portal/server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node portal/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mysql2": "^3.11.0"
+  }
+}

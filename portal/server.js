@@ -70,23 +70,50 @@ const LATEST_COMMENT = (type, alias) => `
   (SELECT c.created_at FROM comments c WHERE c.id = (SELECT MAX(id) FROM comments WHERE entity_type='${type}' AND entity_id=${alias}.id)) AS latest_comment_at,
   (SELECT COUNT(*) FROM comments WHERE entity_type='${type}' AND entity_id=${alias}.id) AS comment_count`;
 
-function basicAuth(req, res, next) {
-  const user = process.env.TRACKER_USER;
-  const pass = process.env.TRACKER_PASSWORD;
-  if (!user || !pass) return next();
-  const [scheme, encoded] = (req.headers.authorization || '').split(' ');
-  if (scheme === 'Basic' && encoded) {
-    const decoded = Buffer.from(encoded, 'base64').toString();
-    const i = decoded.indexOf(':');
-    const same = (a, b) => {
-      const ha = crypto.createHash('sha256').update(a).digest();
-      const hb = crypto.createHash('sha256').update(b).digest();
-      return crypto.timingSafeEqual(ha, hb);
-    };
-    if (i >= 0 && same(decoded.slice(0, i), user) & same(decoded.slice(i + 1), pass)) return next();
-  }
-  res.set('WWW-Authenticate', 'Basic realm="bkesari Task Tracker", charset="UTF-8"');
-  res.status(401).send('Login required');
+function same(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+// HTTP Basic auth from two env vars. When they are unset, `failClosed`
+// decides between letting everyone in (local use) and refusing everyone.
+function basicAuth(userVar, passVar, realm, failClosed) {
+  return (req, res, next) => {
+    const user = process.env[userVar];
+    const pass = process.env[passVar];
+    if (!user || !pass) {
+      if (!failClosed) return next();
+      return res.status(503).send(`${realm} is not configured: set ${userVar} and ${passVar} on the server.`);
+    }
+    const [scheme, encoded] = (req.headers.authorization || '').split(' ');
+    if (scheme === 'Basic' && encoded) {
+      const decoded = Buffer.from(encoded, 'base64').toString();
+      const i = decoded.indexOf(':');
+      if (i >= 0 && same(decoded.slice(0, i), user) & same(decoded.slice(i + 1), pass)) return next();
+    }
+    res.set('WWW-Authenticate', `Basic realm="${realm}", charset="UTF-8"`);
+    res.status(401).send('Login required');
+  };
+}
+
+/* ---------- ATIP read-only viewer ----------
+   The ATIP machine pushes its rendered dashboard page here (see
+   atip/publish_snapshot.py). This server never talks back to it. The page is
+   served with a CSP that forbids network calls, and the order controls are
+   hidden, so the hosted copy is view-only. */
+const ATIP_READONLY_CSS = `<style id="bk-readonly">
+  .acts,#pendBox,#modalBg,#brokerBanner,#brokerBanner2,button[onclick^="deleteRule"]{display:none!important}
+  #bk-banner{position:sticky;top:0;z-index:9999;background:#1e293b;color:#e2e8f0;border-bottom:1px solid #334155;
+    font:13px system-ui,sans-serif;padding:8px 14px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+  #bk-banner a{color:#93c5fd;text-decoration:none}
+  #bk-banner b{color:#fbbf24}
+</style>`;
+const ATIP_CSP = "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; " +
+  "font-src https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'";
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 const wrap = fn => (req, res, next) => fn(req, res, next).catch(next);
@@ -95,6 +122,8 @@ async function main() {
   const db = await createDb();
   const app = express();
   app.disable('x-powered-by');
+  // The ATIP snapshot is a full HTML page, so its route gets a larger limit.
+  app.use('/atip/api/snapshot', express.json({ limit: '15mb' }));
   app.use(express.json({ limit: '1mb' }));
 
   const api = express.Router();
@@ -226,12 +255,45 @@ async function main() {
   });
 
   // Express treats /tasks and /tasks/ as the same route, so check the raw path.
-  app.get('/tasks', (req, res, next) => {
+  app.get(['/tasks', '/atip'], (req, res, next) => {
     if (req.path.endsWith('/')) return next();
-    res.redirect(302, '/tasks/');
+    res.redirect(302, req.path + '/');
   });
-  app.use('/tasks', basicAuth);
+  app.use('/tasks', basicAuth('TRACKER_USER', 'TRACKER_PASSWORD', 'bkesari Task Tracker', false));
   app.use('/tasks/api', api);
+
+  // Upload from the ATIP machine: bearer token, not the viewer login.
+  app.post('/atip/api/snapshot', wrap(async (req, res) => {
+    const token = process.env.ATIP_PUBLISH_TOKEN;
+    const [scheme, given] = (req.headers.authorization || '').split(' ');
+    if (!token) return res.status(503).json({ error: 'ATIP_PUBLISH_TOKEN is not set on the server' });
+    if (scheme !== 'Bearer' || !given || !same(given, token)) return res.status(401).json({ error: 'Invalid token' });
+    const { html, trade_date, generated_at } = req.body || {};
+    if (typeof html !== 'string' || !/<html[\s>]/i.test(html)) return res.status(400).json({ error: 'html is required' });
+    const now = nowUtc();
+    await db.run('INSERT INTO atip_snapshots (html, trade_date, generated_at, received_at) VALUES (?,?,?,?)',
+      [html, cleanText(trade_date, 20), cleanText(generated_at, 40), now]);
+    await db.run('DELETE FROM atip_snapshots WHERE id < (SELECT m FROM (SELECT MAX(id) AS m FROM atip_snapshots) AS latest)');
+    res.json({ ok: true, received_at: now });
+  }));
+
+  app.get('/atip/', basicAuth('ATIP_USER', 'ATIP_PASSWORD', 'bkesari ATIP', true), wrap(async (req, res) => {
+    res.set('Content-Security-Policy', ATIP_CSP);
+    res.set('Cache-Control', 'no-store');
+    res.set('X-Robots-Tag', 'noindex');
+    const snap = await db.get('SELECT html, trade_date, generated_at, received_at FROM atip_snapshots ORDER BY id DESC LIMIT 1');
+    if (!snap) {
+      return res.send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ATIP</title>
+        <body style="font:15px system-ui;background:#0f172a;color:#e2e8f0;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px;text-align:center">
+        <div><h1 style="margin:0 0 8px">ATIP</h1><p>No dashboard snapshot has been published yet.</p><p><a style="color:#93c5fd" href="/">← bkesari</a></p></div>`);
+    }
+    const ageMin = Math.round((Date.now() - Date.parse(snap.received_at.replace(' ', 'T') + 'Z')) / 60000);
+    const age = ageMin < 1 ? 'just now' : ageMin < 120 ? `${ageMin} min ago` : `${Math.round(ageMin / 60)} h ago`;
+    const banner = `<div id="bk-banner"><span><a href="/">← bkesari</a> &nbsp; <b>Read-only view</b> · trade date ${escapeHtml(snap.trade_date)} · built ${escapeHtml((snap.generated_at || '').slice(0, 16))} IST · uploaded ${age}</span><span>Orders can only be placed on the ATIP machine.</span></div>`;
+    let html = snap.html.replace(/<\/head>/i, `${ATIP_READONLY_CSS}</head>`);
+    html = /<body[^>]*>/i.test(html) ? html.replace(/<body[^>]*>/i, m => m + banner) : banner + html;
+    res.type('html').send(html);
+  }));
   app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 
   const port = process.env.PORT || 3000;

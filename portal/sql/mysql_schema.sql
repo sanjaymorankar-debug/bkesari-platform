@@ -47,3 +47,13 @@ CREATE TABLE IF NOT EXISTS comments (
   created_at DATETIME NOT NULL,
   INDEX idx_comments_entity (entity_type, entity_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Latest read-only ATIP dashboard page, pushed from the ATIP machine
+-- by atip/publish_snapshot.py. Only the newest row is kept.
+CREATE TABLE IF NOT EXISTS atip_snapshots (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  html MEDIUMTEXT NOT NULL,
+  trade_date VARCHAR(20) NULL,
+  generated_at VARCHAR(40) NULL,
+  received_at DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
