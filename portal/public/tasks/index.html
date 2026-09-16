@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task Tracker</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✅</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F3F4F7; --surface:#FFFFFF; --surface-2:#F7F8FA; --ink:#1A1E27; --ink-soft:#666B78; --ink-faint:#9CA0AB;
+    --line:#E2E4EA; --accent:#3552CC; --accent-soft:#EAEEFC; --accent-dark:#2540A6;
+    --danger:#C0392B; --danger-soft:#FBEAE8; --ok:#1E8E5A; --ok-soft:#E3F5EC; --warn:#A86A00; --warn-soft:#FFF3DC;
+    --radius:12px; --shadow:0 1px 2px rgba(20,24,33,.05),0 6px 18px rgba(20,24,33,.06);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#121419; --surface:#1B1E25; --surface-2:#22262E; --ink:#E8EAF0; --ink-soft:#A3A8B5; --ink-faint:#6D7280;
+      --line:#2E323C; --accent:#7390FF; --accent-soft:#252E4D; --accent-dark:#A9BBFF;
+      --danger:#FF7B6E; --danger-soft:#3D2220; --ok:#5BD69A; --ok-soft:#1C3A2B; --warn:#FFC45C; --warn-soft:#3B3019;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#121419; --surface:#1B1E25; --surface-2:#22262E; --ink:#E8EAF0; --ink-soft:#A3A8B5; --ink-faint:#6D7280;
+    --line:#2E323C; --accent:#7390FF; --accent-soft:#252E4D; --accent-dark:#A9BBFF;
+    --danger:#FF7B6E; --danger-soft:#3D2220; --ok:#5BD69A; --ok-soft:#1C3A2B; --warn:#FFC45C; --warn-soft:#3B3019;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.3);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;font-size:14px}
+  a{color:var(--accent)}
+  button,input,select,textarea{font-family:inherit;font-size:14px;color:var(--ink)}
+  button{cursor:pointer}
+  .mono{font-family:'JetBrains Mono',monospace}
+
+  .topbar{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+  .topbar-in{max-width:1240px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .title{font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px}
+  .title a{color:var(--ink-soft);text-decoration:none;font-size:13px;font-weight:600}
+  .title a:hover{color:var(--accent)}
+  .top-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{border:1px solid transparent;border-radius:9px;padding:9px 14px;font-weight:600;font-size:13.5px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{filter:brightness(1.08)}
+  .btn-ghost{background:var(--surface-2);border-color:var(--line);color:var(--ink)}
+  .btn-ghost:hover{border-color:var(--ink-faint)}
+  .btn-danger{background:transparent;border-color:var(--line);color:var(--danger)}
+  .btn-danger:hover{background:var(--danger-soft)}
+  .btn:disabled{opacity:.6;cursor:default}
+
+  .content{max-width:1240px;margin:0 auto;padding:20px 16px 60px}
+  .crumbs{font-size:13px;color:var(--ink-soft);margin-bottom:12px}
+  .crumbs a{text-decoration:none}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px}
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px}
+  .stat-n{font-size:22px;font-weight:700}
+  .stat-l{font-size:12px;color:var(--ink-soft);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+  .filters input,.filters select{padding:9px 11px;border-radius:9px;border:1.5px solid var(--line);background:var(--surface)}
+  .filters input{flex:1;min-width:180px}
+
+  .section-h{display:flex;align-items:center;justify-content:space-between;margin:26px 0 10px;gap:10px}
+  .section-h h2{font-size:15px;margin:0;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft)}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:14px}
+  .proj-head{padding:14px 16px;display:grid;grid-template-columns:1fr auto;gap:8px 16px;align-items:start}
+  .proj-name{font-size:16px;font-weight:700;text-decoration:none;color:var(--ink)}
+  .proj-name:hover{color:var(--accent)}
+  .meta-row{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12.5px;color:var(--ink-soft);margin-top:6px}
+  .meta-row b{color:var(--ink);font-weight:600}
+  .steps{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 16px 12px}
+  .step{background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word}
+  .step-l{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);margin-bottom:2px;white-space:normal}
+  .latest{padding:0 16px 12px;font-size:13px}
+  .latest-body{white-space:pre-wrap;word-break:break-word}
+  .when{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-faint)}
+
+  .table-wrap{overflow-x:auto;border-top:1px solid var(--line)}
+  .card > .table-wrap:first-child{border-top:none}
+  table{width:100%;border-collapse:collapse;min-width:980px}
+  thead th{text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);background:var(--surface-2);padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13px}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr.row-link{cursor:pointer}
+  tbody tr.row-link:hover{background:var(--surface-2)}
+  .t-title{font-weight:600}
+  .clip{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;word-break:break-word;max-width:240px}
+  .dates{white-space:nowrap;font-size:12.5px;line-height:1.5}
+  .dates span{color:var(--ink-faint);font-size:11px;display:inline-block;width:40px}
+  .empty{text-align:center;padding:36px 16px;color:var(--ink-soft)}
+
+  .badge{display:inline-block;font-size:11px;font-weight:700;border-radius:20px;padding:2px 9px;white-space:nowrap;background:var(--surface-2);color:var(--ink-soft);border:1px solid var(--line)}
+  .s-in-progress{background:var(--accent-soft);color:var(--accent-dark);border-color:transparent}
+  .s-completed{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+  .s-on-hold{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+  .s-cancelled{text-decoration:line-through}
+  .overdue{background:var(--danger-soft);color:var(--danger);border-color:transparent}
+
+  /* detail */
+  .detail{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:18px;align-items:start}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px}
+  .panel h2{font-size:16px;margin:0 0 4px}
+  .panel .sub{color:var(--ink-soft);font-size:12.5px;margin:0 0 14px}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 14px}
+  .full{grid-column:1/-1}
+  label.fl{display:block;font-size:11.5px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin:10px 0 5px}
+  .fl .req{color:var(--danger)}
+  .form-grid input,.form-grid select,.form-grid textarea,.update-box textarea{width:100%;padding:9px 11px;border-radius:9px;border:1.5px solid var(--line);background:var(--surface-2)}
+  textarea{resize:vertical;min-height:64px;line-height:1.45}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  .group-h{grid-column:1/-1;font-size:12px;font-weight:700;color:var(--ink);margin:14px 0 -4px;padding-top:12px;border-top:1px dashed var(--line)}
+  .form-actions{display:flex;gap:8px;justify-content:space-between;margin-top:18px;flex-wrap:wrap}
+  .form-actions .right{display:flex;gap:8px}
+  .msg{font-size:13px;margin-top:10px;min-height:18px}
+  .msg.err{color:var(--danger)} .msg.ok{color:var(--ok)}
+
+  .updates{display:flex;flex-direction:column;gap:0;margin-bottom:12px;max-height:420px;overflow-y:auto}
+  .upd{padding:10px 0;border-bottom:1px solid var(--line)}
+  .upd:first-child{padding-top:0}
+  .upd-body{white-space:pre-wrap;word-break:break-word;line-height:1.5}
+  .upd-when{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-faint);margin-bottom:3px}
+  .upd.newest .upd-when{color:var(--accent)}
+  .update-box{border-top:1px solid var(--line);padding-top:12px}
+  .update-box .row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .hint{font-size:12px;color:var(--ink-faint)}
+  .clock{font-family:'JetBrains Mono',monospace}
+
+  .log-item{display:grid;grid-template-columns:190px 1fr;gap:14px;padding:14px 0;border-bottom:1px solid var(--line)}
+  .log-item:last-child{border-bottom:none}
+  .log-when{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-soft)}
+  .log-n{font-size:11px;color:var(--ink-faint)}
+
+  @media (max-width:860px){
+    .detail{grid-template-columns:1fr}
+    .steps{grid-template-columns:1fr}
+    .proj-head{grid-template-columns:1fr}
+  }
+  @media (max-width:560px){
+    .form-grid{grid-template-columns:1fr}
+    .log-item{grid-template-columns:1fr;gap:4px}
+    .top-actions .btn{padding:8px 10px}
+  }
+</style>
+</head>
+<body>
+<div id="app"><div class="empty">Loading…</div></div>
+
+<script>
+const API = 'api';
+const TZ = 'Asia/Kolkata';
+const STATUSES = ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'];
+const ui = { search: '', status: '' };
+
+/* ---------- helpers ---------- */
+const $ = id => document.getElementById(id);
+const esc = s => s === null || s === undefined ? '' : String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+async function api(path, opts = {}) {
+  const res = await fetch(`${API}/${path}`, {
+    ...opts,
+    headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d + 'T00:00:00Z').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+// Server stores UTC "YYYY-MM-DD HH:MM:SS"; show it in IST.
+function fmtDateTime(s) {
+  if (!s) return '';
+  const d = new Date(String(s).replace(' ', 'T') + 'Z');
+  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: TZ });
+}
+function todayIst() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: TZ }); // YYYY-MM-DD
+}
+function isOverdue(item) {
+  return item.planned_end && !['Completed', 'Cancelled'].includes(item.status) && item.planned_end < todayIst();
+}
+function statusBadge(item) {
+  const cls = 's-' + item.status.toLowerCase().replace(/\s+/g, '-');
+  return `<span class="badge ${cls}">${esc(item.status)}</span>${isOverdue(item) ? ' <span class="badge overdue">Overdue</span>' : ''}`;
+}
+function datesCell(item) {
+  return `<div class="dates"><span>Plan</span>${fmtDate(item.planned_start)} → ${fmtDate(item.planned_end)}<br><span>Actual</span>${fmtDate(item.actual_start)} → ${fmtDate(item.actual_end)}</div>`;
+}
+function matches(item, name) {
+  if (ui.status && item.status !== ui.status) return false;
+  if (!ui.search) return true;
+  const hay = [name, item.owner, item.description, item.current_step, item.next_step, item.latest_comment, item.project_name].join(' ').toLowerCase();
+  return hay.includes(ui.search.toLowerCase());
+}
+function topbar(actions) {
+  return `<div class="topbar"><div class="topbar-in">
+    <div class="title"><a href="/" title="Back to bkesari.com">← bkesari</a><a href="#/" style="color:var(--ink);font-size:18px;font-weight:700">Task Tracker</a></div>
+    <div class="top-actions">${actions || ''}</div>
+  </div></div>`;
+}
+function render(html) { $('app').innerHTML = html; window.scrollTo(0, 0); }
+function renderError(err) {
+  render(topbar() + `<div class="content"><div class="empty"><b>Something went wrong</b><br>${esc(err.message)}<br><br><a href="#/">Back to dashboard</a></div></div>`);
+}
+
+/* ---------- router ---------- */
+async function route() {
+  const hash = location.hash.replace(/^#/, '') || '/';
+  const [pathPart, query] = hash.split('?');
+  const params = new URLSearchParams(query || '');
+  const p = pathPart.split('/').filter(Boolean);
+  try {
+    if (p.length === 0) return await viewDashboard();
+    if (p[0] === 'new' && (p[1] === 'project' || p[1] === 'task')) return await viewDetail(p[1], null, params);
+    if ((p[0] === 'project' || p[0] === 'task') && p[1] && p[2] === 'comments') return await viewAllComments(p[0], p[1]);
+    if ((p[0] === 'project' || p[0] === 'task') && p[1]) return await viewDetail(p[0], p[1], params);
+    location.hash = '#/';
+  } catch (err) { renderError(err); }
+}
+window.addEventListener('hashchange', route);
+
+/* ---------- dashboard ---------- */
+let overview = null;
+
+async function viewDashboard() {
+  overview = await api('overview');
+  const actions = `<a class="btn btn-ghost" href="#/new/project">+ New Project</a><a class="btn btn-primary" href="#/new/task">+ New Task</a>`;
+  const { projects, tasks } = overview;
+  const open = tasks.filter(t => !['Completed', 'Cancelled'].includes(t.status)).length;
+  const overdue = tasks.filter(isOverdue).length + projects.filter(isOverdue).length;
+  render(topbar(actions) + `<div class="content">
+    <div class="stats">
+      <div class="stat"><div class="stat-n">${projects.length}</div><div class="stat-l">Projects</div></div>
+      <div class="stat"><div class="stat-n">${tasks.length}</div><div class="stat-l">Tasks</div></div>
+      <div class="stat"><div class="stat-n">${open}</div><div class="stat-l">Open tasks</div></div>
+      <div class="stat"><div class="stat-n" style="color:${overdue ? 'var(--danger)' : 'inherit'}">${overdue}</div><div class="stat-l">Overdue</div></div>
+    </div>
+    <div class="filters">
+      <input id="fSearch" type="search" placeholder="Search name, owner, steps, comments…" value="${esc(ui.search)}">
+      <select id="fStatus"><option value="">All statuses</option>${STATUSES.map(s => `<option ${ui.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+    </div>
+    <div id="lists"></div>
+  </div>`);
+  $('fSearch').oninput = e => { ui.search = e.target.value; renderLists(); };
+  $('fStatus').onchange = e => { ui.status = e.target.value; renderLists(); };
+  renderLists();
+}
+
+function taskTable(tasks, showProject) {
+  if (!tasks.length) return `<div class="empty">No tasks${ui.search || ui.status ? ' match the filter' : ' yet'}.</div>`;
+  return `<div class="table-wrap"><table>
+    <thead><tr>
+      <th style="width:22%">Task</th>${showProject ? '' : ''}<th>Owner</th><th>Status</th><th>Dates</th>
+      <th>Current step</th><th>Next step</th><th>Latest update</th>
+    </tr></thead>
+    <tbody>${tasks.map(t => `<tr class="row-link" data-href="#/task/${t.id}">
+      <td><a class="t-title" href="#/task/${t.id}" style="color:inherit;text-decoration:none">${esc(t.title)}</a></td>
+      <td>${esc(t.owner) || '—'}</td>
+      <td>${statusBadge(t)}</td>
+      <td>${datesCell(t)}</td>
+      <td><div class="clip">${esc(t.current_step) || '—'}</div></td>
+      <td><div class="clip">${esc(t.next_step) || '—'}</div></td>
+      <td>${t.latest_comment ? `<div class="when">${fmtDateTime(t.latest_comment_at)}</div><div class="clip">${esc(t.latest_comment)}</div>` : '<span class="when">No updates yet</span>'}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+function renderLists() {
+  const { projects, tasks } = overview;
+  const filtering = ui.search || ui.status;
+  let html = `<div class="section-h"><h2>Projects</h2></div>`;
+  const shownProjects = projects.filter(p => {
+    const own = tasks.filter(t => t.project_id === p.id);
+    return matches(p, p.name) || (filtering && own.some(t => matches(t, t.title)));
+  });
+  if (!shownProjects.length) {
+    html += `<div class="card"><div class="empty">${projects.length ? 'No projects match the filter.' : 'No projects yet. <a href="#/new/project">Create one</a>.'}</div></div>`;
+  }
+  for (const p of shownProjects) {
+    const own = tasks.filter(t => t.project_id === p.id && matches(t, t.title));
+    html += `<div class="card">
+      <div class="proj-head">
+        <div>
+          <a class="proj-name" href="#/project/${p.id}">${esc(p.name)}</a>
+          <div class="meta-row">
+            <span>Owner <b>${esc(p.owner) || '—'}</b></span>
+            <span>Planned <b>${fmtDate(p.planned_start)} → ${fmtDate(p.planned_end)}</b></span>
+            <span>Actual <b>${fmtDate(p.actual_start)} → ${fmtDate(p.actual_end)}</b></span>
+            <span><b>${p.task_count}</b> task${p.task_count == 1 ? '' : 's'}</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${statusBadge(p)}
+          <a class="btn btn-ghost" href="#/new/task?project=${p.id}">+ Task</a></div>
+      </div>
+      ${p.current_step || p.next_step ? `<div class="steps">
+        <div class="step"><div class="step-l">Current step</div>${esc(p.current_step) || '—'}</div>
+        <div class="step"><div class="step-l">Next step</div>${esc(p.next_step) || '—'}</div></div>` : ''}
+      ${p.latest_comment ? `<div class="latest"><span class="when">Latest update · ${fmtDateTime(p.latest_comment_at)}</span><div class="latest-body">${esc(p.latest_comment)}</div></div>` : ''}
+      ${own.length ? taskTable(own) : (p.task_count ? '' : '<div class="table-wrap"><div class="empty" style="padding:16px">No tasks in this project yet.</div></div>')}
+    </div>`;
+  }
+  const independent = tasks.filter(t => !t.project_id && matches(t, t.title));
+  html += `<div class="section-h"><h2>Independent tasks</h2><a class="btn btn-ghost" href="#/new/task">+ Task</a></div>
+    <div class="card">${taskTable(independent)}</div>`;
+  $('lists').innerHTML = html;
+  document.querySelectorAll('tr[data-href]').forEach(tr => {
+    tr.onclick = e => { if (!e.target.closest('a')) location.hash = tr.dataset.href; };
+  });
+}
+
+/* ---------- detail (create / edit) ---------- */
+async function viewDetail(kind, id, params) {
+  const isProject = kind === 'project';
+  const nameField = isProject ? 'name' : 'title';
+  const coll = isProject ? 'projects' : 'tasks';
+  const isNew = !id;
+
+  const [item, projectList, comments] = await Promise.all([
+    isNew ? Promise.resolve({ status: 'Not Started', project_id: params.get('project') ? Number(params.get('project')) : null })
+          : api(`${coll}/${id}`),
+    isProject ? Promise.resolve([]) : api('overview').then(o => o.projects),
+    isNew ? Promise.resolve([]) : api(`${coll}/${id}/comments?limit=5`),
+  ]);
+
+  const label = isProject ? 'Project' : 'Task';
+  const crumbs = [`<a href="#/">Dashboard</a>`];
+  if (!isProject && item.project_id) crumbs.push(`<a href="#/project/${item.project_id}">${esc(item.project_name || 'Project')}</a>`);
+  crumbs.push(isNew ? `New ${label.toLowerCase()}` : esc(item[nameField]));
+
+  const txt = (field, lbl, opts = {}) => `<div class="${opts.full ? 'full' : ''}">
+    <label class="fl" for="f_${field}">${lbl}${opts.req ? ' <span class="req">*</span>' : ''}</label>
+    ${opts.area
+      ? `<textarea id="f_${field}" rows="${opts.rows || 3}" placeholder="${esc(opts.ph || '')}">${esc(item[field])}</textarea>`
+      : `<input id="f_${field}" type="${opts.type || 'text'}" value="${esc(item[field])}" placeholder="${esc(opts.ph || '')}">`}
+  </div>`;
+
+  const projectSelect = isProject ? '' : `<div class="full">
+    <label class="fl" for="f_project_id">Project</label>
+    <select id="f_project_id">
+      <option value="">— Independent task (no project) —</option>
+      ${projectList.map(p => `<option value="${p.id}" ${item.project_id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+    </select></div>`;
+
+  const updatesPanel = isNew
+    ? `<div class="panel"><h2>Status updates</h2><p class="sub">Add the first update now — it is saved with the date &amp; time when you create the ${label.toLowerCase()}.</p>
+        <div class="update-box" style="border:none;padding:0">
+          <textarea id="newComment" rows="4" placeholder="What is the current status?"></textarea>
+        </div></div>`
+    : `<div class="panel">
+        <h2>Status updates</h2>
+        <p class="sub">Newest first. Each update is stamped with the date &amp; time it was posted.</p>
+        <div class="updates" id="updates">${renderUpdates(comments)}</div>
+        <div class="update-box">
+          <label class="fl" for="newComment" style="margin-top:0">Add an update</label>
+          <textarea id="newComment" rows="4" placeholder="Type the current status… (Ctrl+Enter to post)"></textarea>
+          <div class="row">
+            <span class="hint">Will be stamped <span class="clock" id="clock"></span></span>
+            <button class="btn btn-primary" id="postComment">Post update</button>
+          </div>
+          <div class="msg" id="commentMsg"></div>
+          <div style="margin-top:6px"><a href="#/${kind}/${id}/comments" id="allLink">View all updates (${item.comment_count}) →</a></div>
+        </div>
+      </div>`;
+
+  const projectTasks = isProject && !isNew ? `<div class="section-h"><h2>Tasks in this project</h2><a class="btn btn-ghost" href="#/new/task?project=${id}">+ Task</a></div>
+    <div class="card">${(() => { const saved = { ...ui }; ui.search = ''; ui.status = ''; const h = taskTable(item.tasks); Object.assign(ui, saved); return h; })()}</div>` : '';
+
+  render(topbar() + `<div class="content">
+    <div class="crumbs">${crumbs.join(' / ')}</div>
+    <div class="detail">
+      <div class="panel">
+        <h2>${isNew ? `New ${label.toLowerCase()}` : `${label} details`}</h2>
+        <p class="sub">${isNew ? '' : `Last updated ${fmtDateTime(item.updated_at)} · Created ${fmtDateTime(item.created_at)}`}</p>
+        <div class="form-grid">
+          ${txt(nameField, isProject ? 'Project name' : 'Task title', { req: true, full: true })}
+          ${projectSelect}
+          ${txt('owner', 'Owner', { ph: 'Who is responsible' })}
+          <div><label class="fl" for="f_status">Status</label>
+            <select id="f_status">${STATUSES.map(s => `<option ${item.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+          ${txt('description', 'Description', { area: true, full: true, rows: 2 })}
+          <div class="group-h">Planned dates</div>
+          ${txt('planned_start', 'Planned start', { type: 'date' })}
+          ${txt('planned_end', 'Planned end', { type: 'date' })}
+          <div class="group-h">Actual dates</div>
+          ${txt('actual_start', 'Actual start', { type: 'date' })}
+          ${txt('actual_end', 'Actual end', { type: 'date' })}
+          <div class="group-h">Progress</div>
+          ${txt('current_step', 'Current step', { area: true, full: true, ph: 'What is being worked on right now' })}
+          ${txt('next_step', 'Next step', { area: true, full: true, ph: 'What happens next' })}
+        </div>
+        <div class="form-actions">
+          <div>${isNew ? '' : `<button class="btn btn-danger" id="deleteBtn">Delete ${label.toLowerCase()}</button>`}</div>
+          <div class="right"><a class="btn btn-ghost" href="#/">Cancel</a><button class="btn btn-primary" id="saveBtn">${isNew ? `Create ${label.toLowerCase()}` : 'Save changes'}</button></div>
+        </div>
+        <div class="msg" id="saveMsg"></div>
+      </div>
+      ${updatesPanel}
+    </div>
+    ${projectTasks}
+  </div>`);
+
+  document.querySelectorAll('tr[data-href]').forEach(tr => {
+    tr.onclick = e => { if (!e.target.closest('a')) location.hash = tr.dataset.href; };
+  });
+
+  const fields = [nameField, 'owner', 'status', 'description', 'planned_start', 'planned_end', 'actual_start', 'actual_end', 'current_step', 'next_step'];
+  if (!isProject) fields.push('project_id');
+
+  $('saveBtn').onclick = async () => {
+    const body = {};
+    fields.forEach(f => body[f] = $('f_' + f).value);
+    const msg = $('saveMsg');
+    msg.className = 'msg'; msg.textContent = '';
+    $('saveBtn').disabled = true;
+    try {
+      if (isNew) {
+        const created = await api(coll, { method: 'POST', body });
+        const first = $('newComment').value.trim();
+        if (first) await api(`${coll}/${created.id}/comments`, { method: 'POST', body: { body: first } });
+        location.hash = `#/${kind}/${created.id}`;
+      } else {
+        await api(`${coll}/${id}`, { method: 'PUT', body });
+        await viewDetail(kind, id, params);
+        const m = $('saveMsg'); m.className = 'msg ok'; m.textContent = 'Saved.';
+      }
+    } catch (err) {
+      msg.className = 'msg err'; msg.textContent = err.message;
+      $('saveBtn').disabled = false;
+    }
+  };
+
+  if (isNew) return;
+
+  $('deleteBtn').onclick = async () => {
+    const warn = isProject
+      ? 'Delete this project and its updates? Its tasks will be kept as independent tasks.'
+      : 'Delete this task and all its updates? This cannot be undone.';
+    if (!confirm(warn)) return;
+    try { await api(`${coll}/${id}`, { method: 'DELETE' }); location.hash = '#/'; }
+    catch (err) { alert(err.message); }
+  };
+
+  const tick = () => { const c = $('clock'); if (c) c.textContent = fmtDateTime(new Date().toISOString().slice(0, 19).replace('T', ' ')); else clearInterval(timer); };
+  const timer = setInterval(tick, 1000); tick();
+
+  let count = Number(item.comment_count);
+  const post = async () => {
+    const box = $('newComment'), msg = $('commentMsg'), btn = $('postComment');
+    const text = box.value.trim();
+    if (!text) { msg.className = 'msg err'; msg.textContent = 'Type an update first.'; return; }
+    btn.disabled = true; msg.textContent = '';
+    try {
+      await api(`${coll}/${id}/comments`, { method: 'POST', body: { body: text } });
+      box.value = '';
+      count += 1;
+      $('updates').innerHTML = renderUpdates(await api(`${coll}/${id}/comments?limit=5`));
+      $('allLink').textContent = `View all updates (${count}) →`;
+      msg.className = 'msg ok'; msg.textContent = 'Update posted.';
+    } catch (err) {
+      msg.className = 'msg err'; msg.textContent = err.message;
+    }
+    btn.disabled = false;
+  };
+  $('postComment').onclick = post;
+  $('newComment').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) post(); };
+}
+
+function renderUpdates(comments) {
+  if (!comments.length) return `<div class="hint" style="padding:6px 0 10px">No updates yet.</div>`;
+  return comments.map((c, i) => `<div class="upd ${i === 0 ? 'newest' : ''}">
+    <div class="upd-when">${fmtDateTime(c.created_at)}${i === 0 ? ' · latest' : ''}</div>
+    <div class="upd-body">${esc(c.body)}</div></div>`).join('');
+}
+
+/* ---------- all comments page ---------- */
+async function viewAllComments(kind, id) {
+  const coll = kind === 'project' ? 'projects' : 'tasks';
+  const [item, comments] = await Promise.all([api(`${coll}/${id}`), api(`${coll}/${id}/comments`)]);
+  const name = kind === 'project' ? item.name : item.title;
+  render(topbar(`<a class="btn btn-primary" href="#/${kind}/${id}">+ Add update</a>`) + `<div class="content">
+    <div class="crumbs"><a href="#/">Dashboard</a> / <a href="#/${kind}/${id}">${esc(name)}</a> / All updates</div>
+    <div class="panel">
+      <h2>All updates — ${esc(name)}</h2>
+      <p class="sub">${comments.length} update${comments.length === 1 ? '' : 's'}, latest on top, oldest at the end. Times shown in IST.</p>
+      ${comments.length ? comments.map((c, i) => `<div class="log-item">
+        <div><div class="log-when">${fmtDateTime(c.created_at)}</div><div class="log-n">#${comments.length - i}${i === 0 ? ' · latest' : ''}</div></div>
+        <div class="upd-body">${esc(c.body)}</div>
+      </div>`).join('') : '<div class="empty">No updates yet.</div>'}
+    </div>
+  </div>`);
+}
+
+route();
+</script>
+</body>
+</html>
