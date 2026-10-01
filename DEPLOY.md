@@ -1,14 +1,34 @@
-# Deploying bkesari.com and test.bkesari.com
+# Deploying dev.bkesari.com, test.bkesari.com, and bkesari.com
 
 Nothing here can be done from this repo automatically; these are hPanel and SSH steps.
-Do **test.bkesari.com first**, check it, then repeat for bkesari.com.
+Three tiers, each with its own site(s) and its own database — **never share a database across
+tiers**. Build and iterate on **dev first**, promote to **test**, check it, then promote to
+**production**:
 
-| | test | production |
-|---|---|---|
-| Git branch | `staging` | `main` |
-| Portal (Node) | test.bkesari.com | bkesari.com |
-| Education (PHP) | testedu.bkesari.com | edu.bkesari.com |
-| MySQL database | its own | its own (never share with test) |
+```
+dev branch  →  dev.bkesari.com      (build/iterate here first)
+     ↓ merge
+staging branch → test.bkesari.com   (test — verify before production)
+     ↓ merge
+main branch →  bkesari.com          (production)
+```
+
+| | dev | test | production |
+|---|---|---|---|
+| Git branch | `dev` | `staging` | `main` |
+| Portal (Node) | dev.bkesari.com | test.bkesari.com | bkesari.com |
+| Education (PHP) | devedu.bkesari.com | testedu.bkesari.com | edu.bkesari.com |
+| MySQL database | its own | its own | its own (never share with dev/test) |
+
+**Promoting a tier** (once its site is confirmed working):
+
+```bash
+git checkout staging && git merge dev && git push origin staging   # dev -> test
+git checkout main && git merge staging && git push origin main     # test -> production
+```
+
+Each promotion is a fast-forward as long as all work happens on `dev` first — don't commit
+directly to `staging` or `main`.
 
 The repository is **private**. Hostinger's GitHub connection (step 1) asks for access to it,
 and the SSH clone in part 2 needs a GitHub Personal Access Token or a deploy key.
@@ -22,18 +42,18 @@ and the SSH clone in part 2 needs a GitHub Personal Access Token or a deploy key
 **test.bkesari.com currently runs the GoKesari staging app. These steps replace it.**
 Before you start, note down its environment variables in case you want GoKesari back later.
 
-hPanel → Websites → **test.bkesari.com** (Node.js Web App) → Settings / Deployments:
+hPanel → Websites → create/select **dev.bkesari.com** (Node.js Web App) → Settings / Deployments:
 
 - Repository: `sanjaymorankar-debug/bkesari-platform`
-- Branch: `staging`
+- Branch: `dev`
 - Build command: *(leave empty)*
 - Start command: `npm start`
 - Node version: 20 or 22
 
-If hPanel won't let you change the repository of an existing app, delete the
-test.bkesari.com Node app and add a new Node.js Web App for the same domain with the settings above.
+If hPanel won't let you change the repository of an existing app, delete the app and add a new
+Node.js Web App for the same domain with the settings above.
 
-For **bkesari.com**, do the same with branch `main`.
+For **test.bkesari.com**, do the same with branch `staging`. For **bkesari.com**, branch `main`.
 
 ### 2. Database
 
@@ -49,10 +69,11 @@ In phpMyAdmin, run `portal/sql/mysql_schema.sql`. It is safe to re-run, and the 
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD` | from step 2 |
 | `TRACKER_USER`, `TRACKER_PASSWORD` | login for `/tasks/` |
 | `ATIP_USER`, `ATIP_PASSWORD` | login for `/atip/` |
-| `ATIP_PUBLISH_TOKEN` | long random secret. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Use a different one for test and production. |
+| `ATIP_PUBLISH_TOKEN` | long random secret. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Use a **different one per tier** (dev/test/production). |
 
-Redeploy. Check:
-- `https://test.bkesari.com/` shows the menu with a **TEST** badge
+Redeploy. Check (same checks for dev.bkesari.com and test.bkesari.com — add a **DEV** badge
+alongside the existing **TEST** one in `portal/` if you want the two visually distinguishable):
+- the site shows the menu
 - `/tasks/` asks for a login
 - `/atip/` asks for a login, then says *No dashboard snapshot has been published yet*
 
@@ -61,17 +82,23 @@ Redeploy. Check:
 ## Part 2: Education (Laravel, PHP)
 
 Same pattern as the existing `edu/DEPLOYMENT.md`, except that the app now lives in the `edu/` folder of this repo.
+Prefer phpMyAdmin for schema changes (`database/edu/*.sql`, in order) over `php artisan migrate`
+where you can — see that folder's own notes — but `migrate --force` is shown below too since a
+fresh environment needs the `migrations` table populated either way.
 
-1. hPanel → create the website/subdomain **testedu.bkesari.com** (PHP 8.3) and a MySQL database for it.
+Do this for **devedu.bkesari.com** / branch `dev` first. Once it checks out, repeat verbatim for
+**testedu.bkesari.com** / branch `staging`, then **edu.bkesari.com** / branch `main`.
+
+1. hPanel → create the website/subdomain (e.g. **devedu.bkesari.com**) (PHP 8.3) and a MySQL database for it.
 2. SSH in and clone:
 
 ```bash
-cd ~/domains/testedu.bkesari.com
-git clone -b staging https://github.com/sanjaymorankar-debug/bkesari-platform.git platform
+cd ~/domains/devedu.bkesari.com
+git clone -b dev https://github.com/sanjaymorankar-debug/bkesari-platform.git platform
 cd platform/edu
 composer install --no-dev --optimize-autoloader
 cp .env.example .env
-nano .env        # APP_URL=https://testedu.bkesari.com, APP_DEBUG=false, DB_* from step 1
+nano .env        # APP_URL=https://devedu.bkesari.com, APP_DEBUG=false, DB_* from step 1
 php artisan key:generate --force
 php artisan migrate --force
 php artisan db:seed --force      # first time only
@@ -80,9 +107,9 @@ php artisan db:seed --force      # first time only
 3. Wire up the web root:
 
 ```bash
-cp -r ~/domains/testedu.bkesari.com/platform/edu/public/. ~/domains/testedu.bkesari.com/public_html/
-ln -sfn ../platform/edu/storage/app/public ~/domains/testedu.bkesari.com/public_html/storage
-nano ~/domains/testedu.bkesari.com/public_html/index.php
+cp -r ~/domains/devedu.bkesari.com/platform/edu/public/. ~/domains/devedu.bkesari.com/public_html/
+ln -sfn ../platform/edu/storage/app/public ~/domains/devedu.bkesari.com/public_html/storage
+nano ~/domains/devedu.bkesari.com/public_html/index.php
 #   require __DIR__.'/../platform/edu/vendor/autoload.php';
 #   require_once __DIR__.'/../platform/edu/bootstrap/app.php';
 #   (and the maintenance-mode line: __DIR__.'/../platform/edu/storage/framework/maintenance.php')
@@ -92,13 +119,14 @@ php artisan config:cache && php artisan route:cache && php artisan view:cache
 4. Cron (hourly analytics), via `crontab -e`:
 
 ```
-* * * * * cd ~/domains/testedu.bkesari.com/platform/edu && php artisan schedule:run >> /dev/null 2>&1
+* * * * * cd ~/domains/devedu.bkesari.com/platform/edu && php artisan schedule:run >> /dev/null 2>&1
 ```
 
-**Redeploy later:** `cd ~/domains/testedu.bkesari.com/platform && git pull`, then in `edu/` run
+**Redeploy later:** `cd ~/domains/devedu.bkesari.com/platform && git pull`, then in `edu/` run
 `composer install --no-dev --optimize-autoloader && php artisan migrate --force`. Copy `public/.` again and re-run the three `cache` commands.
 
-For production, repeat with `edu.bkesari.com` and branch `main`.
+Repeat all of the above for **testedu.bkesari.com** (branch `staging`) and **edu.bkesari.com**
+(branch `main`), substituting the domain/branch throughout.
 The existing site at edutest.agtci.com is unaffected and keeps using the old `edu` repo until you retire it.
 
 ---
@@ -112,11 +140,14 @@ ATIP keeps running exactly as it does now (`python main.py`). Only the uploader 
 ```json
 {
   "targets": [
+    {"url": "https://dev.bkesari.com/atip/api/snapshot",  "token": "<ATIP_PUBLISH_TOKEN of dev.bkesari.com>"},
     {"url": "https://test.bkesari.com/atip/api/snapshot", "token": "<ATIP_PUBLISH_TOKEN of test.bkesari.com>"},
     {"url": "https://bkesari.com/atip/api/snapshot",      "token": "<ATIP_PUBLISH_TOKEN of bkesari.com>"}
   ]
 }
 ```
+
+(Drop the `dev` entry once dev.bkesari.com's portal app isn't actually set up yet — it's only needed once that site exists.)
 
 2. Try it once: `cd D:\Projects\ATIP` then `python publish_snapshot.py`. Each target should log a ✓.
 3. Schedule it every 5 minutes (PowerShell):
