@@ -135,3 +135,42 @@ Output goes to `atip_data\publish.log`. The viewer's banner shows how old the sn
 
 The menu also links to `(test)ladwani`, `(test)asmymilk` and `(test)driving`.bkesari.com. Those apps aren't in this repo.
 Each needs its own site in hPanel, or its card will lead to an error page. Edit `portal/public/sites.js` to change or remove any of them.
+
+---
+
+## Part 5: Ladwani (full rebuild — NestJS + Next.js)
+
+As of 2026-10-01 the app behind `ladwani.bkesari.com` / `testladwani.bkesari.com` is the full
+rebuild at `D:\My_Code\community-platform` (github.com/sanjaymorankar-debug/miladwani, branch
+`rebuild`) — NOT the older single-Next.js-app `D:\My_Code\miladwani-source` the Sep 28 SQL
+export was mistakenly based on. The rebuild covers Family Registry, Matrimony, Community
+Social, Bookings/Assets, Payments/Fees/Ledger, and Admin/Reporting (M0–M5), vs. the older
+app's Family Registry/Directory/Matrimony only.
+
+**Database**: `database/ladwani/01_ladwani_schema.sql` (69 tables), `02_ladwani_reference_data.sql`,
+`03_ladwani_first_admin.sql` were regenerated from the rebuild's actual Prisma schema and seed
+script on 2026-10-01, and validated end-to-end against a throwaway local MySQL database (schema
+import, reference data, and both first-admin options all confirmed working). Import all three via
+phpMyAdmin, in order, exactly like `edu`'s migrations.
+
+**Architecture — this needs two Hostinger sites, not one.** Unlike `portal/` (a single Node
+process) or `edu/` (a single PHP site), the rebuild is two separate processes that talk to each
+other: a NestJS API server and a Next.js web server (the web app proxies `/api/v1/*` to the API
+via `NEXT_PUBLIC_API_URL`, see `apps/web/next.config.js`). Hostinger's Node.js Web App hosting
+runs one process per site, so this needs:
+
+1. A Node.js site for the **web app** (`apps/web`) → `ladwani.bkesari.com` / `testladwani.bkesari.com`
+2. A second Node.js site for the **API** (`apps/api`) → e.g. `ladwani-api.bkesari.com` / `testladwani-api.bkesari.com`
+3. Set `NEXT_PUBLIC_API_URL` on the web site to the API site's URL
+4. Set `WEB_ORIGIN` on the API site to the web site's URL (CORS), and `JWT_SECRET` (the API
+   refuses to boot in production without it — see `apps/api/src/main.ts`)
+
+Full environment variable list, build commands, and the production cutover checklist are in
+`D:\My_Code\community-platform\docs\21-deployment-guide.md`, `22-backup-strategy.md`, and
+`23-production-cutover-plan.md` — the cutover plan there was written against the old
+`devmiladwani.agtci.com` target and needs its destructive-step section re-pointed at whichever
+database actually needs replacing here (there is no pre-existing live Ladwani data on bkesari.com
+to protect, since neither `ladwani.bkesari.com` nor `devmiladwani.agtci.com` currently resolve).
+
+**Not yet done**: creating the two hPanel sites and their DNS records — this still needs manual
+hPanel/SSH access this repo's automation doesn't have.
