@@ -1,8 +1,15 @@
 -- Mi Ladwani (NestJS + Next.js rebuild) reference data: communities, permissions, roles,
--- role-permission bundles, relationship types, approval rules, post types, asset categories.
--- Generated 2026-10-01 by hand from D:\My_Code\community-platform\apps\api\prisma\seed.ts
--- and packages\shared-types\src\roles.ts — mirrors exactly what `npm run db:seed` does there.
--- SUPERSEDES the Sep 28 version, which was copied from the older miladwani-source project
+-- role-permission bundles, relationship types, approval rules, post types, asset categories,
+-- and the M6 profile catalogs (education levels, occupations, skills).
+-- Generated 2026-10-02 by hand from apps/api/prisma/seed.ts and
+-- packages/shared-types/src/roles.ts on branch `rebuild` of
+-- github.com/sanjaymorankar-debug/Ladwani (renamed from `miladwani`) at 516d3b9 —
+-- mirrors exactly what `npm run db:seed` does there. On the Mac that tree is at
+-- /Users/agtci/Documents/Project_Documents/Projects/community-platform.
+-- SUPERSEDES the 2026-10-01 version, which predates M6 and therefore left
+-- education_levels, occupations and skills EMPTY — the profile and matrimony dropdowns
+-- those feed would have had nothing to show.
+-- SUPERSEDES the Sep 28 version, which was copied from the older single-Next.js app
 -- and does not match this schema (different column names, fewer/different post types,
 -- a `settings` table this schema doesn't have, and no ASSET_OWNER role or fee/config/report
 -- permissions). Run after 01_ladwani_schema.sql. Safe to re-run (INSERT IGNORE throughout).
@@ -131,5 +138,41 @@ INSERT IGNORE INTO asset_categories (id, code, label, sort_order, is_active) VAL
 (UUID(), 'COMMUNITY_HALL', 'Community Hall', 2, 1),
 (UUID(), 'GUEST_HOUSE', 'Guest House', 3, 1),
 (UUID(), 'GROUND', 'Open Ground', 4, 1);
+
+-- ── Education Levels (M6 starter catalog — Admin can add more via /admin/config) ───
+INSERT IGNORE INTO education_levels (id, code, label, sort_order, is_active) VALUES
+(UUID(), 'BELOW_10TH', 'Below 10th', 1, 1),
+(UUID(), 'SSC', 'SSC / 10th', 2, 1),
+(UUID(), 'HSC', 'HSC / 12th', 3, 1),
+(UUID(), 'DIPLOMA', 'Diploma', 4, 1),
+(UUID(), 'GRADUATE', 'Bachelor''s Degree', 5, 1),
+(UUID(), 'POST_GRADUATE', 'Master''s Degree', 6, 1),
+(UUID(), 'DOCTORATE', 'Doctorate', 7, 1),
+(UUID(), 'OTHER', 'Other', 8, 1);
+
+-- ── Occupations (M6 starter catalog — Admin can add more via /admin/config) ───
+INSERT IGNORE INTO occupations (id, code, label, sort_order, is_active) VALUES
+(UUID(), 'STUDENT', 'Student', 1, 1),
+(UUID(), 'SALARIED', 'Salaried Professional', 2, 1),
+(UUID(), 'BUSINESS', 'Business Owner', 3, 1),
+(UUID(), 'GOVERNMENT', 'Government Service', 4, 1),
+(UUID(), 'FARMER', 'Agriculture', 5, 1),
+(UUID(), 'HOMEMAKER', 'Homemaker', 6, 1),
+(UUID(), 'RETIRED', 'Retired', 7, 1),
+(UUID(), 'NOT_WORKING', 'Not Working', 8, 1),
+(UUID(), 'OTHER', 'Other', 9, 1);
+
+-- ── Skills (M6 starter catalog — Admin can add more via /admin/config) ───
+-- `skills` has no sort_order in the schema; the app orders by label.
+INSERT IGNORE INTO skills (id, code, label, is_active) VALUES
+(UUID(), 'COOKING', 'Cooking', 1),
+(UUID(), 'MUSIC', 'Music', 1),
+(UUID(), 'TEACHING', 'Teaching', 1),
+(UUID(), 'ACCOUNTING', 'Accounting', 1),
+(UUID(), 'IT_SOFTWARE', 'IT / Software', 1),
+(UUID(), 'HANDICRAFT', 'Handicraft', 1),
+(UUID(), 'PUBLIC_SPEAKING', 'Public Speaking', 1);
+
+-- member_skills is a join table filled by members themselves; it has no seed data.
 
 -- The first administrator is set up by 03_ladwani_first_admin.sql.

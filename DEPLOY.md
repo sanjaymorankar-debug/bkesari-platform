@@ -216,18 +216,47 @@ Each needs its own site in hPanel, or its card will lead to an error page. Edit 
 
 ## Part 5: Ladwani (full rebuild — NestJS + Next.js)
 
-As of 2026-10-01 the app behind `ladwani.bkesari.com` / `testladwani.bkesari.com` is the full
-rebuild at `/Users/agtci/Documents/Project_Documents/Projects/community-platform` (github.com/sanjaymorankar-debug/miladwani, branch
-`rebuild`) — NOT the older single-Next.js-app `/Users/agtci/Documents/Project_Documents/Projects/miladwani-source` the Sep 28 SQL
-export was mistakenly based on. The rebuild covers Family Registry, Matrimony, Community
-Social, Bookings/Assets, Payments/Fees/Ledger, and Admin/Reporting (M0–M5), vs. the older
-app's Family Registry/Directory/Matrimony only.
+The app behind `ladwani.bkesari.com` / `testladwani.bkesari.com` is the full rebuild: branch
+**`rebuild`** of **github.com/sanjaymorankar-debug/Ladwani**. On the Mac that tree is at
+`/Users/agtci/Documents/Project_Documents/Projects/community-platform`.
 
-**Database**: `database/ladwani/01_ladwani_schema.sql` (69 tables), `02_ladwani_reference_data.sql`,
-`03_ladwani_first_admin.sql` were regenerated from the rebuild's actual Prisma schema and seed
-script on 2026-10-01, and validated end-to-end against a throwaway local MySQL database (schema
-import, reference data, and both first-admin options all confirmed working). Import all three via
-phpMyAdmin, in order, exactly like `edu`'s migrations.
+**The repository was renamed** — it used to be `miladwani`. One repository now holds both apps
+on **unrelated histories** (`git merge-base main rebuild` finds no common ancestor), so this is a
+branch choice, not a repository choice:
+
+| Branch | App | Schema | Deploys to |
+|---|---|---|---|
+| `main` | the older single Next.js app | 53 Prisma models | `devmiladwani.agtci.com` |
+| `rebuild` | NestJS API + Next.js web | **73** Prisma models | `(dev/test)ladwani.bkesari.com` |
+
+Deploy from `rebuild`. The Sep 28 SQL export was mistakenly based on the older app, which is
+what `main` now holds. The rebuild covers Family Registry, Matrimony, Community Social,
+Bookings/Assets, Payments/Fees/Ledger and Admin/Reporting (M0–M6), vs. the older app's Family
+Registry/Directory/Matrimony only.
+
+**Database**: `database/ladwani/01_ladwani_schema.sql` (**73 tables, 108 foreign keys**),
+`02_ladwani_reference_data.sql` and `03_ladwani_first_admin.sql` were regenerated on 2026-10-02
+from `rebuild` at `516d3b9` ("M6: profile data model…") with the rebuild's own tooling
+(`prisma migrate diff --from-empty --to-schema-datamodel`), and validated end-to-end against a
+real MySQL server: fresh import of all three, a re-run of 02 and 03 to confirm idempotency, and a
+round-trip insert proving the new foreign keys resolve. Import all three via phpMyAdmin, in
+order, exactly like `edu`'s migrations.
+
+> The previous export (2026-10-01, 69 tables) predated the **M6** commit and would have produced
+> a database the app cannot run against. M6 added four tables *and* columns to tables that
+> already existed, so the shortfall was not just the table count:
+>
+> - new tables: `education_levels`, `occupations`, `skills`, `member_skills`
+> - new columns: `members.native_district`, `.native_state`, `.education_level_id`,
+>   `.occupation_id`, `.employer_or_business`, `.income_range`, `.bio`;
+>   `matrimonial_profiles.education_level_id`, `.occupation_id`, `.familyBackground`
+> - 3 new indexes on `members`, 6 new foreign keys
+>
+> It also left `education_levels`, `occupations` and `skills` **empty**, so the profile and
+> matrimony dropdowns they feed would have had nothing to show. `02_…` now seeds all three from
+> the rebuild's `seed.ts` (8 education levels, 9 occupations, 7 skills).
+>
+> Regenerating was purely additive against that export — 76 lines added, 0 removed.
 
 **Architecture — this needs two Hostinger sites, not one.** Unlike `portal/` (a single Node
 process) or `edu/` (a single PHP site), the rebuild is two separate processes that talk to each

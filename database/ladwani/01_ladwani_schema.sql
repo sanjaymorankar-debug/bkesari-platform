@@ -1,9 +1,28 @@
--- Mi Ladwani (NestJS + Next.js rebuild) database: 69 tables + 102 foreign keys.
--- Generated 2026-10-01 with: prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script
--- from D:\My_Code\community-platform\apps\api\prisma\schema.prisma (github.com/sanjaymorankar-debug/miladwani, branch `rebuild`).
--- SUPERSEDES the Sep 28 export, which was mistakenly generated from the older, smaller
--- D:\My_Code\miladwani-source schema (44 tables — Family Registry/Directory/Matrimony only,
--- no Bookings, Payments/Fees/Ledger, or Admin/Reporting). This is the full M0-M5 build.
+-- Mi Ladwani (NestJS + Next.js rebuild) database: 73 tables + 108 foreign keys.
+-- Generated 2026-10-02 with: prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script
+-- from apps/api/prisma/schema.prisma on branch `rebuild` of
+-- github.com/sanjaymorankar-debug/Ladwani at 516d3b9 ("M6: profile data model, multi-field search, and self-service profile editing").
+--
+-- The repository was renamed: it used to be `miladwani`. One repo now holds BOTH apps on
+-- unrelated histories (no common ancestor) -- `main` is the older single-Next.js app
+-- (53 Prisma models) behind devmiladwani.agtci.com, and `rebuild` is this one, which is
+-- what (dev/test)ladwani.bkesari.com deploys. On the Mac the rebuild is at
+-- /Users/agtci/Documents/Project_Documents/Projects/community-platform.
+--
+-- SUPERSEDES the 2026-10-01 export (69 tables / 102 FKs), which was generated before the
+-- M6 commit and is missing more than four tables: M6 also added columns to tables that
+-- already existed, so the older script produces a database the app cannot run against.
+--   new tables : education_levels, occupations, skills, member_skills
+--   new columns: members.native_district, .native_state, .education_level_id,
+--                .occupation_id, .employer_or_business, .income_range, .bio
+--                matrimonial_profiles.education_level_id, .occupation_id, .familyBackground
+--   new indexes: 3 on members; new FKs: 6
+-- Regenerating is purely additive against that export -- 76 lines added, 0 removed.
+--
+-- It also supersedes the Sep 28 export, which was mistakenly generated from the older
+-- app's schema (44 tables -- Family Registry/Directory/Matrimony only, no Bookings,
+-- Payments/Fees/Ledger or Admin/Reporting) rather than from `rebuild`.
+--
 -- Run ONCE on an EMPTY database (phpMyAdmin -> Import). Next: 02_ladwani_reference_data.sql.
 
 SET NAMES utf8mb4;
@@ -171,6 +190,13 @@ CREATE TABLE `members` (
     `current_city` VARCHAR(191) NULL,
     `current_state` VARCHAR(191) NULL,
     `native_village` VARCHAR(191) NULL,
+    `native_district` VARCHAR(191) NULL,
+    `native_state` VARCHAR(191) NULL,
+    `education_level_id` VARCHAR(191) NULL,
+    `occupation_id` VARCHAR(191) NULL,
+    `employer_or_business` VARCHAR(191) NULL,
+    `income_range` VARCHAR(191) NULL,
+    `bio` TEXT NULL,
     `profile_photo_id` VARCHAR(191) NULL,
     `created_by` VARCHAR(191) NULL,
     `updated_by` VARCHAR(191) NULL,
@@ -183,7 +209,54 @@ CREATE TABLE `members` (
     INDEX `members_deleted_at_gender_idx`(`deleted_at`, `gender`),
     INDEX `members_deleted_at_marital_status_idx`(`deleted_at`, `marital_status`),
     INDEX `members_deleted_at_status_idx`(`deleted_at`, `status`),
+    INDEX `members_deleted_at_current_city_idx`(`deleted_at`, `current_city`),
+    INDEX `members_deleted_at_education_level_id_idx`(`deleted_at`, `education_level_id`),
+    INDEX `members_deleted_at_occupation_id_idx`(`deleted_at`, `occupation_id`),
     PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `education_levels` (
+    `id` VARCHAR(191) NOT NULL,
+    `code` VARCHAR(191) NOT NULL,
+    `label` VARCHAR(191) NOT NULL,
+    `sort_order` INTEGER NOT NULL DEFAULT 0,
+    `is_active` BOOLEAN NOT NULL DEFAULT true,
+
+    UNIQUE INDEX `education_levels_code_key`(`code`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `occupations` (
+    `id` VARCHAR(191) NOT NULL,
+    `code` VARCHAR(191) NOT NULL,
+    `label` VARCHAR(191) NOT NULL,
+    `sort_order` INTEGER NOT NULL DEFAULT 0,
+    `is_active` BOOLEAN NOT NULL DEFAULT true,
+
+    UNIQUE INDEX `occupations_code_key`(`code`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `skills` (
+    `id` VARCHAR(191) NOT NULL,
+    `code` VARCHAR(191) NOT NULL,
+    `label` VARCHAR(191) NOT NULL,
+    `is_active` BOOLEAN NOT NULL DEFAULT true,
+
+    UNIQUE INDEX `skills_code_key`(`code`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `member_skills` (
+    `member_id` VARCHAR(191) NOT NULL,
+    `skill_id` VARCHAR(191) NOT NULL,
+
+    INDEX `member_skills_skill_id_idx`(`skill_id`),
+    PRIMARY KEY (`member_id`, `skill_id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
@@ -401,6 +474,9 @@ CREATE TABLE `matrimonial_profiles` (
     `height_cm` INTEGER NULL,
     `languages` JSON NULL,
     `allow_contact_requests` BOOLEAN NOT NULL DEFAULT true,
+    `education_level_id` VARCHAR(191) NULL,
+    `occupation_id` VARCHAR(191) NULL,
+    `familyBackground` TEXT NULL,
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updated_at` DATETIME(3) NOT NULL,
 
@@ -1058,6 +1134,18 @@ ALTER TABLE `families` ADD CONSTRAINT `families_karta_member_id_fkey` FOREIGN KE
 ALTER TABLE `members` ADD CONSTRAINT `members_user_id_fkey` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE `members` ADD CONSTRAINT `members_education_level_id_fkey` FOREIGN KEY (`education_level_id`) REFERENCES `education_levels`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `members` ADD CONSTRAINT `members_occupation_id_fkey` FOREIGN KEY (`occupation_id`) REFERENCES `occupations`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `member_skills` ADD CONSTRAINT `member_skills_member_id_fkey` FOREIGN KEY (`member_id`) REFERENCES `members`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `member_skills` ADD CONSTRAINT `member_skills_skill_id_fkey` FOREIGN KEY (`skill_id`) REFERENCES `skills`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE `family_members` ADD CONSTRAINT `family_members_family_id_fkey` FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -1116,6 +1204,12 @@ ALTER TABLE `uploaded_files` ADD CONSTRAINT `uploaded_files_uploader_id_fkey` FO
 
 -- AddForeignKey
 ALTER TABLE `matrimonial_profiles` ADD CONSTRAINT `matrimonial_profiles_member_id_fkey` FOREIGN KEY (`member_id`) REFERENCES `members`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `matrimonial_profiles` ADD CONSTRAINT `matrimonial_profiles_education_level_id_fkey` FOREIGN KEY (`education_level_id`) REFERENCES `education_levels`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `matrimonial_profiles` ADD CONSTRAINT `matrimonial_profiles_occupation_id_fkey` FOREIGN KEY (`occupation_id`) REFERENCES `occupations`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `matrimonial_preferences` ADD CONSTRAINT `matrimonial_preferences_matrimonial_profile_id_fkey` FOREIGN KEY (`matrimonial_profile_id`) REFERENCES `matrimonial_profiles`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -1326,3 +1420,4 @@ ALTER TABLE `financial_ledger` ADD CONSTRAINT `financial_ledger_refund_id_fkey` 
 
 -- AddForeignKey
 ALTER TABLE `financial_ledger` ADD CONSTRAINT `financial_ledger_financial_year_id_fkey` FOREIGN KEY (`financial_year_id`) REFERENCES `financial_years`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
