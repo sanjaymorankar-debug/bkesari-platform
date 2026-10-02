@@ -5,7 +5,7 @@
   "description": "bkesari.com: welcome portal, Task Tracker and read-only ATIP dashboard. Education (Laravel) and ATIP (Python) live in edu/ and atip/.",
   "main": "portal/server.js",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "start": "node portal/server.js"

@@ -40,7 +40,18 @@ async function createMysql() {
 }
 
 async function createSqlite() {
-  const { DatabaseSync } = require('node:sqlite');
+  // node:sqlite landed in Node 22.5 and is the reason the README asks for 22.13+.
+  // SQLite is the DEFAULT client, so on an older Node a bare `npm start` would
+  // otherwise die with an unexplained "Cannot find module 'node:sqlite'".
+  // Hostinger runs this on MySQL, where any Node >= 20 is fine.
+  let DatabaseSync;
+  try {
+    ({ DatabaseSync } = require('node:sqlite'));
+  } catch {
+    throw new Error(
+      `The local SQLite client needs Node 22.13+ for node:sqlite (this is ${process.version}). ` +
+      'Either upgrade Node, or set DB_CLIENT=mysql with DB_HOST/DB_NAME/DB_USER/DB_PASSWORD.');
+  }
   const file = path.resolve(__dirname, process.env.SQLITE_PATH || './data/tasks.db');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);

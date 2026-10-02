@@ -68,14 +68,15 @@ In phpMyAdmin, run `portal/sql/mysql_schema.sql`. It is safe to re-run, and the 
 | `DB_HOST` | `localhost` (or what hPanel shows) |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD` | from step 2 |
 | `TRACKER_USER`, `TRACKER_PASSWORD` | login for `/tasks/` |
-| `ATIP_USER`, `ATIP_PASSWORD` | login for `/atip/` |
+| `ATIP_USER`, `ATIP_PASSWORD` | login for `/ATIP/` |
 | `ATIP_PUBLISH_TOKEN` | long random secret. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Use a **different one per tier** (dev/test/production). |
 
 Redeploy. Check (same checks for dev.bkesari.com and test.bkesari.com — add a **DEV** badge
 alongside the existing **TEST** one in `portal/` if you want the two visually distinguishable):
 - the site shows the menu
 - `/tasks/` asks for a login
-- `/atip/` asks for a login, then says *No dashboard snapshot has been published yet*
+- `/ATIP/` asks for a login, then says *No dashboard snapshot has been published yet*
+  (`/atip/` still resolves, for old bookmarks)
 
 ---
 
@@ -131,36 +132,80 @@ The existing site at edutest.agtci.com is unaffected and keeps using the old `ed
 
 ---
 
-## Part 3: ATIP snapshot upload (on your PC)
+## Part 3: ATIP
 
-ATIP keeps running exactly as it does now (`python main.py`). Only the uploader is new.
+ATIP's code now lives on the Mac at `/Users/agtci/Documents/Project_Documents/Projects/ATIP`
+(it was `D:\Projects\ATIP` on the old Windows machine).
 
-1. Create `D:\Projects\ATIP\atip_data\publish.json` (never committed):
+There are two ways to put ATIP behind `*.bkesari.com/ATIP/`. **Decide which before
+creating any site**, because they need different infrastructure.
+
+### Option A — read-only snapshot (no extra hosting)
+
+ATIP keeps running on the Mac. A LaunchAgent pushes a rendered dashboard page to
+the portal every 5 minutes, and the portal serves it behind a login at `/ATIP/`.
+Nothing order-capable faces the internet and no VPS is needed.
+
+1. Create `/Users/agtci/Documents/Project_Documents/Projects/ATIP/atip_data/publish.json` (never committed):
 
 ```json
 {
   "targets": [
-    {"url": "https://dev.bkesari.com/atip/api/snapshot",  "token": "<ATIP_PUBLISH_TOKEN of dev.bkesari.com>"},
-    {"url": "https://test.bkesari.com/atip/api/snapshot", "token": "<ATIP_PUBLISH_TOKEN of test.bkesari.com>"},
-    {"url": "https://bkesari.com/atip/api/snapshot",      "token": "<ATIP_PUBLISH_TOKEN of bkesari.com>"}
+    {"url": "https://dev.bkesari.com/ATIP/api/snapshot",  "token": "<ATIP_PUBLISH_TOKEN of dev.bkesari.com>"},
+    {"url": "https://test.bkesari.com/ATIP/api/snapshot", "token": "<ATIP_PUBLISH_TOKEN of test.bkesari.com>"},
+    {"url": "https://bkesari.com/ATIP/api/snapshot",      "token": "<ATIP_PUBLISH_TOKEN of bkesari.com>"}
   ]
 }
 ```
 
-(Drop the `dev` entry once dev.bkesari.com's portal app isn't actually set up yet — it's only needed once that site exists.)
+Drop any tier whose portal app does not exist yet. The portal accepts both
+`/ATIP/api/snapshot` and the older `/atip/api/snapshot`, so an uploader configured
+the old way keeps working.
 
-2. Try it once: `cd D:\Projects\ATIP` then `python publish_snapshot.py`. Each target should log a ✓.
-3. Schedule it every 5 minutes (PowerShell):
+2. Try it once:
 
-```powershell
-$a = New-ScheduledTaskAction -Execute 'D:\Projects\ATIP\publish_snapshot.bat'
-$t = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
-Register-ScheduledTask -TaskName 'ATIP publish snapshot' -Action $a -Trigger $t -Description 'Upload read-only ATIP dashboard to bkesari.com'
+```bash
+cd /Users/agtci/Documents/Project_Documents/Projects/ATIP
+python3 publish_snapshot.py --dry-run   # builds the page, uploads nothing
+python3 publish_snapshot.py             # each target should log a ✓
 ```
 
-Output goes to `atip_data\publish.log`. The viewer's banner shows how old the snapshot is, so a stopped PC is obvious.
+3. Schedule it every 5 minutes — `launchd`, not Task Scheduler:
 
----
+```bash
+cd /Users/agtci/Documents/Project_Documents/Projects/ATIP
+deploy/launchd/install.sh snapshot
+launchctl list | grep com.atip          # 0 in the second column = last run was clean
+```
+
+`deploy/launchd/install.sh` (no argument) also installs `com.atip.platform`, which
+starts ATIP itself at login and restarts it if it exits non-zero — the
+restart-on-failure the Windows Task Scheduler task used to provide.
+
+Output goes to `atip_data/publish.log`. The viewer's banner shows how old the
+snapshot is, so a sleeping Mac is obvious.
+
+### Option B — the full interactive app at `/ATIP/`
+
+Read `/Users/agtci/Documents/Project_Documents/Projects/ATIP/docs/HOSTED_DEPLOYMENT.md` first. Two things it settles:
+
+1. **This cannot run on Hostinger shared hosting.** ATIP needs a long-lived Python
+   process, an in-process scheduler firing at 07:00/15:30/16:45 IST, and a
+   persistent outbound WebSocket for the Dhan feed. Shared hosting provides none
+   of those. `/ATIP/` must proxy to a **VPS** (2 vCPU / 4 GB is enough). Everything
+   else on `bkesari.com` is unaffected.
+2. **Exposing it is a gated step.** The interactive dashboard can create, confirm
+   and cancel orders — precisely what Option A was designed to keep off the
+   internet. TLS, authentication in front of *every* route (not just the mutating
+   ones), `enterprise.enabled: true` and `execution.mode: paper` are prerequisites,
+   not polish.
+
+In outline: run ATIP on the VPS with `ATIP_DATABASE_URL=mysql://…`,
+`ATIP_ROOT_PATH=/ATIP`, then reverse-proxy `/ATIP/` to it. The prefix-stripping
+nginx block, the MySQL setup and the per-tier table are all in that document.
+
+ATIP's own database is **MySQL** (`db/mysql.py`), one database per tier, never
+shared — same rule as the portal and `edu`.
 
 ## Part 4: Other menu subdomains
 
@@ -172,8 +217,8 @@ Each needs its own site in hPanel, or its card will lead to an error page. Edit 
 ## Part 5: Ladwani (full rebuild — NestJS + Next.js)
 
 As of 2026-10-01 the app behind `ladwani.bkesari.com` / `testladwani.bkesari.com` is the full
-rebuild at `D:\My_Code\community-platform` (github.com/sanjaymorankar-debug/miladwani, branch
-`rebuild`) — NOT the older single-Next.js-app `D:\My_Code\miladwani-source` the Sep 28 SQL
+rebuild at `/Users/agtci/Documents/Project_Documents/Projects/community-platform` (github.com/sanjaymorankar-debug/miladwani, branch
+`rebuild`) — NOT the older single-Next.js-app `/Users/agtci/Documents/Project_Documents/Projects/miladwani-source` the Sep 28 SQL
 export was mistakenly based on. The rebuild covers Family Registry, Matrimony, Community
 Social, Bookings/Assets, Payments/Fees/Ledger, and Admin/Reporting (M0–M5), vs. the older
 app's Family Registry/Directory/Matrimony only.
@@ -197,7 +242,7 @@ runs one process per site, so this needs:
    refuses to boot in production without it — see `apps/api/src/main.ts`)
 
 Full environment variable list, build commands, and the production cutover checklist are in
-`D:\My_Code\community-platform\docs\21-deployment-guide.md`, `22-backup-strategy.md`, and
+`/Users/agtci/Documents/Project_Documents/Projects/community-platform/docs/21-deployment-guide.md`, `22-backup-strategy.md`, and
 `23-production-cutover-plan.md` — the cutover plan there was written against the old
 `devmiladwani.agtci.com` target and needs its destructive-step section re-pointed at whichever
 database actually needs replacing here (there is no pre-existing live Ladwani data on bkesari.com

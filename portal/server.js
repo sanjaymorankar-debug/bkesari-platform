@@ -98,10 +98,17 @@ function basicAuth(userVar, passVar, realm, failClosed) {
 }
 
 /* ---------- ATIP read-only viewer ----------
-   The ATIP machine pushes its rendered dashboard page here (see
-   atip/publish_snapshot.py). This server never talks back to it. The page is
-   served with a CSP that forbids network calls, and the order controls are
-   hidden, so the hosted copy is view-only. */
+   Served at /ATIP/ (the canonical path the menu links); /atip/ still resolves so
+   existing bookmarks keep working.
+
+   The ATIP machine pushes its rendered dashboard page here (see ATIP-DEV's
+   publish_snapshot.py). This server never talks back to it. The page is served
+   with a CSP that forbids network calls, and the order controls are hidden, so
+   the hosted copy is view-only.
+
+   If ATIP is instead hosted as the full interactive app, /ATIP/ is proxied to
+   that server and this viewer is bypassed -- see ATIP-DEV/docs/HOSTED_DEPLOYMENT.md,
+   which also lists the controls that exposure requires. */
 const ATIP_READONLY_CSS = `<style id="bk-readonly">
   .acts,#pendBox,#modalBg,#brokerBanner,#brokerBanner2,button[onclick^="deleteRule"]{display:none!important}
   #bk-banner{position:sticky;top:0;z-index:9999;background:#1e293b;color:#e2e8f0;border-bottom:1px solid #334155;
@@ -123,7 +130,12 @@ async function main() {
   const app = express();
   app.disable('x-powered-by');
   // The ATIP snapshot is a full HTML page, so its route gets a larger limit.
-  app.use('/atip/api/snapshot', express.json({ limit: '15mb' }));
+  // Both spellings are listed on every ATIP route below. Express's routing is
+  // case-insensitive by default, so /ATIP/ already resolves -- but that is a
+  // default someone can flip with `case sensitive routing`, and the menu now
+  // links /ATIP/ while published snapshots still POST to /atip/api/snapshot.
+  // Naming both keeps old publishers working whatever that setting says.
+  app.use(['/atip/api/snapshot', '/ATIP/api/snapshot'], express.json({ limit: '15mb' }));
   app.use(express.json({ limit: '1mb' }));
 
   const api = express.Router();
@@ -255,7 +267,7 @@ async function main() {
   });
 
   // Express treats /tasks and /tasks/ as the same route, so check the raw path.
-  app.get(['/tasks', '/atip'], (req, res, next) => {
+  app.get(['/tasks', '/atip', '/ATIP'], (req, res, next) => {
     if (req.path.endsWith('/')) return next();
     res.redirect(302, req.path + '/');
   });
@@ -263,7 +275,7 @@ async function main() {
   app.use('/tasks/api', api);
 
   // Upload from the ATIP machine: bearer token, not the viewer login.
-  app.post('/atip/api/snapshot', wrap(async (req, res) => {
+  app.post(['/atip/api/snapshot', '/ATIP/api/snapshot'], wrap(async (req, res) => {
     const token = process.env.ATIP_PUBLISH_TOKEN;
     const [scheme, given] = (req.headers.authorization || '').split(' ');
     if (!token) return res.status(503).json({ error: 'ATIP_PUBLISH_TOKEN is not set on the server' });
@@ -277,7 +289,7 @@ async function main() {
     res.json({ ok: true, received_at: now });
   }));
 
-  app.get('/atip/', basicAuth('ATIP_USER', 'ATIP_PASSWORD', 'bkesari ATIP', true), wrap(async (req, res) => {
+  app.get(['/ATIP/', '/atip/'], basicAuth('ATIP_USER', 'ATIP_PASSWORD', 'bkesari ATIP', true), wrap(async (req, res) => {
     res.set('Content-Security-Policy', ATIP_CSP);
     res.set('Cache-Control', 'no-store');
     res.set('X-Robots-Tag', 'noindex');
