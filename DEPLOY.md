@@ -270,6 +270,18 @@ runs one process per site, so this needs:
 4. Set `WEB_ORIGIN` on the API site to the web site's URL (CORS), and `JWT_SECRET` (the API
    refuses to boot in production without it — see `apps/api/src/main.ts`)
 
+**Both sites check out the same repository on the `rebuild` branch** — point hPanel's Git
+integration at `sanjaymorankar-debug/Ladwani`, branch `rebuild`, and set each site's app root to
+`apps/web` or `apps/api`. Over SSH that is:
+
+```bash
+git clone -b rebuild https://github.com/sanjaymorankar-debug/Ladwani.git
+```
+
+**Do not omit `-b rebuild`.** The default branch is `main`, which is the *other*, older
+application (see the branch table above) — it will clone and build happily and serve the wrong
+app against a schema it does not match.
+
 Full environment variable list, build commands, and the production cutover checklist are in
 `/Users/agtci/Documents/Project_Documents/Projects/community-platform/docs/21-deployment-guide.md`, `22-backup-strategy.md`, and
 `23-production-cutover-plan.md` — the cutover plan there was written against the old
