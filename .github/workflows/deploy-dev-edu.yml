@@ -33,7 +33,42 @@ env:
   DEV_SITE: devedu.bkesari.com
 
 jobs:
+  # The 375 PHPUnit tests, on in-memory sqlite, so the build that reaches dev
+  # is one that passed them. They need dev dependencies (phpunit is one), which
+  # is why this is a separate job: the deploy below installs --no-dev, since
+  # nothing dev-only should be shipped to a server.
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: edu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, bcmath, pdo_sqlite, sqlite3, zip, intl, gd
+          coverage: none
+
+      - name: Install dependencies
+        run: |
+          composer validate --no-check-publish
+          composer install --no-interaction --no-progress
+
+      # phpunit.xml supplies APP_ENV and the sqlite settings, but not APP_KEY,
+      # and the encrypter refuses to boot without one.
+      - name: Configure for testing
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+
+      - name: Tests
+        run: php artisan test
+
   deploy:
+    needs: check
     runs-on: ubuntu-latest
     environment: dev
 

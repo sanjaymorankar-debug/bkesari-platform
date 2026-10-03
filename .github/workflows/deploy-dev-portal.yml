@@ -153,24 +153,27 @@ jobs:
           $RESTART_CMD
           REMOTE
 
+      # The real checklist, not just "did it answer". scripts/smoke-dev.sh
+      # checks the shared bar is served, that /tasks/ and /atip/ are NOT open
+      # to the internet, that the site reports the tier it is meant to be, and
+      # that no .env or .git is reachable. Its failures are reasons not to
+      # promote a tier; see TESTING.md.
       - name: Smoke check
         if: ${{ vars.DEV_PORTAL_URL != '' }}
         run: |
           set -euo pipefail
-          # Passenger needs a moment to pick the restart up, and the first
-          # request is what triggers the reload, so retry rather than sleep.
+          # Passenger reloads on the first request after the restart file is
+          # touched, so give the app a moment to come back before judging it.
           for attempt in 1 2 3 4 5 6; do
-            code=$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 20 "$SMOKE_URL" || echo 000)
-            if [ "$code" = 200 ]; then
-              # The hub is only really up if the shared menu rendered.
-              grep -q 'bk-tabs' /tmp/body \
-                && { echo "$SMOKE_URL is up and serving the menu."; exit 0; }
-              echo "::warning::$SMOKE_URL returned 200 but no menu markup (attempt $attempt)."
-            else
-              echo "attempt $attempt: HTTP $code"
-            fi
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$SMOKE_URL" || echo 000)
+            [ "$code" = 200 ] && break
+            echo "waiting for $SMOKE_URL (attempt $attempt: HTTP $code)"
             [ "$attempt" = 6 ] || sleep 10
           done
-          echo "::error::$SMOKE_URL did not come up. Last status: $code"
-          head -c 2000 /tmp/body || true
-          exit 1
+          bash scripts/smoke-dev.sh "$SMOKE_URL" --env dev | tee /tmp/smoke.out
+          {
+            echo "### Smoke test"
+            echo '```'
+            cat /tmp/smoke.out
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

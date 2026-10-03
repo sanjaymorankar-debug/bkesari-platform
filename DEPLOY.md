@@ -380,6 +380,21 @@ apply them yourself — through phpMyAdmin, or over SSH with `npm run db:migrate
 | `agtci` | A bare `create-next-app` scaffold for a different domain; not a hub tab. |
 | `ATIP-DEV` | Runs on your PC and *pushes* snapshots to the hub (Part 3). The hub serves the viewer, so there is nothing to deploy to Hostinger. |
 
+### After a deploy: testing it
+
+`TESTING.md` is the checklist — what CI already proves (so you don't re-test it
+by hand), the tier-safety checks that need hPanel or SSH, and the manual browser
+checks. The mechanical part is a script:
+
+```bash
+bash scripts/smoke-dev.sh https://dev.bkesari.com --env dev
+```
+
+It needs only `curl` and the URL. The dev deploy runs it automatically and puts
+its output in the workflow summary, so a deploy that leaves the task tracker
+open to the internet, or points a tier at the wrong database, fails rather than
+reporting success.
+
 ### What still has to happen before any of this can run
 
 None of it is verified against a real server, because none of the dev sites

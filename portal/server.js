@@ -270,6 +270,17 @@ async function main() {
     res.status(500).json({ error: 'Server error' });
   });
 
+  // Keep every tier but production out of search indexes. dev.bkesari.com and
+  // test.bkesari.com carry the same real-looking content as production, so
+  // without this they compete with it in search results and expose work in
+  // progress. Driven by the tier rather than hard-coded, so one build still
+  // serves all three and production is left untouched. A static robots.txt
+  // could not do this: it would have to differ per tier.
+  app.use((req, res, next) => {
+    if (currentEnv(req) !== 'prod') res.set('X-Robots-Tag', 'noindex, nofollow');
+    next();
+  });
+
   // Express treats /tasks and /tasks/ as the same route, so check the raw path.
   app.get(['/tasks', '/atip'], (req, res, next) => {
     if (req.path.endsWith('/')) return next();
