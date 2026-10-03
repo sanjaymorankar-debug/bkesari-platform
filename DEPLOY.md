@@ -162,10 +162,49 @@ Output goes to `atip_data\publish.log`. The viewer's banner shows how old the sn
 
 ---
 
-## Part 4: Other menu subdomains
+## Part 4: The shared menu
 
-The menu also links to `(test)ladwani`, `(test)asmymilk` and `(test)driving`.bkesari.com. Those apps aren't in this repo.
-Each needs its own site in hPanel, or its card will lead to an error page. Edit `portal/public/sites.js` to change or remove any of them.
+The top menu is defined once, in **`portal/public/shared/menu.js`**, in its `TABS`
+array. Adding, renaming or reordering a tab is an edit to that one file — there is
+no second list to keep in step, including the cards on the welcome page, which are
+built from the same array.
+
+Tabs are **paths**, not hostnames (`/milk/`, `/edu/`, …). Each tier serves every
+project under one origin, so the same link is correct on dev, test and production
+with no substitution. The tier only affects the badge beside the brand, and is read
+from the hostname (`dev.` / `test.` / bare) or from an explicit `window.BKESARI_ENV`
+a server can set from its own `APP_ENV`.
+
+### How a project includes it
+
+One tag, and no markup:
+
+```html
+<script src="/shared/menu.js" defer></script>
+```
+
+It injects itself at the top of `<body>`, or into `<div data-bkesari-menu></div>`
+if the page marks a slot. It needs **no JavaScript to operate** — the mobile
+hamburger is a native `<details>` disclosure — so it survives a strict
+Content-Security-Policy and a failed script load degrades to a page without a bar
+rather than a broken one.
+
+For a page the server builds, `require()` the same file and call
+`renderHtml({ pathname, env })`. The ATIP viewer does exactly that: its CSP allows
+inline scripts but not `'self'`, so an external `<script>` there would be blocked,
+and server-rendering keeps that page's policy untouched.
+
+### Which paths the hub serves itself
+
+| Path | Served by |
+|---|---|
+| `/`, `/tasks/`, `/atip/` | this repo (`portal/`) |
+| `/global-warming/`, `/driving-simulator/` | this repo, static — still to be added |
+| `/milk/`, `/edu/`, `/ladwani/` | their own apps, reached through the hub |
+
+A tab whose destination is not deployed on a tier yet answers with a short
+"not available on this tier" page rather than a bare 404, so the menu never
+dead-ends while the estate is still being assembled.
 
 ---
 
