@@ -184,10 +184,16 @@ One tag, and no markup:
 ```
 
 It injects itself at the top of `<body>`, or into `<div data-bkesari-menu></div>`
-if the page marks a slot. It needs **no JavaScript to operate** — the mobile
-hamburger is a native `<details>` disclosure — so it survives a strict
-Content-Security-Policy and a failed script load degrades to a page without a bar
-rather than a broken one.
+if the page marks a slot. Once the bar is in the page it needs **no JavaScript to
+operate** — the mobile hamburger is a checkbox and its label, toggled purely
+through CSS — so it survives a strict Content-Security-Policy, and a failed
+script load degrades to a page without a bar rather than a broken one.
+
+(A `<details>`/`<summary>` disclosure reads better and was tried first, but a
+closed `<details>` does not render its non-summary children at all, so the tabs
+were invisible on desktop and no CSS could reveal them. The checkbox is the one
+disclosure whose open state CSS can reach. `tests/menu.test.js` asserts the
+markup has not drifted back.)
 
 For a page the server builds, `require()` the same file and call
 `renderHtml({ pathname, env })`. The ATIP viewer does exactly that: its CSP allows
@@ -244,3 +250,152 @@ to protect, since neither `ladwani.bkesari.com` nor `devmiladwani.agtci.com` cur
 
 **Not yet done**: creating the two hPanel sites and their DNS records — this still needs manual
 hPanel/SSH access this repo's automation doesn't have.
+
+---
+
+## Part 6: Dev deployment workflows (GitHub Actions)
+
+Pushing to `dev` now deploys to dev, over SSH. **Nothing is automated for test or
+production** — those stay the manual promotions at the top of this file, on
+purpose: a mis-aimed deploy to production is the one mistake this stage cannot
+afford.
+
+| Repository | Workflow | Deploys | To |
+|---|---|---|---|
+| `bkesari-platform` | `deploy-dev-portal.yml` | `portal/` (the hub, Node) | `dev.bkesari.com` |
+| `bkesari-platform` | `deploy-dev-edu.yml` | `edu/` (Laravel) | `devedu.bkesari.com` |
+| `bkesari` | `deploy-dev.yml` | Milk & Dairy (Next.js) | `devmilk.bkesari.com` |
+| `Ladwani` | `deploy-dev.yml` | LadWani (Next.js) | `devladwani.bkesari.com` |
+
+Each one: runs the repo's checks → builds → `rsync` over SSH → installs runtime
+dependencies and restarts on the server → fetches the URL to confirm it answers.
+The two `bkesari-platform` workflows are filtered by path, so a change under
+`portal/` does not redeploy Laravel and vice versa. Every workflow also has a
+**Run workflow** button for redeploying the current `dev` without an empty commit.
+
+### What is never in GitHub
+
+No database password, and no `.env`. Credentials live only in each server's own
+`.env`, filled in by hand, and `rsync` is configured to neither upload nor delete
+it. The same goes for `storage/` (edu's uploads and logs), `portal/data/` and
+`uploads/`.
+
+That has one visible consequence worth knowing about: for the two Next.js apps,
+anything named `NEXT_PUBLIC_*` is baked into the bundle **at build time**, in CI,
+so the server's `.env` is read too late to supply it. Nothing public is set in CI
+at the moment, which means `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is empty on dev and
+Milk & Dairy falls back to manual address entry — which is what its `.env.example`
+already describes as the intended dev behaviour. If you want Maps working on dev,
+add that one key as a repository **variable** (it is domain-restricted and public
+by design) and pass it to the `Build` step. Never the server-side key.
+
+### How "dev only" is enforced
+
+`.github/deploy/guard.sh`, which every workflow runs before it holds an SSH
+connection or a build. It refuses:
+
+- any ref that is not `refs/heads/dev` — including a **Run workflow** aimed at
+  `main` from the UI;
+- any deploy path that is not an absolute path, inside a directory named exactly
+  the dev hostname, with no `..` in it. `test.bkesari.com`, `bkesari.com`,
+  `dev.bkesari.com.old` and `olddev.bkesari.com` all fail this;
+- `gokesari.com` and `agtci.com` outright, which this project must not touch;
+- a smoke-check URL pointing anywhere but the dev host;
+- any missing or empty secret, rather than falling back to a default.
+
+The dev hostname is **hard-coded in each workflow** (`DEV_SITE`), not read from a
+secret, so a mistyped path secret fails the job instead of publishing to the wrong
+tier. `.github/deploy/guard.test.sh` runs those rules against a table of about thirty
+cases in CI — the ones that must *fail* are the point of it — so this is a tested
+property rather than a comment.
+
+### One-time setup, per repository
+
+1. **A deploy key.** On your machine (or any shell), generate a key used for
+   nothing else:
+
+   ```bash
+   ssh-keygen -t ed25519 -f ~/.ssh/bkesari_dev_deploy -C "github-actions dev deploy" -N ""
+   ```
+
+   Append the **public** half (`~/.ssh/bkesari_dev_deploy.pub`) to
+   `~/.ssh/authorized_keys` on the Hostinger account — hPanel → Advanced → SSH
+   Access → Manage SSH keys does this for you. Keep the private half; it goes
+   into GitHub below and nowhere else.
+
+2. **The host key**, so the workflow never has to trust whatever answers on that
+   port. Hostinger's SSH port is 65002:
+
+   ```bash
+   ssh-keyscan -p 65002 <your-hostinger-host> 2>/dev/null
+   ```
+
+   Copy every line it prints.
+
+3. **GitHub → the repo → Settings → Environments → New environment → `dev`.**
+   Add these as **secrets** of that environment:
+
+   | Secret | Value |
+   |---|---|
+   | `DEV_SSH_HOST` | the Hostinger server's hostname or IP |
+   | `DEV_SSH_USER` | your SSH user, e.g. `u879099820` |
+   | `DEV_SSH_PORT` | `65002` (omit to use that default) |
+   | `DEV_SSH_KEY` | the **private** key from step 1, whole file |
+   | `DEV_SSH_KNOWN_HOSTS` | the output of step 2 |
+
+   And the deploy path, which differs per app — these are what the guard checks:
+
+   | Repository | Secret | Example |
+   |---|---|---|
+   | `bkesari-platform` | `DEV_PORTAL_PATH` | `/home/u879099820/domains/dev.bkesari.com/app` |
+   | `bkesari-platform` | `DEV_EDU_PATH` | `/home/u879099820/domains/devedu.bkesari.com/app` |
+   | `bkesari` | `DEV_DEPLOY_PATH` | `/home/u879099820/domains/devmilk.bkesari.com/app` |
+   | `Ladwani` | `DEV_DEPLOY_PATH` | `/home/u879099820/domains/devladwani.bkesari.com/app` |
+
+4. **Optional repository variables** (Settings → Secrets and variables → Actions
+   → Variables — *not* secrets, these are not sensitive):
+
+   | Variable | Effect if unset |
+   |---|---|
+   | `DEV_PORTAL_URL` / `DEV_EDU_URL` / `DEV_SMOKE_URL` | the smoke check is skipped |
+   | `DEV_RESTART_COMMAND` | `mkdir -p tmp && touch tmp/restart.txt`, which is how Hostinger's Passenger-backed Node sites reload |
+   | `DEV_EDU_DOCROOT` | edu's `public/` is not copied into the document root; do it by hand as in Part 2 step 3 |
+
+5. **Create the `dev` branch** if the repo has none, and push to it.
+
+### Migrations are not applied automatically
+
+By design, and consistent with the rest of this file preferring phpMyAdmin for
+schema changes: a deploy ships code and never alters a database. Each deploy's
+summary lists any migration files the push brought, with a warning, so you can
+apply them yourself — through phpMyAdmin, or over SSH with `npm run db:migrate`
+(Milk & Dairy) or `npx prisma migrate deploy` (LadWani).
+
+### Repositories that deliberately have no deploy workflow
+
+| Repository | Why |
+|---|---|
+| `GoKesari` | gokesari.com is a separate site and is explicitly out of scope — not to be touched for this work, and not one of the seven tabs. |
+| `edu` (standalone) | Superseded by `bkesari-platform/edu`, which is ahead of it. It still serves edutest.agtci.com from its own repo until you retire it. |
+| `agtci` | A bare `create-next-app` scaffold for a different domain; not a hub tab. |
+| `ATIP-DEV` | Runs on your PC and *pushes* snapshots to the hub (Part 3). The hub serves the viewer, so there is nothing to deploy to Hostinger. |
+
+### What still has to happen before any of this can run
+
+None of it is verified against a real server, because none of the dev sites
+exists yet. In order:
+
+1. Create the hPanel sites and DNS records: `dev.bkesari.com`,
+   `devedu.bkesari.com`, `devmilk.bkesari.com`, `devladwani.bkesari.com`.
+2. Create each project's dev database and fill in that site's `.env`.
+3. Do the one-time setup above in each repository.
+4. Push to `dev` and read the workflow's summary.
+
+One design question is still open and is not a deployment detail. The menu's tabs
+are **paths** (`/milk/`, `/edu/`, `/ladwani/`), but each app above is its own
+Hostinger site on its own subdomain. Serving them under the hub's paths needs
+either the hub proxying those paths to each app, or each app being given a
+`basePath` — neither is built, and until one is, those three tabs will keep
+answering with the "not on this tier yet" page. The hub is a Node process, so
+proxying from it is the more likely answer, but it is a change to the hub and to
+each app's config rather than to these workflows.
