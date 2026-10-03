@@ -9,30 +9,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shared/page.css">
 <style>
-  :root{
-    --bg:#F6F4EF; --surface:#FFFFFF; --ink:#1B1D24; --ink-soft:#5F6472; --ink-faint:#9A9EA9;
-    --line:#E6E2D9; --accent:#E0761F; --accent-soft:#FDF0E3; --accent-dark:#B85A0E;
-    --shadow:0 1px 2px rgba(20,24,33,.05),0 8px 24px rgba(20,24,33,.07);
-  }
-  @media (prefers-color-scheme: dark){
-    :root:not([data-theme="light"]){
-      --bg:#14151A; --surface:#1D1F26; --ink:#ECEDF1; --ink-soft:#A4A8B4; --ink-faint:#6F7380;
-      --line:#2C2F38; --accent:#F08A34; --accent-soft:#3A2715; --accent-dark:#FFB273;
-      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
-    }
-  }
-  :root[data-theme="dark"]{
-    --bg:#14151A; --surface:#1D1F26; --ink:#ECEDF1; --ink-soft:#A4A8B4; --ink-faint:#6F7380;
-    --line:#2C2F38; --accent:#F08A34; --accent-soft:#3A2715; --accent-dark:#FFB273;
-    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;
-    min-height:100vh;display:flex;flex-direction:column}
-  main{flex:1;width:100%;max-width:1080px;margin:0 auto;padding:48px 16px}
-  h1{font-size:clamp(28px,5vw,44px);letter-spacing:-.03em;margin:0 0 10px;line-height:1.1}
-  .lead{color:var(--ink-soft);font-size:17px;margin:0 0 36px;max-width:580px;line-height:1.5}
+  /* Only what is specific to the welcome page; tokens and layout come from
+     /shared/page.css, so the three hub pages cannot drift apart. */
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}
   .card{display:flex;gap:14px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);
     border-radius:14px;padding:20px;text-decoration:none;color:inherit;box-shadow:var(--shadow);
@@ -40,17 +20,14 @@
   .card:hover,.card:focus-visible{transform:translateY(-2px);border-color:var(--accent);outline:none}
   .icon{font-size:26px;width:48px;height:48px;border-radius:12px;background:var(--accent-soft);
     display:flex;align-items:center;justify-content:center;flex:none}
-  /* These are spans so the whole card can stay a single <a>; they need to be
-     block to stack rather than run together on one line. */
+  /* Spans, so the whole card stays one <a>; block so they stack. */
   .card-name{display:block;font-weight:700;font-size:16px;margin-bottom:3px}
   .card-tag{display:block;color:var(--ink-soft);font-size:13.5px;line-height:1.4}
   .card-path{display:block;color:var(--ink-faint);font-size:12px;margin-top:8px;
     font-family:ui-monospace,monospace}
-  .noscript{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:24px}
+  .noscript{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    padding:16px;margin-bottom:24px}
   .noscript ul{margin:8px 0 0;padding-left:20px}
-  .noscript a{color:var(--accent-dark)}
-  footer{text-align:center;color:var(--ink-faint);font-size:12.5px;padding:24px 16px}
-  @media (max-width:640px){ main{padding-top:32px} }
 </style>
 </head>
 <body>
