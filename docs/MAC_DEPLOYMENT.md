@@ -8,15 +8,16 @@ How to run all three repositories on one Mac: **ATIP-DEV**, **bkesari** and **bk
 The feature and merge status of all three repos is in
 [`FEATURE_STATUS_2026-10-08.xlsx`](FEATURE_STATUS_2026-10-08.xlsx), next to this file.
 
-**Checked on 2026-10-08** from fresh clones of `master` / `main`. The checks ran on Linux, so the
-macOS-only parts (Homebrew, LaunchAgents) are as documented but untested.
+**Checked on 2026-10-08**, after every open pull request was merged, from fresh clones of
+`master` / `main` against a local MySQL 8.0. The checks ran on Linux, so the macOS-only parts
+(Homebrew, the MySQL installer, LaunchAgents) are as documented but untested.
 
 | App | Result |
 |---|---|
-| ATIP | 1,321 tests pass (36 skipped) |
-| bkesari | migrates, seeds, typechecks and builds; 279/279 tests pass |
-| Education | 375/375 tests pass; the SQLite setup below serves pages |
-| Portal | starts and serves `/` and `/tasks/` |
+| ATIP | 1,336 tests pass (42 skipped) |
+| bkesari | `tools/setup_local_mysql.sh` migrates and seeds it; the site serves its shops; 281/281 tests pass with bkesari#13 |
+| Education | 387/387 tests pass; serves pages from MySQL |
+| Portal | 44 tests + 32 deploy-guard checks pass; the Task Tracker saves to MySQL |
 
 ## What runs where
 
@@ -25,9 +26,12 @@ Each app gets its own port, so all four can run at the same time.
 | App | Folder | Address on the Mac | Database |
 |---|---|---|---|
 | ATIP dashboard + scheduler | `ATIP-DEV/` | http://localhost:8000 | SQLite file `atip_data/atip.db` |
-| Bkesari shop & milk marketplace | `bkesari/` | http://localhost:3000 | PostgreSQL 16 |
-| bkesari.com portal (Task Tracker, ATIP viewer) | `bkesari-platform/` | http://localhost:3001 | SQLite file `portal/data/` |
-| Education platform (Laravel) | `bkesari-platform/edu/` | http://127.0.0.1:8001 | SQLite file `edu/database/database.sqlite` |
+| Bkesari shop & milk marketplace | `bkesari/` | http://localhost:3000 | MySQL `bk_milk` (tests: `bk_milk_test`) |
+| bkesari.com portal (Task Tracker, ATIP viewer) | `bkesari-platform/` | http://localhost:3001 | MySQL `bk_portal` |
+| Education platform (Laravel) | `bkesari-platform/edu/` | http://127.0.0.1:8001 | MySQL `bk_edu` |
+
+The script in step 3 also creates `bk_ladwani` (LadWani's tables, ready for when that app runs here)
+and `bk_atip` (empty, for if ATIP ever moves off its SQLite file).
 
 ---
 
@@ -42,23 +46,23 @@ xcode-select --install
 # Homebrew, if you don't have it: https://brew.sh
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# Everything the three repos need
-brew install git gh python@3.13 node@22 postgresql@16 php composer
+# Everything the three repos need (MySQL itself you installed from mysql.com)
+brew install git gh python@3.13 node@22 php composer
 
-# node@22 and postgresql@16 are "keg-only": put them on your PATH
-echo 'export PATH="$(brew --prefix)/opt/node@22/bin:$(brew --prefix)/opt/postgresql@16/bin:$PATH"' >> ~/.zprofile
+# node@22 is "keg-only", and the mysql.com installer does not put its tools on the PATH
+echo 'export PATH="$(brew --prefix)/opt/node@22/bin:/usr/local/mysql/bin:$PATH"' >> ~/.zprofile
 source ~/.zprofile
-
-# Start PostgreSQL now and at every login
-brew services start postgresql@16
 ```
+
+MySQL must be running: System Settings → **MySQL** → **Start MySQL Server**, and tick
+"Start MySQL when your computer starts up".
 
 Check the versions:
 
 ```bash
 python3.13 --version   # 3.13.x  (ATIP needs 3.11+. macOS's own python3 is 3.9, too old)
 node --version         # v22.x   (the portal needs 22.13+)
-psql --version         # 16.x
+mysql --version        # 8.x or 9.x (from mysql.com)
 php --version          # 8.3 or newer
 ```
 
@@ -105,7 +109,36 @@ exists only on this Mac.
 
 ---
 
-## 3. ATIP (the trading platform)
+## 3. Local MySQL databases (once)
+
+One script creates a database and a user for each site in the MySQL on your Mac, and writes those
+logins into each app's `.env`:
+
+```bash
+cd ~/Projects/bkesari-platform
+tools/setup_local_mysql.sh
+```
+
+It asks for the MySQL **root** password, the one you chose while installing MySQL. Then it:
+
+1. creates `bk_milk`, `bk_milk_test`, `bk_portal`, `bk_edu`, `bk_ladwani` and `bk_atip`, each with
+   its own user. A user can reach only its own database, and only from this Mac;
+2. writes the logins into `bkesari/.env`, `bkesari-platform/.env` and `bkesari-platform/edu/.env`.
+   An existing `.env` is backed up to `~/.bkesari_env_backups/` first, and only its database lines
+   change;
+3. creates the tables (installing each app's packages the first time) and loads demo data into a
+   database that was empty.
+
+The passwords it generates are saved in `~/.bkesari_local_mysql.env`, which only your user can read.
+Running it again is safe: it reuses those passwords and never re-seeds a database that has data.
+`--no-migrate` stops after step 2.
+
+ATIP is the exception. It keeps its SQLite file `atip_data/atip.db`, because ATIP's MySQL mode is
+still marked experimental. The script creates `bk_atip` but never changes ATIP's settings.
+
+---
+
+## 4. ATIP (the trading platform)
 
 Full details: `ATIP-DEV/README.md`, "Quick Setup (macOS)". The short version:
 
@@ -161,41 +194,16 @@ To get an expired Dhan token back without you, the token agent needs `dhan_pin` 
 
 ---
 
-## 4. Bkesari marketplace (Next.js)
+## 5. Bkesari marketplace (Next.js)
+
+Step 3 already set this up: `.env`, both databases, the tables and the demo shops.
 
 ```bash
 cd ~/Projects/bkesari
-
-createdb dairy_bakery
-createdb dairy_bakery_test
-```
-
-`main` has no `.env.example` yet (the README mentions one, but it only exists on the unmerged PR #9).
-So create `.env` yourself:
-
-```bash
-cat > .env <<EOF
-DATABASE_URL=postgresql://$(whoami)@localhost:5432/dairy_bakery
-TEST_DATABASE_URL=postgresql://$(whoami)@localhost:5432/dairy_bakery_test
-AUTH_SECRET=$(openssl rand -base64 32)
-CRON_SECRET=$(openssl rand -hex 32)
-PAN_ENCRYPTION_KEY=$(openssl rand -base64 32)
-EOF
-```
-
-What each value does:
-- Homebrew's PostgreSQL logs you in as your Mac user with no password, which is why the database URLs use `$(whoami)`.
-- With no Cashfree keys the app runs in mock payment mode, which is right for local use.
-- With no Google OAuth keys, `/signin` shows an email-only form in development.
-
-```bash
-npm ci
-npm run db:migrate                                   # schema into dairy_bakery
-npm run db:seed                                      # 5 demo shops, 18 categories, 40 products
 npm run dev                                          # http://localhost:3000
 ```
 
-Sign in at http://localhost:3000/signin with any email.
+Sign in at http://localhost:3000/signin with any email: the email-only form exists in development.
 - To make yourself admin, add `BOOTSTRAP_ADMIN_EMAILS=you@example.com` to `.env` **before** you first sign in with that address.
 - To run the daily subscription orders by hand:
 
@@ -204,12 +212,12 @@ source .env
 curl -X POST http://localhost:3000/api/cron/daily-orders -H "Authorization: Bearer $CRON_SECRET"
 ```
 
-**Tests.** The test database needs the schema too. The README doesn't mention this, and without it every integration test fails with `relation ... does not exist`:
+**Tests:** `npm test` (281 tests, on `bk_milk_test`).
 
-```bash
-DATABASE_URL=postgresql://$(whoami)@localhost:5432/dairy_bakery_test npm run db:migrate
-npm test                                             # 279 tests
-```
+Two known problems on `main`, each with a fix waiting in a pull request:
+- **`/admin` answers 500 on MySQL** (two PostgreSQL casts survived the port). Fixed by bkesari#12.
+- **11 geocoding tests fail** when `.env` came from `.env.example`. The app itself is unaffected.
+  Fixed by bkesari#13.
 
 Production-style run: `npm run build && npm start`.
 
@@ -217,87 +225,73 @@ Production-style run: `npm run build && npm start`.
 
 ---
 
-## 5. bkesari.com portal (Node / Express)
+## 6. bkesari.com portal (Node / Express)
 
 ```bash
 cd ~/Projects/bkesari-platform
 npm install
-PORT=3001 npm start                                  # http://localhost:3001
+node --env-file=.env portal/server.js                # http://localhost:3001
 ```
 
-It uses SQLite in `portal/data/` by itself, so there's no database to set up. Logins are environment variables:
+`--env-file=.env` is what makes it use MySQL: plain `npm start` reads no file and falls back to
+SQLite. The `.env` from step 3 holds the database login, port 3001, and generated logins for the
+Task Tracker (`TRACKER_USER` / `TRACKER_PASSWORD`) and the ATIP viewer (`ATIP_USER` /
+`ATIP_PASSWORD`). The portal creates its own tables the first time it starts.
 
-```bash
-PORT=3001 TRACKER_USER=me TRACKER_PASSWORD=secret \
-  ATIP_USER=me ATIP_PASSWORD=secret ATIP_PUBLISH_TOKEN=local-token npm start
-```
-
-- Without `TRACKER_*`, `/tasks/` is open.
-- Without `ATIP_*`, `/atip/` refuses to load.
-
-To see ATIP's read-only dashboard here, point ATIP's `atip_data/publish.json` at
-`http://localhost:3001/atip/api/snapshot` with the token `local-token`, then run
-`./publish_snapshot.sh` in `ATIP-DEV`.
+To see ATIP's read-only dashboard here:
+1. Point ATIP's `atip_data/publish.json` at `http://localhost:3001/ATIP/api/snapshot`, using the
+   `ATIP_PUBLISH_TOKEN` from this `.env`.
+2. Run `./publish_snapshot.sh` in `ATIP-DEV`.
 
 ---
 
-## 6. Education platform (Laravel)
+## 7. Education platform (Laravel)
+
+Step 3 already wrote `edu/.env` (local URL, `bk_edu` login, app key), ran the migrations, and
+seeded ~20 schools and ~275 synthetic users. What is left is the CSS and JavaScript:
 
 ```bash
 cd ~/Projects/bkesari-platform/edu
-composer install
-cp .env.example .env
-php artisan key:generate
-open -e .env
-```
-
-`.env.example` is set up for Hostinger. For the Mac, change these lines in `.env`:
-
-```
-APP_ENV=local
-APP_DEBUG=true
-APP_URL=http://127.0.0.1:8001
-DB_CONNECTION=sqlite
-```
-
-Then delete the `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME` and `DB_PASSWORD` lines. An empty `DB_DATABASE=` would stop Laravel using its default SQLite file.
-
-If `migrate` asks whether to create the SQLite database, answer **yes**.
-
-```bash
-php artisan migrate:fresh --seed                     # ~20 schools, ~275 synthetic users
 npm install && npm run build                         # CSS / JS
 php artisan serve --port=8001                        # http://127.0.0.1:8001
 ```
 
 Demo logins (all use the password `Password123!`) are in `edu/TEST_ACCOUNTS.md`, for example `admin@test.agtci.com`.
-Tests: `php artisan test`.
+Tests: `php artisan test`. These use an in-memory database, not `bk_edu`.
 
 ---
 
-## 7. Every day
+## 8. Every day
 
 | To | Run |
 |---|---|
 | Start ATIP by hand | `cd ~/Projects/ATIP-DEV && ./start_atip.sh` (not needed if the LaunchAgent is installed) |
 | Stop the ATIP agent | `launchctl bootout gui/$UID/com.atip.platform` |
 | Start the marketplace | `cd ~/Projects/bkesari && npm run dev` |
-| Start the portal | `cd ~/Projects/bkesari-platform && PORT=3001 npm start` |
+| Start the portal | `cd ~/Projects/bkesari-platform && node --env-file=.env portal/server.js` |
 | Start Education | `cd ~/Projects/bkesari-platform/edu && php artisan serve --port=8001` |
-| Pull the latest code | `git pull` in each folder. Then re-run `pip install -r requirements.txt` (ATIP) or `npm ci` / `composer install` if dependencies changed, and the migrations |
+| Pull the latest code | `git pull` in each folder. If dependencies changed, run `npm ci`, `composer install` or `pip install -r requirements.txt`. Then run `tools/setup_local_mysql.sh` again to apply new migrations |
 | Check Git vs GitHub | `~/Projects/bkesari-platform/tools/check_local_git.sh` |
 | Something already uses a port | `lsof -i :8000`, then stop that process, or pick another port |
+| Look inside a database | `mysql -u bk_edu -p bk_edu` (password in `~/.bkesari_local_mysql.env`), or MySQL Workbench |
 
-## 8. Not merged yet
+## 9. What changed on 2026-10-08
 
-These open pull requests are **not** in the code you get from `main` / `master`:
+Every pull request that was open on 2026-10-08 is now merged:
 
-| PR | What it adds |
+| PR | What it added |
 |---|---|
-| ATIP-DEV#8 (open) | MySQL runtime fixes. Only needed if you run ATIP on MySQL; SQLite is the default. |
-| bkesari#9 (draft) | MySQL port, a `/milk` base path, a dev deploy workflow, and `.env.example`. |
-| bkesari#10 (draft) | A README notice about GoKesari. |
-| bkesari-platform#1 (draft) | dev tier, ATIP at `/ATIP/`, drops the stale `atip/` copy, edu Mac launcher, and fixed Ladwani SQL. |
-| bkesari-platform#2 (draft) | Shared menu, new pages, dev deploys and CI, and app tabs through the hub. |
+| ATIP-DEV#8 | MySQL runtime fixes for ATIP. SQLite stays the default. |
+| bkesari#9 | The marketplace moved from PostgreSQL to **MySQL**, is served under `/milk` on bkesari.com, and gained a dev-only deploy workflow and `.env.example`. |
+| bkesari#10 | A README notice that this repo and GoKesari have diverged. |
+| bkesari-platform#1 | The dev tier, ATIP at `/ATIP/`, the stale `atip/` copy removed, and the Ladwani SQL fixed. |
+| bkesari-platform#2 | A shared menu, Global Warming and Driving Simulator pages, dev deploys and CI, and the app tabs (`/milk/`, `/edu/`, `/ladwani/`) served through the hub. |
 
-Note: the `atip/` folder inside `bkesari-platform` is an old copy of ATIP from 2026-09-10. Always run ATIP from the `ATIP-DEV` repo.
+Still open:
+- bkesari#12: the admin dashboard fix, opened by another session after these merges.
+- bkesari#13: the test fix.
+
+Both are described in step 5. They touch neighbouring lines of `tests/setup.ts`, so whichever merges
+second needs both changes kept.
+
+Always run ATIP from the `ATIP-DEV` repo. `bkesari-platform/atip/` now only points there.
