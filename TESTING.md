@@ -254,13 +254,19 @@ promoting dev to test later — nothing is promoted on a warning you have not re
 
 Honest list, so nothing here is mistaken for covered:
 
-- **`/edu/` is not reachable under the hub's path yet.** The hub can now serve
-  a project under a tab path (`DEPLOY.md` Part 7), and Milk & Dairy is ready for
-  it: set `MILK_ORIGIN` on the hub and `/milk/` serves the app. LadWani needs
-  the same one-line `basePath` its sibling got. Education is the awkward one —
-  Apache serves its assets from a document root rather than the app serving
-  them itself — so `/edu/` is best left on its placeholder for now. The smoke
-  test reports an unconfigured tab as a warning rather than a failure.
+- **`/edu/` is not reachable under the hub's path yet.** The hub can serve a
+  project under a tab path (`DEPLOY.md` Part 7), and both Milk & Dairy and
+  LadWani are ready for it: set `MILK_ORIGIN` / `LADWANI_ORIGIN` on the hub and
+  `BASE_PATH` on each app's own site. Education is the awkward one — Apache
+  serves its assets from a document root rather than the app serving them
+  itself — so `/edu/` is best left on its placeholder for now. The smoke test
+  reports an unconfigured tab as a warning rather than a failure.
+- **An app's own `fetch()` calls are not covered by `basePath`.** That is not a
+  gap in the hub but a thing to check per project: `basePath` covers links,
+  the router and assets, and nothing else. LadWani needed 100 call sites across
+  42 files rewritten, and has `scripts/check-base-path.sh` to keep them that
+  way. Any further project served under a tab path needs the same audit —
+  `DEPLOY.md` Part 7 lists what to look at.
 - **LadWani's lint cannot run.** `eslint.config.mjs` targets ESLint 9 while the
   repo pins ESLint 8, and `next lint` on Next 14 would hang waiting for input.
   Its CI says so too. Nothing is linted in that repo.

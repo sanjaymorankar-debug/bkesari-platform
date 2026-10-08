@@ -484,13 +484,35 @@ is `basePath`; for Laravel it is the path in `APP_URL`.
 | Project | Hub side | App side |
 |---|---|---|
 | **Milk & Dairy** | `MILK_ORIGIN` | ✅ built for it — `BASE_PATH=/milk` in its deploy build; set it in that site's `.env` too |
-| **LadWani** | `LADWANI_ORIGIN` | needs `basePath: '/ladwani'` in `next.config.js`, the same one-line change |
+| **LadWani** | `LADWANI_ORIGIN` | ✅ built for it — `BASE_PATH=/ladwani` in its deploy build; set it in that site's `.env` too |
 | **Education** | `EDU_ORIGIN` | needs `APP_URL=https://dev.bkesari.com/edu` and its document root reachable under that path; Laravel builds asset URLs from `APP_URL`, and `public/build` would need to resolve under `/edu` too |
 
 Education is the awkward one, because its assets are served by Apache from a
 document root rather than by the app itself. Until that is sorted, `/edu/` is
 better left on its placeholder with the Education site reachable at its own
 hostname.
+
+### `basePath` is not the whole job for an app that calls its own API
+
+Worth knowing before wiring up a third project, because it is not obvious and
+costs a day if you find it in production. Next's `basePath` covers `next/link`,
+`useRouter` and asset URLs. It does **not** rewrite `fetch()`, because the
+argument is an ordinary runtime string the compiler never looks inside.
+
+Milk & Dairy happened to have no absolute `fetch('/api/...')` calls, so
+`basePath` really was the whole change there. LadWani had **100 of them across
+42 files**, every one of which would have called the hub's root instead of the
+app — returning the hub's own 404 page while the app's pages looked perfectly
+fine. They now read `` `${BASE_PATH}/api/...` ``, and
+`Ladwani/scripts/check-base-path.sh` fails the build if a bare one is added
+back, because nothing else catches it.
+
+The same applies to anything else that builds a URL the browser will use and
+that Next does not own: NextAuth's `SessionProvider basePath`, a `signOut`
+`callbackUrl` (NextAuth navigates the browser itself), and a server route that
+returns a URL in its JSON. What is NOT affected: `router.push`, `<Link href>`,
+and middleware's `pathname` comparisons — Next strips the prefix before
+middleware runs, and adds it back to a middleware redirect.
 
 ### If a project stops answering
 
