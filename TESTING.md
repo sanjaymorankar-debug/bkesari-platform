@@ -25,7 +25,7 @@ is already established and your time is better spent on sections 2 and 4.
 | `bkesari-platform` | `ci.yml` | the server, proxy and shared menu parse; **19 menu unit tests**; **20 proxy tests**, including a real proxy against a real upstream; **32 deploy-guard cases**; the hub boots against sqlite and passes the full smoke test; correct logins are accepted and wrong ones rejected |
 | `bkesari` (Milk & Dairy) | `ci.yml` | migrations apply to a real **MySQL 8**; typecheck; eslint; **281 unit and integration tests**; a production build; the deploy-guard cases |
 | `Ladwani` | `ci.yml` | migrations apply to a real **MySQL 8**; reference and UAT data seed; typecheck; `prisma validate`; the schema still targets MySQL; the test suite; a production build; the deploy-guard cases |
-| `bkesari-platform/edu` | `ci.yml` (`edu` job) | **375 PHPUnit tests** (1,059 assertions, 42 files) against in-memory sqlite; `composer validate`; the Vite manifest matches the files on disk |
+| `bkesari-platform/edu` | `ci.yml` (`edu` job) | **387 PHPUnit tests** (1,085 assertions, 43 files) against in-memory sqlite, including 12 covering the app served under the hub's `/edu/` path; `composer validate`; the Vite manifest matches the files on disk |
 
 Each project's **deploy** workflow re-runs its own suite before it publishes, so
 a build that reaches dev is one that passed. Nothing is deployed on a red build.
@@ -201,6 +201,19 @@ more than the welcome page.
       code cannot tell you.
 - [ ] Stop a proxied app and reload its tab: you should get a **502 that still
       shows the menu**, not a dead end.
+- [ ] **`/edu/` specifically**, because it is the one tab whose prefix is
+      stripped at the hub and put back by the app, so it fails in ways a status
+      code hides. With the page open, view source and check that **every** URL
+      in it starts with `/edu` or `https://<host>/edu` — in particular
+      `data-update-uri="/edu/livewire/update"` and the `livewire.min.js`
+      `src`. Then **sign in**: the form posts over that one URI and has no
+      `action` of its own, so if the prefix is missing nothing happens at all.
+      Then **sign out**, and confirm you land back inside `/edu/` rather than on
+      the hub's home page.
+- [ ] **`/edu/` once more, arriving from a protected page**: open
+      `/edu/admin/rating-weights` while signed out, sign in when redirected, and
+      confirm you land on **that** page and not on the hub. Laravel remembers
+      the page from the incoming request, which no longer carries the prefix.
 
 ### 4.3 Each deployed app
 
@@ -254,13 +267,19 @@ promoting dev to test later — nothing is promoted on a warning you have not re
 
 Honest list, so nothing here is mistaken for covered:
 
-- **`/edu/` is not reachable under the hub's path yet.** The hub can serve a
-  project under a tab path (`DEPLOY.md` Part 7), and both Milk & Dairy and
-  LadWani are ready for it: set `MILK_ORIGIN` / `LADWANI_ORIGIN` on the hub and
-  `BASE_PATH` on each app's own site. Education is the awkward one — Apache
-  serves its assets from a document root rather than the app serving them
-  itself — so `/edu/` is best left on its placeholder for now. The smoke test
-  reports an unconfigured tab as a warning rather than a failure.
+- **Signed URLs would break under a tab path.** Laravel validates a signature
+  by rebuilding the URL from the request, which reaches the Education app with
+  the `/edu` prefix already stripped, so a signature generated with the prefix
+  can never match. Nothing signs a URL today (`MustVerifyEmail` is switched off
+  on the `User` model), so this is a trap rather than a fault — but password
+  reset links or email verification will need the prefix restored before the
+  check. `DEPLOY.md` Part 7 says where.
+- **The three tab paths are wired but unproven against Hostinger.** `/milk/`,
+  `/edu/` and `/ladwani/` have each been driven end to end against their real
+  app behind the real hub locally, including a browser sign-in through
+  Livewire for Education. What has not happened is a run on the actual dev
+  sites, because no tier is deployed yet. The smoke test reports an
+  unconfigured tab as a warning rather than a failure.
 - **An app's own `fetch()` calls are not covered by `basePath`.** That is not a
   gap in the hub but a thing to check per project: `basePath` covers links,
   the router and assets, and nothing else. LadWani needed 100 call sites across

@@ -11,13 +11,24 @@
  * falling through to the hub's "not on this tier yet" page. So this file
  * changes nothing until a tier is actually configured.
  *
- * THE PATH IS NOT REWRITTEN. `/milk/orders` is forwarded as `/milk/orders`,
- * and the app behind it is expected to serve itself under that prefix — a
- * Next.js `basePath`, Laravel's `APP_URL` path. That is deliberate: if the
- * prefix were stripped here, the app would emit absolute asset URLs like
- * `/_next/...` that the hub does not serve, and the three apps would collide
- * with each other at the root. Getting the app to own its prefix is the only
- * arrangement where its own links come out right.
+ * THE PREFIX IS FORWARDED UNCHANGED, UNLESS A TAB ASKS OTHERWISE.
+ * `/milk/orders` is forwarded as `/milk/orders`, and the app behind it serves
+ * itself under that prefix (a Next.js `basePath`). Stripping it there would
+ * make the app emit `/_next/...` asset URLs the hub does not serve, and the
+ * apps would collide with each other at the root.
+ *
+ * A tab marked `strip` is the other case: the prefix is removed before the
+ * request is forwarded, so the app answers at its own root. That is for
+ * Laravel, where the two halves of the job pull in opposite directions —
+ * routes are matched against the request path, so a prefix the app does not
+ * know about is a 404 on every page, while `public/` is served by the web
+ * server at the origin's root, so `/edu/build/app.js` has nowhere to come
+ * from unless the prefix comes off. The prefix goes back on in the app's
+ * OUTPUT instead, via `URL::forceRootUrl()`. See DEPLOY.md Part 7.
+ *
+ * So a stripping tab depends on the app to emit prefixed URLs itself:
+ * `autoRewrite` repairs the host in a Location header but never the path, and
+ * an app that redirects to a bare `/dashboard` lands on the hub, not the tab.
  *
  * MOUNT THIS BEFORE ANY BODY PARSER. express.json() consumes the request
  * stream, and what follows is worse than an empty body: the forwarded request
@@ -35,7 +46,10 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
  */
 const PROXIED_TABS = [
   { path: '/milk/', env: 'MILK_ORIGIN', name: 'Milk & Dairy Products' },
-  { path: '/edu/', env: 'EDU_ORIGIN', name: 'Education' },
+  // `strip`: Laravel matches routes against the request path and serves
+  // `public/` from the origin's root, so it cannot own the prefix the way a
+  // Next.js app does. It puts the prefix back on its own output instead.
+  { path: '/edu/', env: 'EDU_ORIGIN', name: 'Education', strip: true },
   { path: '/ladwani/', env: 'LADWANI_ORIGIN', name: 'LadWani' },
 ];
 
@@ -118,6 +132,26 @@ function matches(route, pathname) {
 }
 
 /**
+ * Removes a tab's prefix from a request URL, for a route marked `strip`.
+ *
+ * Takes the whole `req.url` because that is what http-proxy-middleware hands
+ * `pathRewrite`, query string and all, and the query has to survive: `?page=2`
+ * is the difference between a listing's second page and its first.
+ *
+ * `pathFilter` has already established that the path is the base or sits
+ * under it, so what is left is either empty or starts with a slash. Empty
+ * becomes `/`, so `/edu` reaches the app as its home page rather than as the
+ * empty string, which is not a valid request target.
+ */
+function stripPrefix(route, url) {
+  const raw = String(url == null ? '' : url);
+  const cut = raw.search(/[?#]/);
+  const path = cut === -1 ? raw : raw.slice(0, cut);
+  const suffix = cut === -1 ? '' : raw.slice(cut);
+  return (path.slice(route.base.length) || '/') + suffix;
+}
+
+/**
  * The page shown when a configured app does not answer.
  *
  * Carries the menu, like the "not on this tier yet" page does, so a project
@@ -169,10 +203,14 @@ function mount(app, {
     app.use(
       createProxyMiddleware({
         // Mounted at the root with a filter, NOT as app.use('/milk', ...):
-        // Express strips a mount path from req.url, which would send the app
-        // `/` and lose the prefix its own links are built on.
+        // Express strips a mount path from req.url, so a pass-through tab would
+        // lose the prefix its app's own links are built on, and a stripping tab
+        // would have the rewrite done for it where it can neither be seen nor
+        // tested. Whether the prefix goes is decided below, in one place.
         pathFilter: (pathname) => matches(route, pathname),
         target: route.target,
+        // Only for a tab that cannot own its prefix; see the file header.
+        ...(route.strip ? { pathRewrite: (url) => stripPrefix(route, url) } : {}),
         // Name-based virtual hosts need the Host header to match the target,
         // and so does TLS SNI when the target is https.
         changeOrigin: true,
@@ -213,4 +251,4 @@ function mount(app, {
   return routes;
 }
 
-module.exports = { PROXIED_TABS, parseOrigin, readRoutes, matches, mount };
+module.exports = { PROXIED_TABS, parseOrigin, readRoutes, matches, stripPrefix, mount };

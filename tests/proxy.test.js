@@ -27,6 +27,22 @@ test('a tab is proxied for each project that can have its own app', () => {
   );
 });
 
+test('only the tab that cannot own its prefix has it stripped', () => {
+  // Which of the two modes a tab uses is a fact about the app behind it, not
+  // about the tier, so it is pinned here rather than left to configuration.
+  // Next.js owns its prefix through `basePath`; Laravel cannot, because it
+  // matches routes against the request path and serves `public/` from the
+  // origin's root.
+  assert.deepEqual(
+    proxy.PROXIED_TABS.map((t) => [t.path, t.strip === true]),
+    [
+      ['/milk/', false],
+      ['/edu/', true],
+      ['/ladwani/', false],
+    ],
+  );
+});
+
 test('every proxied path is a real tab in the menu', () => {
   // A proxy route for a path the menu does not link to would be unreachable,
   // and a typo here would be invisible.
@@ -127,6 +143,30 @@ test('a path that only looks like a tab is not proxied', () => {
   assert.ok(!proxy.matches(route, ''));
 });
 
+test('stripping a prefix leaves a request the app can answer', () => {
+  const route = { base: '/edu' };
+  const strip = (url) => proxy.stripPrefix(route, url);
+
+  // The tab's own home page has to become `/`, not the empty string: an empty
+  // request target is not valid and the app would never see its home page.
+  assert.equal(strip('/edu'), '/');
+  assert.equal(strip('/edu/'), '/');
+
+  assert.equal(strip('/edu/login'), '/login');
+  assert.equal(strip('/edu/livewire/update'), '/livewire/update');
+  // Laravel's compiled assets are served from the origin's root, which is the
+  // whole reason this tab strips.
+  assert.equal(strip('/edu/build/assets/app-BvRk9kiK.js'), '/build/assets/app-BvRk9kiK.js');
+});
+
+test('stripping a prefix keeps the query string', () => {
+  // `?page=2` is the difference between a listing's second page and its first.
+  const route = { base: '/edu' };
+  assert.equal(proxy.stripPrefix(route, '/edu/courses?page=2&sort=name'), '/courses?page=2&sort=name');
+  assert.equal(proxy.stripPrefix(route, '/edu?page=2'), '/?page=2');
+  assert.equal(proxy.stripPrefix(route, '/edu/a?q=/edu/b'), '/a?q=/edu/b');
+});
+
 // --- A real proxy, against a real upstream ---------------------------------
 
 /** Starts a server on an arbitrary free port and resolves its origin. */
@@ -184,6 +224,66 @@ test('a configured tab is forwarded to its app, prefix intact', async () => {
     // A query string is carried through untouched.
     const withQuery = await (await fetch(hub.origin + '/milk/search?q=ghee&page=2')).json();
     assert.equal(withQuery.url, '/milk/search?q=ghee&page=2');
+  } finally {
+    await close(hub.server);
+    await close(upstream.server);
+  }
+});
+
+test('a stripping tab reaches its app at the root, and only that tab', async () => {
+  // Both tabs are configured against the same upstream, so the two modes are
+  // compared under one hub rather than in isolation: a mistake that stripped
+  // every tab, or none, fails here.
+  const upstream = await listen((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ url: req.url }));
+  });
+  const hub = await hubWith({ EDU_ORIGIN: upstream.origin, MILK_ORIGIN: upstream.origin });
+  try {
+    const seen = async (path) => (await (await fetch(hub.origin + path)).json()).url;
+
+    assert.equal(await seen('/edu'), '/');
+    assert.equal(await seen('/edu/'), '/');
+    assert.equal(await seen('/edu/login'), '/login');
+    // The asset path that only resolves once the prefix is off.
+    assert.equal(await seen('/edu/build/assets/app.js'), '/build/assets/app.js');
+    assert.equal(await seen('/edu/courses?page=2'), '/courses?page=2');
+
+    // ...while the tab that owns its prefix still keeps it.
+    assert.equal(await seen('/milk/orders/42'), '/milk/orders/42');
+  } finally {
+    await close(hub.server);
+    await close(upstream.server);
+  }
+});
+
+test("a Livewire update reaches the app stripped, with its body", async () => {
+  // Every interactive page in Education posts to this one endpoint, including
+  // the login form, which has no `action` of its own. If the path arrived
+  // prefixed it would 404 on a route Laravel never registered, and if the body
+  // were eaten the component would come back empty — so both are checked in
+  // the shape the app actually sees.
+  const upstream = await listen((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ url: req.url, method: req.method, body }));
+    });
+  });
+  const hub = await hubWith({ EDU_ORIGIN: upstream.origin });
+  try {
+    const payload = JSON.stringify({ components: [{ snapshot: '{}', updates: {} }] });
+    const res = await fetch(hub.origin + '/edu/livewire/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Livewire': '1' },
+      body: payload,
+    });
+    assert.equal(res.status, 200);
+    const got = await res.json();
+    assert.equal(got.url, '/livewire/update');
+    assert.equal(got.method, 'POST');
+    assert.equal(got.body, payload);
   } finally {
     await close(hub.server);
     await close(upstream.server);

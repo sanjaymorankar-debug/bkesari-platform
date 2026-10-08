@@ -272,11 +272,35 @@ for tab in /milk/ /edu/ /ladwani/; do
     # basePath for a Next.js app, or APP_URL for Laravel. This is the likeliest
     # mistake when wiring a tab up, so it is named rather than left as a code.
     bad "$tab answered 404 from the app behind it, not from the hub" \
-        "An origin is set for $tab, so the request reached the app and the app did not recognise the path. Check it serves itself under $tab (Next.js basePath, Laravel APP_URL) — see DEPLOY.md Part 7."
+        "An origin is set for $tab, so the request reached the app and the app did not recognise the path. For /milk/ or /ladwani/ the app is probably not serving itself under $tab (Next.js basePath). For /edu/ the hub strips the prefix, so a 404 means the app has no route for the stripped path at all. See DEPLOY.md Part 7."
   else
     bad "$tab answered $STATUS" "expected 200, or 404 with the placeholder page."
   fi
 done
+
+# Education's prefix is stripped at the hub and put back by the app, so it can
+# serve a perfect-looking 200 page in which every URL points at the hub. The
+# loudest case is Livewire's endpoint: the sign-in form has no action of its own
+# and posts there, so getting it wrong means nobody can sign in while the page
+# itself looks completely healthy. A status code cannot see any of this.
+fetch /edu/
+if [ "$STATUS" = 200 ]; then
+  if grep -qF 'data-update-uri="/edu/livewire/update"' "$BODY"; then
+    ok "/edu/ points Livewire at its own endpoint, so the sign-in form can post"
+  elif grep -qF 'data-update-uri="/livewire/update"' "$BODY"; then
+    bad "NOBODY CAN SIGN IN TO /edu/ — Livewire is posting to the hub" \
+        "The page carries data-update-uri=\"/livewire/update\" with no /edu prefix, so the sign-in form posts to the hub and silently does nothing. Set APP_URL=<origin>/edu on the Education site — see DEPLOY.md Part 7."
+  else
+    caution "/edu/ served no Livewire endpoint to check" "no data-update-uri in the page; the markup may have changed."
+  fi
+
+  if grep -qE 'src="[^"]*/edu/livewire/livewire(\.min)?\.js' "$BODY"; then
+    ok "/edu/ loads Livewire's script from under its own path"
+  else
+    bad "/edu/ is loading Livewire's script from the wrong place" \
+        "The script src is missing the /edu prefix, so it 404s at the hub and the page gets no Livewire at all — no sign-in form, no interactive page. Check APP_URL on the Education site."
+  fi
+fi
 
 # --- Result ----------------------------------------------------------------
 printf '\n%d passed, %d failed, %d warnings\n' "$pass" "$fail" "$warn"

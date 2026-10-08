@@ -464,20 +464,36 @@ The same two settings, for the other two projects, are `EDU_ORIGIN` and
 `LADWANI_ORIGIN`. Each tab is independent: an origin that is not set leaves
 that tab on its placeholder, so you can bring them up one at a time.
 
-### Why the app has to own the prefix
+### Two ways to live under a prefix
 
-The hub forwards `/milk/orders` as `/milk/orders`. It does **not** strip the
-prefix, and that is the whole design:
+There are two arrangements, and which one a tab uses is a fact about the
+framework behind it, not about the tier. `portal/proxy.js` marks the difference
+with `strip` on the tab, and `tests/proxy.test.js` pins it.
 
-- Strip it, and the app answers as if it were at the root, so its pages come
-  back with asset URLs like `/_next/static/...`. The hub does not serve those,
-  so every page would load as unstyled HTML with broken navigation.
-- Strip it for all three, and they collide: three apps all wanting `/_next`,
-  `/build`, `/storage` at the root of the same origin.
+**Next.js keeps the prefix** (`/milk/`, `/ladwani/`). The hub forwards
+`/milk/orders` as `/milk/orders` and the app serves itself there, via
+`basePath`:
 
-Making the app serve itself under its own prefix is the only arrangement where
-its own links, assets, redirects and cookies come out right. For Next.js that
-is `basePath`; for Laravel it is the path in `APP_URL`.
+- strip it, and the app answers as if it were at the root, so its pages come
+  back with asset URLs like `/_next/static/...`, which the hub does not serve —
+  every page would load as unstyled HTML with broken navigation;
+- strip it for several apps and they collide, all wanting `/_next`, `/build`,
+  `/storage` at the root of the same origin.
+
+**Laravel has the prefix stripped** (`/edu/`). It cannot own one, because the
+two halves of the job pull in opposite directions:
+
+- Laravel matches routes against the request path, so a prefix it does not know
+  about is a 404 on *every* page. Prefixing all 60-odd route definitions would
+  fix that half.
+- But `public/` is served by the web server at the site's own root, so
+  `/edu/build/app.js` has nowhere to come from. Prefixing the routes does not
+  help: the web server never consults Laravel for a file that exists.
+
+So the prefix comes off at the hub, the app answers at its root, and it puts
+the prefix back on in its *output* instead — one call to `URL::forceRootUrl()`
+rooted on `APP_URL`. See the Laravel section below, because the rest of that
+story is not obvious.
 
 ### What each project still needs
 
@@ -485,12 +501,11 @@ is `basePath`; for Laravel it is the path in `APP_URL`.
 |---|---|---|
 | **Milk & Dairy** | `MILK_ORIGIN` | ✅ built for it — `BASE_PATH=/milk` in its deploy build; set it in that site's `.env` too |
 | **LadWani** | `LADWANI_ORIGIN` | ✅ built for it — `BASE_PATH=/ladwani` in its deploy build; set it in that site's `.env` too |
-| **Education** | `EDU_ORIGIN` | needs `APP_URL=https://dev.bkesari.com/edu` and its document root reachable under that path; Laravel builds asset URLs from `APP_URL`, and `public/build` would need to resolve under `/edu` too |
+| **Education** | `EDU_ORIGIN` | ✅ built for it — set `APP_URL=https://dev.bkesari.com/edu` in that site's `.env`; nothing else, and no change to its document root |
 
-Education is the awkward one, because its assets are served by Apache from a
-document root rather than by the app itself. Until that is sorted, `/edu/` is
-better left on its placeholder with the Education site reachable at its own
-hostname.
+Education needs no deploy-time flag: the path in `APP_URL` is the whole switch,
+read at boot. Leave the path off and the app behaves exactly as it did before,
+which is how its test suite and `artisan serve` keep working.
 
 ### `basePath` is not the whole job for an app that calls its own API
 
@@ -513,6 +528,56 @@ that Next does not own: NextAuth's `SessionProvider basePath`, a `signOut`
 returns a URL in its JSON. What is NOT affected: `router.push`, `<Link href>`,
 and middleware's `pathname` comparisons — Next strips the prefix before
 middleware runs, and adds it back to a middleware redirect.
+
+### `APP_URL` is not the whole job for Laravel either
+
+The same shape of trap as the Next.js one above, and worth reading before
+anyone touches the Education app's URLs. `AppServiceProvider::serveUnderBasePath()`
+is where all of this lives, and `edu/tests/Feature/Platform/BasePathTest.php`
+holds it in place.
+
+Laravel does **not** build web URLs from `APP_URL`. During a request the URL
+generator uses the *request* root (`UrlGenerator::formatRoot()` →
+`$this->request->root()`), so setting `APP_URL` alone changes nothing a visitor
+sees. Pinning it with `URL::forceRootUrl($appUrl)` is what does the work, and
+that single call covers more than you would expect:
+
+- all 192 `route()` calls, the 25 `redirect()`s, `url()`, `asset()` and `@vite`;
+- **relative** route URLs too (`route('x', absolute: false)`), because the
+  prefix is in the root that gets stripped off them, and the stripping of the
+  request's own base path is a no-op here — the hub already removed it;
+- Livewire's AJAX endpoint with them, which matters more than it sounds: the
+  sign-in form has no `action` of its own and posts to `data-update-uri`.
+
+Four things it does not cover, each of which was a real failure found by
+driving the live site in a browser rather than by reading the code:
+
+| What | Why it escapes | Fix |
+|---|---|---|
+| `URL::forceScheme()` | `formatRoot()` rewrites the forced root's scheme with the *request's*, and the hub forwards over plain HTTP — so every `https://` link came back `http://` | forced when `APP_URL` is https |
+| Livewire's `<script src>` | taken from the raw route path, never passing through the URL generator, so it asked the hub for `/livewire/livewire.min.js` — a 404, leaving the page with no Livewire and therefore no sign-in form at all | `livewire.asset_url`, derived from the route Livewire registered, because the file is `livewire.js` with debug on and `livewire.min.js` with it off |
+| The remembered page after signing in | `redirect()->guest()` stores `UrlGenerator::full()`, which reads the URL straight off the request — prefix already stripped. Signing in landed the visitor on `Cannot GET /admin/rating-weights` at the hub | `App\Routing\BasePathRedirector` |
+| A literal path in a view | the generator never sees it. Three did this: `href="/"` in the guest layout and `redirect('/')` in logout, delete-account and verify-email — all three left the tab for the hub | `url('/')` / `route('home')`, and a test that greps every Blade file so a new one fails the suite |
+
+Two more things to know, neither currently a bug:
+
+- **Signed URLs would not survive the trip.** `hasValidSignature()` rebuilds the
+  URL from the request, which arrives without the prefix, so a signature made
+  with it can never match. Nothing signs a URL today — `MustVerifyEmail` is
+  switched off on the `User` model — but whatever turns it on will need the
+  prefix restored before the check.
+- **Outside a request the rule inverts.** In a queued job or scheduled command
+  Laravel invents a stand-in request from `APP_URL`, so its base path *is*
+  `/edu` and `route(..., absolute: false)` comes back **without** the prefix —
+  the opposite of a real request. Absolute URLs are correct in both, which is
+  what mail and notifications use.
+
+And one consequence for anyone running the suite: `edu/phpunit.xml` pins
+`APP_URL` to a bare origin. It has to. The test client builds its request URLs
+with `url()`, so with a path in `APP_URL` every `$this->get('/login')` asks for
+`/edu/login` — which no route matches, because in production the hub strips the
+prefix and in a test there is no hub. Unpinned, 206 of the 375 tests failed
+purely on a developer's local `.env`.
 
 ### If a project stops answering
 
