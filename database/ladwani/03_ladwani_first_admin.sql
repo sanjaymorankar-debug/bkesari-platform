@@ -31,7 +31,7 @@ WHERE u.email = @admin_email;
 -- ============================================================================
 -- OPTION B: create the admin directly (no registration). Remove the leading
 -- "-- " from every line of the block below, edit the SET lines, then run it.
--- Make the bcrypt hash on your PC (in D:\My_Code\community-platform\apps\api):
+-- Make the bcrypt hash on your PC (in /Users/agtci/Documents/Project_Documents/Projects/community-platform/apps/api):
 --     node -e "console.log(require('bcryptjs').hashSync('Your-Strong-Password', 12))"
 -- It looks like  $2a$12$...  (60 characters).
 -- ============================================================================

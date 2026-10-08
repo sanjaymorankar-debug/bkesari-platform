@@ -1,3 +1,9 @@
+> **For the bkesari.com tiers (devedu / testedu / edu.bkesari.com), `../DEPLOY.md`
+> part 2 is authoritative.** This file documents the original single-site deploy to
+> `edutest.agtci.com`, which is served by the separate (now superseded) `edu`
+> repository. The steps still read correctly — substitute the domain and remember
+> that the app lives in this repo's `edu/` folder.
+
 # Deployment (Hostinger)
 
 **Live target:** `https://edutest.agtci.com` (domain root — not a subpath)

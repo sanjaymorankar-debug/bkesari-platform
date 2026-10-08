@@ -104,10 +104,17 @@ function basicAuth(userVar, passVar, realm, failClosed) {
 }
 
 /* ---------- ATIP read-only viewer ----------
-   The ATIP machine pushes its rendered dashboard page here (see
-   atip/publish_snapshot.py). This server never talks back to it. The page is
-   served with a CSP that forbids network calls, and the order controls are
-   hidden, so the hosted copy is view-only. */
+   Served at both /atip/ (the path the menu links) and /ATIP/; every route below
+   names both spellings.
+
+   The ATIP machine pushes its rendered dashboard page here (see ATIP-DEV's
+   publish_snapshot.py). This server never talks back to it. The page is served
+   with a CSP that forbids network calls, and the order controls are hidden, so
+   the hosted copy is view-only.
+
+   If ATIP is instead hosted as the full interactive app, /ATIP/ is proxied to
+   that server and this viewer is bypassed -- see ATIP-DEV/docs/HOSTED_DEPLOYMENT.md,
+   which also lists the controls that exposure requires. */
 const ATIP_READONLY_CSS = `<style id="bk-readonly">
   .acts,#pendBox,#modalBg,#brokerBanner,#brokerBanner2,button[onclick^="deleteRule"]{display:none!important}
   /* The shared menu takes the sticky slot above this, so the banner scrolls. */
@@ -180,7 +187,12 @@ async function main() {
   });
 
   // The ATIP snapshot is a full HTML page, so its route gets a larger limit.
-  app.use('/atip/api/snapshot', express.json({ limit: '15mb' }));
+  // Both spellings are listed on every ATIP route below. Express's routing is
+  // case-insensitive by default, so /ATIP/ already resolves -- but that is a
+  // default someone can flip with `case sensitive routing`, and uploaders may be
+  // configured with either /atip/api/snapshot or /ATIP/api/snapshot.
+  // Naming both keeps old publishers working whatever that setting says.
+  app.use(['/atip/api/snapshot', '/ATIP/api/snapshot'], express.json({ limit: '15mb' }));
   app.use(express.json({ limit: '1mb' }));
 
   const api = express.Router();
@@ -312,7 +324,7 @@ async function main() {
   });
 
   // Express treats /tasks and /tasks/ as the same route, so check the raw path.
-  app.get(['/tasks', '/atip'], (req, res, next) => {
+  app.get(['/tasks', '/atip', '/ATIP'], (req, res, next) => {
     if (req.path.endsWith('/')) return next();
     res.redirect(302, req.path + '/');
   });
@@ -320,7 +332,7 @@ async function main() {
   app.use('/tasks/api', api);
 
   // Upload from the ATIP machine: bearer token, not the viewer login.
-  app.post('/atip/api/snapshot', wrap(async (req, res) => {
+  app.post(['/atip/api/snapshot', '/ATIP/api/snapshot'], wrap(async (req, res) => {
     const token = process.env.ATIP_PUBLISH_TOKEN;
     const [scheme, given] = (req.headers.authorization || '').split(' ');
     if (!token) return res.status(503).json({ error: 'ATIP_PUBLISH_TOKEN is not set on the server' });
@@ -334,7 +346,7 @@ async function main() {
     res.json({ ok: true, received_at: now });
   }));
 
-  app.get('/atip/', basicAuth('ATIP_USER', 'ATIP_PASSWORD', 'bkesari ATIP', true), wrap(async (req, res) => {
+  app.get(['/ATIP/', '/atip/'], basicAuth('ATIP_USER', 'ATIP_PASSWORD', 'bkesari ATIP', true), wrap(async (req, res) => {
     res.set('Content-Security-Policy', ATIP_CSP);
     res.set('Cache-Control', 'no-store');
     res.set('X-Robots-Tag', 'noindex');
@@ -342,7 +354,7 @@ async function main() {
     if (!snap) {
       return res.send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ATIP</title>
         <body style="font:15px system-ui;background:#0f172a;color:#e2e8f0;min-height:100vh;margin:0">
-        ${menu.renderHtml({ pathname: '/atip/', env: currentEnv(req) })}
+        ${menu.renderHtml({ pathname: '/ATIP/', env: currentEnv(req) })}
         <div style="display:grid;place-items:center;padding:64px 16px;text-align:center">
         <div><h1 style="margin:0 0 8px">ATIP</h1><p>No dashboard snapshot has been published yet.</p></div></div>`);
     }
@@ -351,7 +363,7 @@ async function main() {
     const banner = `<div id="bk-banner"><span><a href="/">← bkesari</a> &nbsp; <b>Read-only view</b> · trade date ${escapeHtml(snap.trade_date)} · built ${escapeHtml((snap.generated_at || '').slice(0, 16))} IST · uploaded ${age}</span><span>Orders can only be placed on the ATIP machine.</span></div>`;
     // Rendered here rather than by the browser script: this page's CSP allows
     // inline scripts but not 'self', so an external <script> would be blocked.
-    const top = menu.renderHtml({ pathname: '/atip/', env: currentEnv(req) }) + banner;
+    const top = menu.renderHtml({ pathname: '/ATIP/', env: currentEnv(req) }) + banner;
     let html = snap.html.replace(/<\/head>/i, `${ATIP_READONLY_CSS}</head>`);
     html = /<body[^>]*>/i.test(html) ? html.replace(/<body[^>]*>/i, m => m + top) : top + html;
     res.type('html').send(html);
