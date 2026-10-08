@@ -4,6 +4,8 @@ const express = require('express');
 const createDb = require('./db');
 // The one definition of the top menu, shared with every browser page.
 const menu = require('./public/shared/menu.js');
+// Serves the projects that live in their own apps under their own tab paths.
+const proxy = require('./proxy');
 
 /* ============================================================
    bkesari.com
@@ -138,6 +140,45 @@ async function main() {
   const db = await createDb();
   const app = express();
   app.disable('x-powered-by');
+
+  // Keep every tier but production out of search indexes. dev.bkesari.com and
+  // test.bkesari.com carry the same real-looking content as production, so
+  // without this they compete with it in search results and expose work in
+  // progress. Driven by the tier rather than hard-coded, so one build still
+  // serves all three and production is left untouched. A static robots.txt
+  // could not do this: it would have to differ per tier.
+  //
+  // First, so it also covers the proxied projects below.
+  //
+  // The tier is also stated outright in a header. It decides which database
+  // every project opens, so being able to ask a running site which tier it
+  // thinks it is — `curl -I https://dev.bkesari.com` — is worth one header.
+  // scripts/smoke-dev.sh checks it: before this existed it had to infer the
+  // tier from the badge on an undeployed tab's placeholder, which quietly
+  // stopped being possible as soon as the tabs were deployed.
+  app.use((req, res, next) => {
+    const env = currentEnv(req);
+    res.set('X-Bkesari-Env', env);
+    if (env !== 'prod') res.set('X-Robots-Tag', 'noindex, nofollow');
+    next();
+  });
+
+  // The projects that live in their own apps, each served under its own tab
+  // path. Off until its origin is set, in which case its tab keeps falling
+  // through to the "not on this tier yet" page further down.
+  //
+  // BEFORE THE BODY PARSERS, and that is not a style choice: express.json()
+  // consumes the request stream, and the forwarded request still carries the
+  // original Content-Length — so the app waits for bytes that never arrive and
+  // the visitor hangs until the proxy timeout hands them a 502. Every POST
+  // into a proxied project would do it. tests/proxy.test.js covers both
+  // orders, so moving this fails the suite.
+  const proxied = proxy.mount(app, {
+    // The bar for the proxy's own error page. Takes the request so the tier
+    // badge comes from the same place every other page gets it.
+    renderMenu: (pathname, req) => menu.renderHtml({ pathname, env: currentEnv(req) }),
+  });
+
   // The ATIP snapshot is a full HTML page, so its route gets a larger limit.
   app.use('/atip/api/snapshot', express.json({ limit: '15mb' }));
   app.use(express.json({ limit: '1mb' }));
@@ -270,17 +311,6 @@ async function main() {
     res.status(500).json({ error: 'Server error' });
   });
 
-  // Keep every tier but production out of search indexes. dev.bkesari.com and
-  // test.bkesari.com carry the same real-looking content as production, so
-  // without this they compete with it in search results and expose work in
-  // progress. Driven by the tier rather than hard-coded, so one build still
-  // serves all three and production is left untouched. A static robots.txt
-  // could not do this: it would have to differ per tier.
-  app.use((req, res, next) => {
-    if (currentEnv(req) !== 'prod') res.set('X-Robots-Tag', 'noindex, nofollow');
-    next();
-  });
-
   // Express treats /tasks and /tasks/ as the same route, so check the raw path.
   app.get(['/tasks', '/atip'], (req, res, next) => {
     if (req.path.endsWith('/')) return next();
@@ -357,6 +387,11 @@ ${menu.renderHtml({ pathname: req.path, env: currentEnv(req) })}
     console.log(`bkesari portal running at http://localhost:${port}`);
     console.log(`Task Tracker at http://localhost:${port}/tasks/`);
     if (!process.env.TRACKER_PASSWORD) console.warn('WARNING: TRACKER_USER/TRACKER_PASSWORD not set - the tracker is open to anyone who can reach it.');
+    for (const route of proxied) console.log(`${route.path} -> ${route.target}`);
+    if (!proxied.length) {
+      console.log('No project origins set (MILK_ORIGIN, EDU_ORIGIN, LADWANI_ORIGIN);');
+      console.log('those tabs will show the "not on this tier yet" page.');
+    }
   });
 }
 

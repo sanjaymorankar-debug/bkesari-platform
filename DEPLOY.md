@@ -212,6 +212,8 @@ A tab whose destination is not deployed on a tier yet answers with a short
 "not available on this tier" page rather than a bare 404, so the menu never
 dead-ends while the estate is still being assembled.
 
+How `/milk/`, `/edu/` and `/ladwani/` get served is Part 7.
+
 ---
 
 ## Part 5: Ladwani (full rebuild — NestJS + Next.js)
@@ -414,3 +416,100 @@ either the hub proxying those paths to each app, or each app being given a
 answering with the "not on this tier yet" page. The hub is a Node process, so
 proxying from it is the more likely answer, but it is a change to the hub and to
 each app's config rather than to these workflows.
+
+---
+
+## Part 7: Serving a project under one of the hub's paths
+
+The menu's tabs are **paths** — `/milk/`, `/edu/`, `/ladwani/` — but each of
+those projects is its own application on its own Hostinger site. The hub closes
+that gap: it forwards those paths to the app behind them, so one origin serves
+the whole estate and the same link is right on dev, test and production.
+
+### Turn it on for Milk & Dairy
+
+Two settings, one on each side.
+
+**1. On the hub** (dev.bkesari.com → Node.js Web App → Environment variables):
+
+| Variable | Value |
+|---|---|
+| `MILK_ORIGIN` | the Milk & Dairy site's own origin, e.g. `https://devmilk.bkesari.com` |
+
+That is all. Restart, and `/milk/` stops showing the placeholder and starts
+serving the app. The startup log prints `/milk/ -> https://devmilk.bkesari.com`
+so you can see it took.
+
+**2. On the Milk & Dairy app** (devmilk.bkesari.com → Environment variables):
+
+| Variable | Value |
+|---|---|
+| `BASE_PATH` | `/milk` |
+
+`BASE_PATH` has to be set in **two** places, and missing either one is the
+mistake worth warning about:
+
+- in the **build**, which `bkesari`'s deploy workflow already does, because
+  Next inlines the value into its client bundles;
+- in the **server's `.env`**, as above, because `next start` reads the config
+  again to decide how to route.
+
+A build made with it but started without it serves the app at its root while
+every asset URL in the HTML points at `/milk/...`, so every page arrives as
+unstyled markup with broken navigation — and the HTTP status is still 200, so
+nothing looks wrong until you open it. `scripts/smoke-dev.sh` reports this case
+by name.
+
+The same two settings, for the other two projects, are `EDU_ORIGIN` and
+`LADWANI_ORIGIN`. Each tab is independent: an origin that is not set leaves
+that tab on its placeholder, so you can bring them up one at a time.
+
+### Why the app has to own the prefix
+
+The hub forwards `/milk/orders` as `/milk/orders`. It does **not** strip the
+prefix, and that is the whole design:
+
+- Strip it, and the app answers as if it were at the root, so its pages come
+  back with asset URLs like `/_next/static/...`. The hub does not serve those,
+  so every page would load as unstyled HTML with broken navigation.
+- Strip it for all three, and they collide: three apps all wanting `/_next`,
+  `/build`, `/storage` at the root of the same origin.
+
+Making the app serve itself under its own prefix is the only arrangement where
+its own links, assets, redirects and cookies come out right. For Next.js that
+is `basePath`; for Laravel it is the path in `APP_URL`.
+
+### What each project still needs
+
+| Project | Hub side | App side |
+|---|---|---|
+| **Milk & Dairy** | `MILK_ORIGIN` | ✅ built for it — `BASE_PATH=/milk` in its deploy build; set it in that site's `.env` too |
+| **LadWani** | `LADWANI_ORIGIN` | needs `basePath: '/ladwani'` in `next.config.js`, the same one-line change |
+| **Education** | `EDU_ORIGIN` | needs `APP_URL=https://dev.bkesari.com/edu` and its document root reachable under that path; Laravel builds asset URLs from `APP_URL`, and `public/build` would need to resolve under `/edu` too |
+
+Education is the awkward one, because its assets are served by Apache from a
+document root rather than by the app itself. Until that is sorted, `/edu/` is
+better left on its placeholder with the Education site reachable at its own
+hostname.
+
+### If a project stops answering
+
+The hub does not take the rest of the estate down with it:
+
+- **Connection refused** (the app is stopped): a 502 page that still carries
+  the menu, so the other tabs stay reachable.
+- **Too slow** (30 seconds, `timeoutMs` in `portal/proxy.js`): the connection
+  is dropped and the browser shows its own error. Nothing can be rendered at
+  that point — the request is already in flight.
+
+Either way the hub itself, `/tasks/`, `/atip/` and the static pages keep
+working. The hub's log names the tab and the target for every proxy error.
+
+### Guardrails
+
+An origin is read from the environment only, never from a request, so the hub
+cannot be turned into an open proxy. Each value must be a bare `http://` or
+`https://` origin: a path, a query, a fragment or embedded credentials are
+refused with a message naming the variable, and that tab stays on its
+placeholder rather than the hub failing to start. `tests/proxy.test.js` covers
+those rules along with the forwarding itself.

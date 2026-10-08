@@ -179,26 +179,46 @@ esac
 # tier badge, so it reports the tier the app actually resolved — which is the
 # same value that decides which database it opens.
 group "Tier identity"
-fetch /milk/
-if [ "$STATUS" = 404 ] && grep -qF 'not on this tier yet' "$BODY"; then
+# The hub states its tier in a header. That value is the one the app resolves,
+# and it is what decides which database every project on this tier opens — a
+# site that thinks it is production while serving dev is the most expensive
+# misconfiguration here, so it is checked rather than assumed.
+fetch /
+REPORTED=$(header x-bkesari-env)
+if [ -z "$REPORTED" ]; then
+  bad "the site does not report its tier" \
+      "no X-Bkesari-Env header on /. Either this is an older deploy, or something in front of the app is stripping it."
+elif [ "$REPORTED" = "$EXPECT_ENV" ]; then
+  ok "the site reports itself as '$EXPECT_ENV'"
+else
+  bad "the site reports itself as '$REPORTED', not '$EXPECT_ENV'" \
+      "The tier decides which database it opens. Check APP_ENV on the server before using this site."
+fi
+
+# A second, independent read of the same thing: the tier badge beside the
+# brand. Only a tab with no app behind it can be used for this, because its
+# placeholder is the one page the hub renders server-side without a login — so
+# this is a bonus check when one is available, never a requirement.
+for probe in /milk/ /edu/ /ladwani/; do
+  fetch "$probe"
+  [ "$STATUS" = 404 ] || continue
+  grep -qF 'not on this tier yet' "$BODY" || continue
   if [ "$EXPECT_ENV" = prod ]; then
     if grep -qF 'class="bk-env"' "$BODY"; then
-      bad "the site is wearing a tier badge on production" \
-          "APP_ENV or the hostname is making production look like a lower tier."
+      bad "the menu is wearing a tier badge on production" \
+          "seen on $probe. APP_ENV or the hostname is making production look like a lower tier."
     else
-      ok "production shows no tier badge"
+      ok "the menu shows no tier badge on production"
     fi
   elif grep -qF "class=\"bk-env\">$EXPECT_ENV<" "$BODY"; then
-    ok "the site reports itself as '$EXPECT_ENV'"
+    ok "the menu's tier badge agrees ('$EXPECT_ENV', seen on $probe)"
   else
     GOT=$(grep -o 'class="bk-env">[a-z]*<' "$BODY" | head -1 | sed 's/.*>\(.*\)</\1/')
-    bad "the site does not report itself as '$EXPECT_ENV'" \
-        "it reports '${GOT:-none}'. The tier decides which database it opens — check APP_ENV on the server."
+    bad "the menu's tier badge reads '${GOT:-none}', not '$EXPECT_ENV'" \
+        "seen on $probe. The header and the badge disagree, so one of them is wrong."
   fi
-else
-  caution "could not read the tier from /milk/ (answered $STATUS)" \
-          "that tab may now be deployed, which is fine; the tier was not verified."
-fi
+  break
+done
 
 # Non-production tiers must not be indexable: they carry the same real-looking
 # content as production and would compete with it in search results.
@@ -245,6 +265,14 @@ for tab in /milk/ /edu/ /ladwani/; do
     ok "$tab is deployed and answering"
   elif [ "$STATUS" = 404 ] && grep -qF 'not on this tier yet' "$BODY"; then
     caution "$tab is not deployed on this tier yet" "the menu still works; it shows the placeholder."
+  elif [ "$STATUS" = 404 ]; then
+    # Neither the hub's placeholder nor the app: so an origin IS configured
+    # for this tab, the hub forwarded the request, and the app answered 404.
+    # Almost always the app is not serving itself under the prefix — a missing
+    # basePath for a Next.js app, or APP_URL for Laravel. This is the likeliest
+    # mistake when wiring a tab up, so it is named rather than left as a code.
+    bad "$tab answered 404 from the app behind it, not from the hub" \
+        "An origin is set for $tab, so the request reached the app and the app did not recognise the path. Check it serves itself under $tab (Next.js basePath, Laravel APP_URL) — see DEPLOY.md Part 7."
   else
     bad "$tab answered $STATUS" "expected 200, or 404 with the placeholder page."
   fi

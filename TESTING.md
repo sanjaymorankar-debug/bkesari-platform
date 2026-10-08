@@ -22,7 +22,7 @@ is already established and your time is better spent on sections 2 and 4.
 
 | Repository | What runs | Covers |
 |---|---|---|
-| `bkesari-platform` | `ci.yml` | the server and shared menu parse; **19 menu unit tests**; **32 deploy-guard cases**; the hub boots against sqlite and passes the full smoke test; correct logins are accepted and wrong ones rejected |
+| `bkesari-platform` | `ci.yml` | the server, proxy and shared menu parse; **19 menu unit tests**; **20 proxy tests**, including a real proxy against a real upstream; **32 deploy-guard cases**; the hub boots against sqlite and passes the full smoke test; correct logins are accepted and wrong ones rejected |
 | `bkesari` (Milk & Dairy) | `ci.yml` | migrations apply to a real **MySQL 8**; typecheck; eslint; **281 unit and integration tests**; a production build; the deploy-guard cases |
 | `Ladwani` | `ci.yml` | migrations apply to a real **MySQL 8**; reference and UAT data seed; typecheck; `prisma validate`; the schema still targets MySQL; the test suite; a production build; the deploy-guard cases |
 | `bkesari-platform/edu` | `ci.yml` (`edu` job) | **375 PHPUnit tests** (1,059 assertions, 42 files) against in-memory sqlite; `composer validate`; the Vite manifest matches the files on disk |
@@ -194,6 +194,13 @@ more than the welcome page.
 - [ ] **`/milk/`, `/edu/`, `/ladwani/`** — each either works or shows the
       "not on this tier yet" page **with the menu still usable**. A bare 404 or a
       server error is a fault.
+- [ ] For a tab with an origin set (`MILK_ORIGIN` and friends, `DEPLOY.md`
+      Part 7), check the **app's own assets load**: open it and confirm the page
+      is styled and its links work, not just that it returns HTML. A page served
+      with the prefix stripped comes back as unstyled markup, which a status
+      code cannot tell you.
+- [ ] Stop a proxied app and reload its tab: you should get a **502 that still
+      shows the menu**, not a dead end.
 
 ### 4.3 Each deployed app
 
@@ -247,11 +254,13 @@ promoting dev to test later — nothing is promoted on a warning you have not re
 
 Honest list, so nothing here is mistaken for covered:
 
-- **`/milk/`, `/edu/` and `/ladwani/` are not reachable under the hub's paths
-  yet.** Each app is its own Hostinger site on its own subdomain, and serving it
-  under a hub path needs either the hub proxying to it or a `basePath` in the
-  app. Until then those three tabs legitimately show the placeholder, and the
-  smoke test reports them as warnings rather than failures.
+- **`/edu/` is not reachable under the hub's path yet.** The hub can now serve
+  a project under a tab path (`DEPLOY.md` Part 7), and Milk & Dairy is ready for
+  it: set `MILK_ORIGIN` on the hub and `/milk/` serves the app. LadWani needs
+  the same one-line `basePath` its sibling got. Education is the awkward one —
+  Apache serves its assets from a document root rather than the app serving
+  them itself — so `/edu/` is best left on its placeholder for now. The smoke
+  test reports an unconfigured tab as a warning rather than a failure.
 - **LadWani's lint cannot run.** `eslint.config.mjs` targets ESLint 9 while the
   repo pins ESLint 8, and `next lint` on Next 14 would hang waiting for input.
   Its CI says so too. Nothing is linted in that repo.

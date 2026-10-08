@@ -64,6 +64,12 @@ jobs:
           # The same script the deploy workflow runs against dev.bkesari.com.
           bash scripts/smoke-dev.sh http://127.0.0.1:3100 --env dev
 
+          # The hub states its tier in a header; the smoke test above relies on
+          # it, so check the value itself here rather than only that it exists.
+          env=$(curl -sSI --max-time 5 http://127.0.0.1:3100/ \
+            | tr -d '\r' | grep -i '^x-bkesari-env:' | cut -d' ' -f2)
+          [ "$env" = dev ] || { echo "::error::the hub reports tier '$env', expected 'dev'"; exit 1; }
+
           # Not covered by the smoke test, which has no credentials: that the
           # logins actually admit the right ones.
           code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 \
