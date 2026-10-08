@@ -19,6 +19,17 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <!-- Pinned to a bare origin on purpose. A path here (as in
+             APP_URL=https://dev.bkesari.com/edu, which is how this app is
+             published under the hub) makes AppServiceProvider pin the URL
+             generator's root to it, and the test client builds its request
+             URLs with url(), so every $this->get('/login') would ask for
+             /edu/login — a path no route matches, because in production the
+             hub strips the prefix before the app sees it and in a test there
+             is no hub. Without this the suite would pass or fail depending on
+             a developer's .env. The prefixed behaviour has its own coverage in
+             tests/Feature/Platform/BasePathTest.php. -->
+        <env name="APP_URL" value="http://localhost"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>

@@ -10,16 +10,17 @@ One repository for everything behind **bkesari.com**. Each part keeps its own la
 
 ## Environments
 
-| Branch | Site | Menu links go to |
-|---|---|---|
-| `dev` | https://dev.bkesari.com | `devladwani.bkesari.com`, `devedu.bkesari.com`, … |
-| `staging` | https://test.bkesari.com | `testladwani.bkesari.com`, `testedu.bkesari.com`, … |
-| `main` | https://bkesari.com | `ladwani.bkesari.com`, `edu.bkesari.com`, … |
+| Branch | Site |
+|---|---|
+| `dev` | https://dev.bkesari.com |
+| `staging` | https://test.bkesari.com |
+| `main` | https://bkesari.com |
 
-The menu picks `dev`, `test` or production from the address it is opened on, so all
-three branches use identical code (`portal/public/sites.js`). `localhost` maps to
-`test` deliberately — those subdomains already exist, so the outbound links work
-while iterating locally.
+The menu (`portal/public/shared/menu.js`) is the same on every tier. Its tabs are
+paths on the site you are on (`/milk/`, `/edu/`, `/ladwani/`, `/tasks/`, `/ATIP/`, ...),
+and the hub forwards each app's path to the app behind it (DEPLOY.md Part 7). The
+tier badge comes from the address: `dev.` and `localhost` are dev, `test.` is test,
+anything else is production.
 
 Build on `dev`, promote to `staging`, check test.bkesari.com, then merge into `main`.
 
@@ -56,4 +57,5 @@ npm start          # http://localhost:3000  (uses SQLite in portal/data/, needs 
 - The dashboard has counts, an overdue flag, search and a status filter.
 
 Deployment steps: **[DEPLOY.md](DEPLOY.md)**.
+Running all three repos (ATIP-DEV, bkesari, this one) on a Mac, and their feature / merge status: **[docs/MAC_DEPLOYMENT.md](docs/MAC_DEPLOYMENT.md)**.
 Education docs: `edu/README.md`, `edu/ROADMAP.md`. ATIP docs: `atip/README.md`.

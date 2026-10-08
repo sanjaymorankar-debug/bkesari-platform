@@ -1,0 +1,179 @@
+# Deploys the hub (portal/) to dev.bkesari.com — and to nowhere else.
+#
+# dev is the only tier that has any automation at all. test.bkesari.com and
+# bkesari.com are promoted by hand for now (DEPLOY.md), deliberately: a
+# mis-aimed deploy to production is the one mistake this stage cannot afford.
+#
+# No database credential is stored in GitHub. The server's own .env holds them
+# and rsync never writes or deletes it — see the "Upload" step.
+name: Deploy dev (portal)
+
+on:
+  push:
+    branches: [dev]
+    # Only a change to the hub itself redeploys it; edu/ has its own workflow.
+    paths:
+      - portal/**
+      - package.json
+      - package-lock.json
+      - .github/workflows/deploy-dev-portal.yml
+  # Lets you redeploy the current dev without an empty commit. It can be aimed
+  # at any branch in the UI, so the guard below re-checks the ref.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two deploys overlapping would interleave rsync and npm on one directory.
+concurrency:
+  group: deploy-dev-portal
+  cancel-in-progress: false
+
+env:
+  # The ONLY hostname this workflow may write to, hard-coded rather than taken
+  # from a secret. The guard checks the deploy path against it, so a mistyped
+  # DEV_DEPLOY_PATH fails the job instead of publishing to the wrong tier.
+  DEV_SITE: dev.bkesari.com
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The same checks CI runs. The deploy is gated on them so that the thing
+      # which publishes is the thing that verified.
+      - run: npm test
+
+  deploy:
+    needs: check
+    runs-on: ubuntu-latest
+    # Scopes the SSH secrets to this environment, and gives you a place to add
+    # a required reviewer later if you want deploys to be approved.
+    environment: dev
+
+    env:
+      DEPLOY_HOST: ${{ secrets.DEV_SSH_HOST }}
+      DEPLOY_USER: ${{ secrets.DEV_SSH_USER }}
+      DEPLOY_PORT: ${{ secrets.DEV_SSH_PORT }}
+      DEPLOY_DIR: ${{ secrets.DEV_PORTAL_PATH }}
+      SMOKE_URL: ${{ vars.DEV_PORTAL_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Refuses test, production, gokesari.com, a non-dev branch, and any
+      # missing secret, before the job holds anything worth losing. The rules
+      # live in .github/deploy/guard.sh and are tested by guard.test.sh.
+      - name: Refuse anything that is not dev
+        env:
+          DEPLOY_KEY: ${{ secrets.DEV_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV_SSH_KNOWN_HOSTS }}
+        run: bash .github/deploy/guard.sh
+
+      - name: Set up SSH
+        env:
+          DEPLOY_KEY: ${{ secrets.DEV_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Pinned host key rather than StrictHostKeyChecking=no, so the job
+          # fails instead of handing the key to whatever answers on that port.
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          # 65002 is Hostinger's SSH port; DEV_SSH_PORT overrides it.
+          echo "SSH_CMD=ssh -i $HOME/.ssh/id_deploy -p ${DEPLOY_PORT:-65002} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts" >> "$GITHUB_ENV"
+
+      - name: Upload
+        run: |
+          set -euo pipefail
+
+          # --delete keeps the server from accumulating files that have left
+          # the repo. The --exclude entries below are therefore load-bearing
+          # twice over: rsync does not upload them AND does not delete them on
+          # the server (that would need --delete-excluded, which is why this
+          # command must never grow that flag).
+          #
+          #   .env          the credentials, filled in by hand on the server
+          #   node_modules  installed on the server by the next step
+          #   data/         portal/data, the sqlite file when DB_CLIENT=sqlite
+          RSYNC_FLAGS=(
+            --archive --compress --human-readable
+            --delete
+            --exclude=.env
+            --exclude=node_modules/
+            --exclude=data/
+          )
+
+          # Only the hub's own files. edu/ and atip/ are separate sites and are
+          # left alone; --delete is per transferred directory, so anything
+          # already beside them on the server survives.
+          SOURCES=(package.json package-lock.json portal)
+
+          echo "### Files this deploy changes" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          rsync "${RSYNC_FLAGS[@]}" --dry-run --itemize-changes \
+            -e "$SSH_CMD" "${SOURCES[@]}" \
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          rsync "${RSYNC_FLAGS[@]}" \
+            -e "$SSH_CMD" "${SOURCES[@]}" \
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/"
+
+      - name: Install dependencies and restart
+        env:
+          # Hostinger's Node.js sites run behind Phusion Passenger, which
+          # reloads the app when this file's mtime changes. Set the repository
+          # variable DEV_RESTART_COMMAND if your site restarts another way.
+          RESTART: ${{ vars.DEV_RESTART_COMMAND }}
+        run: |
+          set -euo pipefail
+          # The heredoc is unquoted so the runner substitutes the path and the
+          # restart command into the script before sending it; the path is
+          # single-quoted on the remote side, and the guard has already
+          # established it is absolute and free of '..'.
+          RESTART_CMD="${RESTART:-mkdir -p tmp && touch tmp/restart.txt}"
+          $SSH_CMD "$DEPLOY_USER@$DEPLOY_HOST" 'bash -seuo pipefail' <<REMOTE
+          cd '$DEPLOY_DIR'
+          # --omit=dev because the hub has no build step and nothing it needs
+          # at runtime is a dev dependency. --no-audit/--no-fund keep the
+          # output short over a shared host's slow link.
+          npm ci --omit=dev --no-audit --no-fund
+          $RESTART_CMD
+          REMOTE
+
+      # The real checklist, not just "did it answer". scripts/smoke-dev.sh
+      # checks the shared bar is served, that /tasks/ and /atip/ are NOT open
+      # to the internet, that the site reports the tier it is meant to be, and
+      # that no .env or .git is reachable. Its failures are reasons not to
+      # promote a tier; see TESTING.md.
+      - name: Smoke check
+        if: ${{ vars.DEV_PORTAL_URL != '' }}
+        run: |
+          set -euo pipefail
+          # Passenger reloads on the first request after the restart file is
+          # touched, so give the app a moment to come back before judging it.
+          for attempt in 1 2 3 4 5 6; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$SMOKE_URL" || echo 000)
+            [ "$code" = 200 ] && break
+            echo "waiting for $SMOKE_URL (attempt $attempt: HTTP $code)"
+            [ "$attempt" = 6 ] || sleep 10
+          done
+          bash scripts/smoke-dev.sh "$SMOKE_URL" --env dev | tee /tmp/smoke.out
+          {
+            echo "### Smoke test"
+            echo '```'
+            cat /tmp/smoke.out
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
