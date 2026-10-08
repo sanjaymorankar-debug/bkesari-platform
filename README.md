@@ -40,4 +40,5 @@ npm start          # http://localhost:3000  (uses SQLite in portal/data/, needs 
 - The dashboard has counts, an overdue flag, search and a status filter.
 
 Deployment steps: **[DEPLOY.md](DEPLOY.md)**.
+Running all three repos (ATIP-DEV, bkesari, this one) on a Mac, and their feature / merge status: **[docs/MAC_DEPLOYMENT.md](docs/MAC_DEPLOYMENT.md)**.
 Education docs: `edu/README.md`, `edu/ROADMAP.md`. ATIP docs: `atip/README.md`.
