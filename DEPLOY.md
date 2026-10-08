@@ -162,10 +162,57 @@ Output goes to `atip_data\publish.log`. The viewer's banner shows how old the sn
 
 ---
 
-## Part 4: Other menu subdomains
+## Part 4: The shared menu
 
-The menu also links to `(test)ladwani`, `(test)asmymilk` and `(test)driving`.bkesari.com. Those apps aren't in this repo.
-Each needs its own site in hPanel, or its card will lead to an error page. Edit `portal/public/sites.js` to change or remove any of them.
+The top menu is defined once, in **`portal/public/shared/menu.js`**, in its `TABS`
+array. Adding, renaming or reordering a tab is an edit to that one file — there is
+no second list to keep in step, including the cards on the welcome page, which are
+built from the same array.
+
+Tabs are **paths**, not hostnames (`/milk/`, `/edu/`, …). Each tier serves every
+project under one origin, so the same link is correct on dev, test and production
+with no substitution. The tier only affects the badge beside the brand, and is read
+from the hostname (`dev.` / `test.` / bare) or from an explicit `window.BKESARI_ENV`
+a server can set from its own `APP_ENV`.
+
+### How a project includes it
+
+One tag, and no markup:
+
+```html
+<script src="/shared/menu.js" defer></script>
+```
+
+It injects itself at the top of `<body>`, or into `<div data-bkesari-menu></div>`
+if the page marks a slot. Once the bar is in the page it needs **no JavaScript to
+operate** — the mobile hamburger is a checkbox and its label, toggled purely
+through CSS — so it survives a strict Content-Security-Policy, and a failed
+script load degrades to a page without a bar rather than a broken one.
+
+(A `<details>`/`<summary>` disclosure reads better and was tried first, but a
+closed `<details>` does not render its non-summary children at all, so the tabs
+were invisible on desktop and no CSS could reveal them. The checkbox is the one
+disclosure whose open state CSS can reach. `tests/menu.test.js` asserts the
+markup has not drifted back.)
+
+For a page the server builds, `require()` the same file and call
+`renderHtml({ pathname, env })`. The ATIP viewer does exactly that: its CSP allows
+inline scripts but not `'self'`, so an external `<script>` there would be blocked,
+and server-rendering keeps that page's policy untouched.
+
+### Which paths the hub serves itself
+
+| Path | Served by |
+|---|---|
+| `/`, `/tasks/`, `/atip/` | this repo (`portal/`) |
+| `/global-warming/`, `/driving-simulator/` | this repo, static — still to be added |
+| `/milk/`, `/edu/`, `/ladwani/` | their own apps, reached through the hub |
+
+A tab whose destination is not deployed on a tier yet answers with a short
+"not available on this tier" page rather than a bare 404, so the menu never
+dead-ends while the estate is still being assembled.
+
+How `/milk/`, `/edu/` and `/ladwani/` get served is Part 7.
 
 ---
 
@@ -205,3 +252,351 @@ to protect, since neither `ladwani.bkesari.com` nor `devmiladwani.agtci.com` cur
 
 **Not yet done**: creating the two hPanel sites and their DNS records — this still needs manual
 hPanel/SSH access this repo's automation doesn't have.
+
+---
+
+## Part 6: Dev deployment workflows (GitHub Actions)
+
+Pushing to `dev` now deploys to dev, over SSH. **Nothing is automated for test or
+production** — those stay the manual promotions at the top of this file, on
+purpose: a mis-aimed deploy to production is the one mistake this stage cannot
+afford.
+
+| Repository | Workflow | Deploys | To |
+|---|---|---|---|
+| `bkesari-platform` | `deploy-dev-portal.yml` | `portal/` (the hub, Node) | `dev.bkesari.com` |
+| `bkesari-platform` | `deploy-dev-edu.yml` | `edu/` (Laravel) | `devedu.bkesari.com` |
+| `bkesari` | `deploy-dev.yml` | Milk & Dairy (Next.js) | `devmilk.bkesari.com` |
+| `Ladwani` | `deploy-dev.yml` | LadWani (Next.js) | `devladwani.bkesari.com` |
+
+Each one: runs the repo's checks → builds → `rsync` over SSH → installs runtime
+dependencies and restarts on the server → fetches the URL to confirm it answers.
+The two `bkesari-platform` workflows are filtered by path, so a change under
+`portal/` does not redeploy Laravel and vice versa. Every workflow also has a
+**Run workflow** button for redeploying the current `dev` without an empty commit.
+
+### What is never in GitHub
+
+No database password, and no `.env`. Credentials live only in each server's own
+`.env`, filled in by hand, and `rsync` is configured to neither upload nor delete
+it. The same goes for `storage/` (edu's uploads and logs), `portal/data/` and
+`uploads/`.
+
+That has one visible consequence worth knowing about: for the two Next.js apps,
+anything named `NEXT_PUBLIC_*` is baked into the bundle **at build time**, in CI,
+so the server's `.env` is read too late to supply it. Nothing public is set in CI
+at the moment, which means `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is empty on dev and
+Milk & Dairy falls back to manual address entry — which is what its `.env.example`
+already describes as the intended dev behaviour. If you want Maps working on dev,
+add that one key as a repository **variable** (it is domain-restricted and public
+by design) and pass it to the `Build` step. Never the server-side key.
+
+### How "dev only" is enforced
+
+`.github/deploy/guard.sh`, which every workflow runs before it holds an SSH
+connection or a build. It refuses:
+
+- any ref that is not `refs/heads/dev` — including a **Run workflow** aimed at
+  `main` from the UI;
+- any deploy path that is not an absolute path, inside a directory named exactly
+  the dev hostname, with no `..` in it. `test.bkesari.com`, `bkesari.com`,
+  `dev.bkesari.com.old` and `olddev.bkesari.com` all fail this;
+- `gokesari.com` and `agtci.com` outright, which this project must not touch;
+- a smoke-check URL pointing anywhere but the dev host;
+- any missing or empty secret, rather than falling back to a default.
+
+The dev hostname is **hard-coded in each workflow** (`DEV_SITE`), not read from a
+secret, so a mistyped path secret fails the job instead of publishing to the wrong
+tier. `.github/deploy/guard.test.sh` runs those rules against a table of about thirty
+cases in CI — the ones that must *fail* are the point of it — so this is a tested
+property rather than a comment.
+
+### One-time setup, per repository
+
+1. **A deploy key.** On your machine (or any shell), generate a key used for
+   nothing else:
+
+   ```bash
+   ssh-keygen -t ed25519 -f ~/.ssh/bkesari_dev_deploy -C "github-actions dev deploy" -N ""
+   ```
+
+   Append the **public** half (`~/.ssh/bkesari_dev_deploy.pub`) to
+   `~/.ssh/authorized_keys` on the Hostinger account — hPanel → Advanced → SSH
+   Access → Manage SSH keys does this for you. Keep the private half; it goes
+   into GitHub below and nowhere else.
+
+2. **The host key**, so the workflow never has to trust whatever answers on that
+   port. Hostinger's SSH port is 65002:
+
+   ```bash
+   ssh-keyscan -p 65002 <your-hostinger-host> 2>/dev/null
+   ```
+
+   Copy every line it prints.
+
+3. **GitHub → the repo → Settings → Environments → New environment → `dev`.**
+   Add these as **secrets** of that environment:
+
+   | Secret | Value |
+   |---|---|
+   | `DEV_SSH_HOST` | the Hostinger server's hostname or IP |
+   | `DEV_SSH_USER` | your SSH user, e.g. `u879099820` |
+   | `DEV_SSH_PORT` | `65002` (omit to use that default) |
+   | `DEV_SSH_KEY` | the **private** key from step 1, whole file |
+   | `DEV_SSH_KNOWN_HOSTS` | the output of step 2 |
+
+   And the deploy path, which differs per app — these are what the guard checks:
+
+   | Repository | Secret | Example |
+   |---|---|---|
+   | `bkesari-platform` | `DEV_PORTAL_PATH` | `/home/u879099820/domains/dev.bkesari.com/app` |
+   | `bkesari-platform` | `DEV_EDU_PATH` | `/home/u879099820/domains/devedu.bkesari.com/app` |
+   | `bkesari` | `DEV_DEPLOY_PATH` | `/home/u879099820/domains/devmilk.bkesari.com/app` |
+   | `Ladwani` | `DEV_DEPLOY_PATH` | `/home/u879099820/domains/devladwani.bkesari.com/app` |
+
+4. **Optional repository variables** (Settings → Secrets and variables → Actions
+   → Variables — *not* secrets, these are not sensitive):
+
+   | Variable | Effect if unset |
+   |---|---|
+   | `DEV_PORTAL_URL` / `DEV_EDU_URL` / `DEV_SMOKE_URL` | the smoke check is skipped |
+   | `DEV_RESTART_COMMAND` | `mkdir -p tmp && touch tmp/restart.txt`, which is how Hostinger's Passenger-backed Node sites reload |
+   | `DEV_EDU_DOCROOT` | edu's `public/` is not copied into the document root; do it by hand as in Part 2 step 3 |
+
+5. **Create the `dev` branch** if the repo has none, and push to it.
+
+### Migrations are not applied automatically
+
+By design, and consistent with the rest of this file preferring phpMyAdmin for
+schema changes: a deploy ships code and never alters a database. Each deploy's
+summary lists any migration files the push brought, with a warning, so you can
+apply them yourself — through phpMyAdmin, or over SSH with `npm run db:migrate`
+(Milk & Dairy) or `npx prisma migrate deploy` (LadWani).
+
+### Repositories that deliberately have no deploy workflow
+
+| Repository | Why |
+|---|---|
+| `GoKesari` | gokesari.com is a separate site and is explicitly out of scope — not to be touched for this work, and not one of the seven tabs. |
+| `edu` (standalone) | Superseded by `bkesari-platform/edu`, which is ahead of it. It still serves edutest.agtci.com from its own repo until you retire it. |
+| `agtci` | A bare `create-next-app` scaffold for a different domain; not a hub tab. |
+| `ATIP-DEV` | Runs on your PC and *pushes* snapshots to the hub (Part 3). The hub serves the viewer, so there is nothing to deploy to Hostinger. |
+
+### After a deploy: testing it
+
+`TESTING.md` is the checklist — what CI already proves (so you don't re-test it
+by hand), the tier-safety checks that need hPanel or SSH, and the manual browser
+checks. The mechanical part is a script:
+
+```bash
+bash scripts/smoke-dev.sh https://dev.bkesari.com --env dev
+```
+
+It needs only `curl` and the URL. The dev deploy runs it automatically and puts
+its output in the workflow summary, so a deploy that leaves the task tracker
+open to the internet, or points a tier at the wrong database, fails rather than
+reporting success.
+
+### What still has to happen before any of this can run
+
+None of it is verified against a real server, because none of the dev sites
+exists yet. In order:
+
+1. Create the hPanel sites and DNS records: `dev.bkesari.com`,
+   `devedu.bkesari.com`, `devmilk.bkesari.com`, `devladwani.bkesari.com`.
+2. Create each project's dev database and fill in that site's `.env`.
+3. Do the one-time setup above in each repository.
+4. Push to `dev` and read the workflow's summary.
+
+One design question is still open and is not a deployment detail. The menu's tabs
+are **paths** (`/milk/`, `/edu/`, `/ladwani/`), but each app above is its own
+Hostinger site on its own subdomain. Serving them under the hub's paths needs
+either the hub proxying those paths to each app, or each app being given a
+`basePath` — neither is built, and until one is, those three tabs will keep
+answering with the "not on this tier yet" page. The hub is a Node process, so
+proxying from it is the more likely answer, but it is a change to the hub and to
+each app's config rather than to these workflows.
+
+---
+
+## Part 7: Serving a project under one of the hub's paths
+
+The menu's tabs are **paths** — `/milk/`, `/edu/`, `/ladwani/` — but each of
+those projects is its own application on its own Hostinger site. The hub closes
+that gap: it forwards those paths to the app behind them, so one origin serves
+the whole estate and the same link is right on dev, test and production.
+
+### Turn it on for Milk & Dairy
+
+Two settings, one on each side.
+
+**1. On the hub** (dev.bkesari.com → Node.js Web App → Environment variables):
+
+| Variable | Value |
+|---|---|
+| `MILK_ORIGIN` | the Milk & Dairy site's own origin, e.g. `https://devmilk.bkesari.com` |
+
+That is all. Restart, and `/milk/` stops showing the placeholder and starts
+serving the app. The startup log prints `/milk/ -> https://devmilk.bkesari.com`
+so you can see it took.
+
+**2. On the Milk & Dairy app** (devmilk.bkesari.com → Environment variables):
+
+| Variable | Value |
+|---|---|
+| `BASE_PATH` | `/milk` |
+
+`BASE_PATH` has to be set in **two** places, and missing either one is the
+mistake worth warning about:
+
+- in the **build**, which `bkesari`'s deploy workflow already does, because
+  Next inlines the value into its client bundles;
+- in the **server's `.env`**, as above, because `next start` reads the config
+  again to decide how to route.
+
+A build made with it but started without it serves the app at its root while
+every asset URL in the HTML points at `/milk/...`, so every page arrives as
+unstyled markup with broken navigation — and the HTTP status is still 200, so
+nothing looks wrong until you open it. `scripts/smoke-dev.sh` reports this case
+by name.
+
+The same two settings, for the other two projects, are `EDU_ORIGIN` and
+`LADWANI_ORIGIN`. Each tab is independent: an origin that is not set leaves
+that tab on its placeholder, so you can bring them up one at a time.
+
+### Two ways to live under a prefix
+
+There are two arrangements, and which one a tab uses is a fact about the
+framework behind it, not about the tier. `portal/proxy.js` marks the difference
+with `strip` on the tab, and `tests/proxy.test.js` pins it.
+
+**Next.js keeps the prefix** (`/milk/`, `/ladwani/`). The hub forwards
+`/milk/orders` as `/milk/orders` and the app serves itself there, via
+`basePath`:
+
+- strip it, and the app answers as if it were at the root, so its pages come
+  back with asset URLs like `/_next/static/...`, which the hub does not serve —
+  every page would load as unstyled HTML with broken navigation;
+- strip it for several apps and they collide, all wanting `/_next`, `/build`,
+  `/storage` at the root of the same origin.
+
+**Laravel has the prefix stripped** (`/edu/`). It cannot own one, because the
+two halves of the job pull in opposite directions:
+
+- Laravel matches routes against the request path, so a prefix it does not know
+  about is a 404 on *every* page. Prefixing all 60-odd route definitions would
+  fix that half.
+- But `public/` is served by the web server at the site's own root, so
+  `/edu/build/app.js` has nowhere to come from. Prefixing the routes does not
+  help: the web server never consults Laravel for a file that exists.
+
+So the prefix comes off at the hub, the app answers at its root, and it puts
+the prefix back on in its *output* instead — one call to `URL::forceRootUrl()`
+rooted on `APP_URL`. See the Laravel section below, because the rest of that
+story is not obvious.
+
+### What each project still needs
+
+| Project | Hub side | App side |
+|---|---|---|
+| **Milk & Dairy** | `MILK_ORIGIN` | ✅ built for it — `BASE_PATH=/milk` in its deploy build; set it in that site's `.env` too |
+| **LadWani** | `LADWANI_ORIGIN` | ✅ built for it — `BASE_PATH=/ladwani` in its deploy build; set it in that site's `.env` too |
+| **Education** | `EDU_ORIGIN` | ✅ built for it — set `APP_URL=https://dev.bkesari.com/edu` in that site's `.env`; nothing else, and no change to its document root |
+
+Education needs no deploy-time flag: the path in `APP_URL` is the whole switch,
+read at boot. Leave the path off and the app behaves exactly as it did before,
+which is how its test suite and `artisan serve` keep working.
+
+### `basePath` is not the whole job for an app that calls its own API
+
+Worth knowing before wiring up a third project, because it is not obvious and
+costs a day if you find it in production. Next's `basePath` covers `next/link`,
+`useRouter` and asset URLs. It does **not** rewrite `fetch()`, because the
+argument is an ordinary runtime string the compiler never looks inside.
+
+Milk & Dairy happened to have no absolute `fetch('/api/...')` calls, so
+`basePath` really was the whole change there. LadWani had **100 of them across
+42 files**, every one of which would have called the hub's root instead of the
+app — returning the hub's own 404 page while the app's pages looked perfectly
+fine. They now read `` `${BASE_PATH}/api/...` ``, and
+`Ladwani/scripts/check-base-path.sh` fails the build if a bare one is added
+back, because nothing else catches it.
+
+The same applies to anything else that builds a URL the browser will use and
+that Next does not own: NextAuth's `SessionProvider basePath`, a `signOut`
+`callbackUrl` (NextAuth navigates the browser itself), and a server route that
+returns a URL in its JSON. What is NOT affected: `router.push`, `<Link href>`,
+and middleware's `pathname` comparisons — Next strips the prefix before
+middleware runs, and adds it back to a middleware redirect.
+
+### `APP_URL` is not the whole job for Laravel either
+
+The same shape of trap as the Next.js one above, and worth reading before
+anyone touches the Education app's URLs. `AppServiceProvider::serveUnderBasePath()`
+is where all of this lives, and `edu/tests/Feature/Platform/BasePathTest.php`
+holds it in place.
+
+Laravel does **not** build web URLs from `APP_URL`. During a request the URL
+generator uses the *request* root (`UrlGenerator::formatRoot()` →
+`$this->request->root()`), so setting `APP_URL` alone changes nothing a visitor
+sees. Pinning it with `URL::forceRootUrl($appUrl)` is what does the work, and
+that single call covers more than you would expect:
+
+- all 192 `route()` calls, the 25 `redirect()`s, `url()`, `asset()` and `@vite`;
+- **relative** route URLs too (`route('x', absolute: false)`), because the
+  prefix is in the root that gets stripped off them, and the stripping of the
+  request's own base path is a no-op here — the hub already removed it;
+- Livewire's AJAX endpoint with them, which matters more than it sounds: the
+  sign-in form has no `action` of its own and posts to `data-update-uri`.
+
+Four things it does not cover, each of which was a real failure found by
+driving the live site in a browser rather than by reading the code:
+
+| What | Why it escapes | Fix |
+|---|---|---|
+| `URL::forceScheme()` | `formatRoot()` rewrites the forced root's scheme with the *request's*, and the hub forwards over plain HTTP — so every `https://` link came back `http://` | forced when `APP_URL` is https |
+| Livewire's `<script src>` | taken from the raw route path, never passing through the URL generator, so it asked the hub for `/livewire/livewire.min.js` — a 404, leaving the page with no Livewire and therefore no sign-in form at all | `livewire.asset_url`, derived from the route Livewire registered, because the file is `livewire.js` with debug on and `livewire.min.js` with it off |
+| The remembered page after signing in | `redirect()->guest()` stores `UrlGenerator::full()`, which reads the URL straight off the request — prefix already stripped. Signing in landed the visitor on `Cannot GET /admin/rating-weights` at the hub | `App\Routing\BasePathRedirector` |
+| A literal path in a view | the generator never sees it. Three did this: `href="/"` in the guest layout and `redirect('/')` in logout, delete-account and verify-email — all three left the tab for the hub | `url('/')` / `route('home')`, and a test that greps every Blade file so a new one fails the suite |
+
+Two more things to know, neither currently a bug:
+
+- **Signed URLs would not survive the trip.** `hasValidSignature()` rebuilds the
+  URL from the request, which arrives without the prefix, so a signature made
+  with it can never match. Nothing signs a URL today — `MustVerifyEmail` is
+  switched off on the `User` model — but whatever turns it on will need the
+  prefix restored before the check.
+- **Outside a request the rule inverts.** In a queued job or scheduled command
+  Laravel invents a stand-in request from `APP_URL`, so its base path *is*
+  `/edu` and `route(..., absolute: false)` comes back **without** the prefix —
+  the opposite of a real request. Absolute URLs are correct in both, which is
+  what mail and notifications use.
+
+And one consequence for anyone running the suite: `edu/phpunit.xml` pins
+`APP_URL` to a bare origin. It has to. The test client builds its request URLs
+with `url()`, so with a path in `APP_URL` every `$this->get('/login')` asks for
+`/edu/login` — which no route matches, because in production the hub strips the
+prefix and in a test there is no hub. Unpinned, 206 of the 375 tests failed
+purely on a developer's local `.env`.
+
+### If a project stops answering
+
+The hub does not take the rest of the estate down with it:
+
+- **Connection refused** (the app is stopped): a 502 page that still carries
+  the menu, so the other tabs stay reachable.
+- **Too slow** (30 seconds, `timeoutMs` in `portal/proxy.js`): the connection
+  is dropped and the browser shows its own error. Nothing can be rendered at
+  that point — the request is already in flight.
+
+Either way the hub itself, `/tasks/`, `/atip/` and the static pages keep
+working. The hub's log names the tab and the target for every proxy error.
+
+### Guardrails
+
+An origin is read from the environment only, never from a request, so the hub
+cannot be turned into an open proxy. Each value must be a bare `http://` or
+`https://` origin: a path, a query, a fragment or embedded credentials are
+refused with a message naming the variable, and that tab stays on its
+placeholder rather than the hub failing to start. `tests/proxy.test.js` covers
+those rules along with the forwarding itself.

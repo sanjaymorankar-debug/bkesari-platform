@@ -1,0 +1,76 @@
+/*
+ * Page chrome shared by the hub's own pages: tokens, layout and the few
+ * primitives they have in common.
+ *
+ * The menu brings its own styles, scoped to `.bk-menu`, and does not read these
+ * — so a project with its own design can include the menu without inheriting
+ * any of this. This file is only for pages served out of portal/public.
+ *
+ * Dark mode is chosen, not inverted: each token has its own dark value.
+ */
+:root{
+  --bg:#F6F4EF; --surface:#FFFFFF; --ink:#1B1D24; --ink-soft:#5F6472; --ink-faint:#9A9EA9;
+  --line:#E6E2D9; --accent:#E0761F; --accent-soft:#FDF0E3; --accent-dark:#B85A0E;
+  --shadow:0 1px 2px rgba(20,24,33,.05),0 8px 24px rgba(20,24,33,.07);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14151A; --surface:#1D1F26; --ink:#ECEDF1; --ink-soft:#A4A8B4; --ink-faint:#6F7380;
+    --line:#2C2F38; --accent:#F08A34; --accent-soft:#3A2715; --accent-dark:#FFB273;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14151A; --surface:#1D1F26; --ink:#ECEDF1; --ink-soft:#A4A8B4; --ink-faint:#6F7380;
+  --line:#2C2F38; --accent:#F08A34; --accent-soft:#3A2715; --accent-dark:#FFB273;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:'Inter',system-ui,-apple-system,sans-serif;min-height:100vh;
+  display:flex;flex-direction:column;-webkit-text-size-adjust:100%}
+main{flex:1;width:100%;max-width:1080px;margin:0 auto;padding:48px 16px}
+footer{text-align:center;color:var(--ink-faint);font-size:12.5px;padding:24px 16px}
+@media (max-width:640px){ main{padding:32px 16px} }
+
+h1{font-size:clamp(28px,5vw,44px);letter-spacing:-.03em;margin:0 0 10px;line-height:1.1}
+h2{font-size:clamp(19px,2.6vw,23px);letter-spacing:-.02em;margin:40px 0 12px;line-height:1.25}
+h3{font-size:16px;margin:24px 0 6px}
+.lead{color:var(--ink-soft);font-size:17px;margin:0 0 36px;max-width:620px;line-height:1.55}
+p{line-height:1.6;margin:0 0 14px;max-width:68ch}
+a{color:var(--accent-dark)}
+
+/* ---- stat tiles: a figure, what it measures, and where it came from ------ */
+/* No chart and no color encoding here, so the numbers carry no hue; the ink
+   tokens do the work and the source line is part of the tile, not a footnote. */
+.hero-figure{font-size:clamp(44px,8vw,64px);font-weight:700;letter-spacing:-.03em;
+  line-height:1;margin:0 0 6px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:28px 0 8px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;
+  box-shadow:var(--shadow)}
+.stat-value{font-size:30px;font-weight:600;letter-spacing:-.02em;line-height:1.1;display:block}
+.stat-label{color:var(--ink-soft);font-size:14px;line-height:1.4;display:block;margin-top:6px}
+.stat-source{color:var(--ink-faint);font-size:11.5px;line-height:1.4;display:block;margin-top:10px}
+
+/* ---- prose blocks -------------------------------------------------------- */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+  padding:22px;box-shadow:var(--shadow);margin:20px 0}
+.panel h3{margin-top:0}
+.panel p:last-child{margin-bottom:0}
+ul.plain{margin:0 0 14px;padding-left:20px;line-height:1.6;max-width:68ch}
+ul.plain li{margin-bottom:7px}
+.muted{color:var(--ink-soft)}
+/* Shown only when the menu's script cannot run. It links to the welcome page
+   rather than repeating the tab list: that list lives in exactly one place. */
+.nojs{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  padding:14px 16px;margin:0 0 24px;font-size:14px;color:var(--ink-soft)}
+.reviewed{color:var(--ink-faint);font-size:12.5px;margin-top:28px}
+
+/* An editorial note that must not survive to production. Deliberately styled
+   so it cannot be mistaken for finished copy. */
+.todo{border:2px dashed var(--accent);background:var(--accent-soft);color:var(--accent-dark);
+  border-radius:12px;padding:18px 20px;margin:24px 0}
+.todo h3{margin:0 0 8px;font-size:15px;text-transform:uppercase;letter-spacing:.06em}
+.todo ul{margin:0 0 12px;padding-left:20px;line-height:1.6}
+.todo p{color:inherit}

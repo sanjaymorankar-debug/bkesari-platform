@@ -1,0 +1,258 @@
+# Deploys the Education app (edu/, Laravel) to devedu.bkesari.com — and to
+# nowhere else. Same guard as the portal workflow; only the site differs.
+#
+# vendor/ is built here rather than on the server. Hostinger's PHP has
+# `disable_functions` covering proc_open, exec and shell_exec (edu/DEPLOYMENT.md
+# §"Disabled PHP functions"), so `composer install` there can die part-way
+# through a post-install script. The runner has none of those restrictions, so
+# the dependency tree is resolved once, here, and shipped ready to run.
+#
+# No database credential is stored in GitHub. The server's .env holds them, and
+# rsync neither writes nor deletes it.
+name: Deploy dev (edu)
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - edu/**
+      - .github/workflows/deploy-dev-edu.yml
+      - .github/deploy/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-dev-edu
+  cancel-in-progress: false
+
+env:
+  # The ONLY hostname this workflow may write to. Hard-coded, not a secret, so
+  # a mistyped DEV_EDU_PATH fails the job rather than publishing elsewhere.
+  DEV_SITE: devedu.bkesari.com
+
+jobs:
+  # The 375 PHPUnit tests, on in-memory sqlite, so the build that reaches dev
+  # is one that passed them. They need dev dependencies (phpunit is one), which
+  # is why this is a separate job: the deploy below installs --no-dev, since
+  # nothing dev-only should be shipped to a server.
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: edu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, bcmath, pdo_sqlite, sqlite3, zip, intl, gd
+          coverage: none
+
+      - name: Install dependencies
+        run: |
+          composer validate --no-check-publish
+          composer install --no-interaction --no-progress
+
+      # phpunit.xml supplies APP_ENV and the sqlite settings, but not APP_KEY,
+      # and the encrypter refuses to boot without one.
+      - name: Configure for testing
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+
+      - name: Tests
+        run: php artisan test
+
+  deploy:
+    needs: check
+    runs-on: ubuntu-latest
+    environment: dev
+
+    env:
+      DEPLOY_HOST: ${{ secrets.DEV_SSH_HOST }}
+      DEPLOY_USER: ${{ secrets.DEV_SSH_USER }}
+      DEPLOY_PORT: ${{ secrets.DEV_SSH_PORT }}
+      DEPLOY_DIR: ${{ secrets.DEV_EDU_PATH }}
+      SMOKE_URL: ${{ vars.DEV_EDU_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Refuses test, production, gokesari.com, a non-dev branch, and any
+      # missing secret, before the job holds an SSH connection or a build.
+      # Rules in .github/deploy/guard.sh, tested by guard.test.sh.
+      - name: Refuse anything that is not dev
+        env:
+          DEPLOY_KEY: ${{ secrets.DEV_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV_SSH_KNOWN_HOSTS }}
+        run: bash .github/deploy/guard.sh
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          # Matches composer.json's "php": "^8.3" and Hostinger's PHP version.
+          php-version: '8.3'
+          extensions: mbstring, bcmath, pdo_mysql, zip, intl, gd
+          coverage: none
+
+      - name: Install PHP dependencies
+        working-directory: edu
+        run: |
+          composer validate --no-check-publish
+          composer install --no-dev --optimize-autoloader --no-interaction --no-progress
+
+      - name: Check the app boots
+        working-directory: edu
+        run: |
+          set -euo pipefail
+          # No .env here, so this proves the autoloader and the package
+          # manifest are sound — not that the configuration is. A broken
+          # vendor/ tree fails here instead of on the server.
+          php artisan --version
+          test -f bootstrap/cache/packages.php
+
+      # The compiled front-end assets are committed (edu/public/build), so
+      # there is no npm build step. Vite's manifest must match them or every
+      # page 500s on a missing asset.
+      - name: Check the built assets are present
+        working-directory: edu
+        run: |
+          set -euo pipefail
+          test -f public/build/manifest.json
+          python3 - <<'PY'
+          import json, os, sys
+          manifest = json.load(open('public/build/manifest.json'))
+          missing = [e['file'] for e in manifest.values()
+                     if not os.path.exists(os.path.join('public/build', e['file']))]
+          for e in manifest.values():
+              missing += [c for c in e.get('css', [])
+                          if not os.path.exists(os.path.join('public/build', c))]
+          if missing:
+              sys.exit('public/build/manifest.json references missing files: '
+                       + ', '.join(missing))
+          print(f'{len(manifest)} manifest entries, all present')
+          PY
+
+      - name: Set up SSH
+        env:
+          DEPLOY_KEY: ${{ secrets.DEV_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Pinned host key rather than StrictHostKeyChecking=no, so the job
+          # fails instead of handing the key to whatever answers on that port.
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          # 65002 is Hostinger's SSH port; DEV_SSH_PORT overrides it.
+          echo "SSH_CMD=ssh -i $HOME/.ssh/id_deploy -p ${DEPLOY_PORT:-65002} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts" >> "$GITHUB_ENV"
+
+      - name: Upload
+        run: |
+          set -euo pipefail
+
+          # --delete keeps the server from accumulating files that have left
+          # the repo — including the previous build's hashed assets under
+          # public/build, which would otherwise pile up forever.
+          #
+          # The --exclude entries are load-bearing twice over: rsync neither
+          # uploads them NOR deletes them on the server. That is what protects
+          # the live site's state, so this command must never grow
+          # --delete-excluded:
+          #
+          #   .env             the credentials, filled in by hand on the server
+          #   storage/         uploads, logs, sessions, compiled views
+          #   bootstrap/cache/ written by artisan on the server
+          #   .git*, tests/    not needed to run the app
+          RSYNC_FLAGS=(
+            --archive --compress --human-readable
+            --delete
+            --exclude=.env
+            --exclude=.env.*
+            --exclude=storage/
+            --exclude=bootstrap/cache/
+            --exclude=node_modules/
+            --exclude=.git
+            --exclude=.gitignore
+            --exclude=tests/
+            --exclude=phpunit.xml
+          )
+
+          echo "### Files this deploy changes" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          rsync "${RSYNC_FLAGS[@]}" --dry-run --itemize-changes \
+            -e "$SSH_CMD" edu/ \
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          rsync "${RSYNC_FLAGS[@]}" \
+            -e "$SSH_CMD" edu/ \
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/"
+
+      - name: Rebuild caches on the server
+        env:
+          # Set the repository variable DEV_EDU_DOCROOT to the site's
+          # public_html to have the app's public/ assets copied into it after
+          # each deploy. Left unset, that step is skipped and the step summary
+          # says so — the document root's own index.php is hand-edited and its
+          # storage entry is a symlink, so this workflow will not guess at it.
+          DOCROOT: ${{ vars.DEV_EDU_DOCROOT }}
+        run: |
+          set -euo pipefail
+          # Unquoted heredoc: the runner substitutes the paths before sending
+          # the script. The guard has established DEPLOY_DIR is absolute and
+          # free of '..'.
+          $SSH_CMD "$DEPLOY_USER@$DEPLOY_HOST" 'bash -seuo pipefail' <<REMOTE
+          cd '$DEPLOY_DIR'
+
+          # storage/ is excluded from rsync so the live site keeps its uploads
+          # and logs, which means a first deploy arrives without the tree
+          # Laravel needs. Creating it is safe to repeat.
+          mkdir -p storage/app/public storage/app/private \\
+                   storage/framework/cache/data storage/framework/sessions \\
+                   storage/framework/views storage/logs bootstrap/cache
+
+          # optimize:clear first: a cached config or route table from the
+          # previous release will otherwise survive and shadow this one.
+          php artisan optimize:clear
+          php artisan optimize
+
+          DOCROOT='$DOCROOT'
+          if [ -n "\$DOCROOT" ]; then
+            # index.php there points back at this directory and storage is a
+            # symlink, so neither is touched, and nothing is deleted.
+            rsync -a --exclude=index.php --exclude=storage \\
+              public/ "\$DOCROOT/"
+            echo "Refreshed \$DOCROOT from public/."
+          else
+            echo "DEV_EDU_DOCROOT is not set; left the document root alone."
+          fi
+          REMOTE
+
+      - name: Smoke check
+        if: ${{ vars.DEV_EDU_URL != '' }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            code=$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 20 "$SMOKE_URL" || echo 000)
+            if [ "$code" = 200 ]; then
+              echo "$SMOKE_URL is up."
+              # A Laravel error page also answers 200 in some configurations.
+              if grep -qi 'whoops\|SQLSTATE\|Illuminate\\\\' /tmp/body; then
+                echo "::error::$SMOKE_URL returned an error page."
+                head -c 2000 /tmp/body
+                exit 1
+              fi
+              exit 0
+            fi
+            echo "attempt $attempt: HTTP $code"
+            [ "$attempt" = 6 ] || sleep 10
+          done
+          echo "::error::$SMOKE_URL did not come up. Last status: $code"
+          head -c 2000 /tmp/body || true
+          exit 1

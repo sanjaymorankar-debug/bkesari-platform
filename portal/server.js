@@ -2,12 +2,18 @@ const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
 const createDb = require('./db');
+// The one definition of the top menu, shared with every browser page.
+const menu = require('./public/shared/menu.js');
+// Serves the projects that live in their own apps under their own tab paths.
+const proxy = require('./proxy');
 
 /* ============================================================
    bkesari.com
      /            -> welcome portal (public/index.html)
      /tasks/      -> Task Tracker UI (public/tasks/index.html)
      /tasks/api/  -> Task Tracker REST API
+     /atip/       -> read-only ATIP snapshot, menu rendered server-side
+     other tabs   -> served here when static, else a "not on this tier" page
    ============================================================ */
 
 const STATUSES = ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'];
@@ -104,13 +110,25 @@ function basicAuth(userVar, passVar, realm, failClosed) {
    hidden, so the hosted copy is view-only. */
 const ATIP_READONLY_CSS = `<style id="bk-readonly">
   .acts,#pendBox,#modalBg,#brokerBanner,#brokerBanner2,button[onclick^="deleteRule"]{display:none!important}
-  #bk-banner{position:sticky;top:0;z-index:9999;background:#1e293b;color:#e2e8f0;border-bottom:1px solid #334155;
+  /* The shared menu takes the sticky slot above this, so the banner scrolls. */
+  #bk-banner{position:static;z-index:9000;background:#1e293b;color:#e2e8f0;border-bottom:1px solid #334155;
     font:13px system-ui,sans-serif;padding:8px 14px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between}
   #bk-banner a{color:#93c5fd;text-decoration:none}
   #bk-banner b{color:#fbbf24}
 </style>`;
 const ATIP_CSP = "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; " +
   "font-src https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'";
+
+/**
+ * Which tier this process is serving, for the menu's badge.
+ *
+ * APP_ENV wins when set; otherwise it is read from the Host header, so one
+ * deployment artifact serves dev, test and production unchanged.
+ */
+function currentEnv(req) {
+  const host = String((req && req.headers && req.headers.host) || '').split(':')[0];
+  return menu.resolveEnv(host, process.env.APP_ENV);
+}
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -122,6 +140,45 @@ async function main() {
   const db = await createDb();
   const app = express();
   app.disable('x-powered-by');
+
+  // Keep every tier but production out of search indexes. dev.bkesari.com and
+  // test.bkesari.com carry the same real-looking content as production, so
+  // without this they compete with it in search results and expose work in
+  // progress. Driven by the tier rather than hard-coded, so one build still
+  // serves all three and production is left untouched. A static robots.txt
+  // could not do this: it would have to differ per tier.
+  //
+  // First, so it also covers the proxied projects below.
+  //
+  // The tier is also stated outright in a header. It decides which database
+  // every project opens, so being able to ask a running site which tier it
+  // thinks it is — `curl -I https://dev.bkesari.com` — is worth one header.
+  // scripts/smoke-dev.sh checks it: before this existed it had to infer the
+  // tier from the badge on an undeployed tab's placeholder, which quietly
+  // stopped being possible as soon as the tabs were deployed.
+  app.use((req, res, next) => {
+    const env = currentEnv(req);
+    res.set('X-Bkesari-Env', env);
+    if (env !== 'prod') res.set('X-Robots-Tag', 'noindex, nofollow');
+    next();
+  });
+
+  // The projects that live in their own apps, each served under its own tab
+  // path. Off until its origin is set, in which case its tab keeps falling
+  // through to the "not on this tier yet" page further down.
+  //
+  // BEFORE THE BODY PARSERS, and that is not a style choice: express.json()
+  // consumes the request stream, and the forwarded request still carries the
+  // original Content-Length — so the app waits for bytes that never arrive and
+  // the visitor hangs until the proxy timeout hands them a 502. Every POST
+  // into a proxied project would do it. tests/proxy.test.js covers both
+  // orders, so moving this fails the suite.
+  const proxied = proxy.mount(app, {
+    // The bar for the proxy's own error page. Takes the request so the tier
+    // badge comes from the same place every other page gets it.
+    renderMenu: (pathname, req) => menu.renderHtml({ pathname, env: currentEnv(req) }),
+  });
+
   // The ATIP snapshot is a full HTML page, so its route gets a larger limit.
   app.use('/atip/api/snapshot', express.json({ limit: '15mb' }));
   app.use(express.json({ limit: '1mb' }));
@@ -284,23 +341,57 @@ async function main() {
     const snap = await db.get('SELECT html, trade_date, generated_at, received_at FROM atip_snapshots ORDER BY id DESC LIMIT 1');
     if (!snap) {
       return res.send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ATIP</title>
-        <body style="font:15px system-ui;background:#0f172a;color:#e2e8f0;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px;text-align:center">
-        <div><h1 style="margin:0 0 8px">ATIP</h1><p>No dashboard snapshot has been published yet.</p><p><a style="color:#93c5fd" href="/">← bkesari</a></p></div>`);
+        <body style="font:15px system-ui;background:#0f172a;color:#e2e8f0;min-height:100vh;margin:0">
+        ${menu.renderHtml({ pathname: '/atip/', env: currentEnv(req) })}
+        <div style="display:grid;place-items:center;padding:64px 16px;text-align:center">
+        <div><h1 style="margin:0 0 8px">ATIP</h1><p>No dashboard snapshot has been published yet.</p></div></div>`);
     }
     const ageMin = Math.round((Date.now() - Date.parse(snap.received_at.replace(' ', 'T') + 'Z')) / 60000);
     const age = ageMin < 1 ? 'just now' : ageMin < 120 ? `${ageMin} min ago` : `${Math.round(ageMin / 60)} h ago`;
     const banner = `<div id="bk-banner"><span><a href="/">← bkesari</a> &nbsp; <b>Read-only view</b> · trade date ${escapeHtml(snap.trade_date)} · built ${escapeHtml((snap.generated_at || '').slice(0, 16))} IST · uploaded ${age}</span><span>Orders can only be placed on the ATIP machine.</span></div>`;
+    // Rendered here rather than by the browser script: this page's CSP allows
+    // inline scripts but not 'self', so an external <script> would be blocked.
+    const top = menu.renderHtml({ pathname: '/atip/', env: currentEnv(req) }) + banner;
     let html = snap.html.replace(/<\/head>/i, `${ATIP_READONLY_CSS}</head>`);
-    html = /<body[^>]*>/i.test(html) ? html.replace(/<body[^>]*>/i, m => m + banner) : banner + html;
+    html = /<body[^>]*>/i.test(html) ? html.replace(/<body[^>]*>/i, m => m + top) : top + html;
     res.type('html').send(html);
   }));
   app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
+
+  // A tab whose destination is not deployed on this tier yet. Answer with a
+  // short page carrying the menu, so navigation continues instead of
+  // dead-ending on a bare 404 while the estate is still being assembled.
+  //
+  // Registered after express.static on purpose: the moment real files exist for
+  // a tab — or an app is put behind its path — static or that route wins and
+  // this stops firing for it, with nothing to remember to remove.
+  app.get(menu.TABS.map((tab) => tab.path), (req, res) => {
+    const tab = menu.TABS.find((t) => t.path === req.path) || { name: 'This project' };
+    res.status(404).set('X-Robots-Tag', 'noindex').type('html').send(
+      `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(tab.name)} — not on this tier yet</title></head>
+<body style="margin:0;font:15px/1.5 'Inter',system-ui,sans-serif;background:#F6F4EF;color:#1B1D24">
+${menu.renderHtml({ pathname: req.path, env: currentEnv(req) })}
+<div style="max-width:620px;margin:0 auto;padding:56px 16px">
+  <h1 style="font-size:26px;letter-spacing:-.02em;margin:0 0 10px">${escapeHtml(tab.name)}</h1>
+  <p style="color:#5F6472;margin:0 0 6px">This tab is in the menu, but nothing is serving
+  <code>${escapeHtml(req.path)}</code> on this tier yet.</p>
+  <p style="color:#9A9EA9;margin:0">Everything else in the menu above still works.</p>
+</div></body></html>`,
+    );
+  });
 
   const port = process.env.PORT || 3000;
   app.listen(port, () => {
     console.log(`bkesari portal running at http://localhost:${port}`);
     console.log(`Task Tracker at http://localhost:${port}/tasks/`);
     if (!process.env.TRACKER_PASSWORD) console.warn('WARNING: TRACKER_USER/TRACKER_PASSWORD not set - the tracker is open to anyone who can reach it.');
+    for (const route of proxied) console.log(`${route.path} -> ${route.target}`);
+    if (!proxied.length) {
+      console.log('No project origins set (MILK_ORIGIN, EDU_ORIGIN, LADWANI_ORIGIN);');
+      console.log('those tabs will show the "not on this tier yet" page.');
+    }
   });
 }
 
