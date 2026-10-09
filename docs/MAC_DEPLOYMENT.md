@@ -15,7 +15,7 @@ The feature and merge status of all three repos is in
 | App | Result |
 |---|---|
 | ATIP | 1,336 tests pass (42 skipped) |
-| bkesari | `tools/setup_local_mysql.sh` migrates and seeds it; the site serves its shops; 281/281 tests pass with bkesari#13 |
+| bkesari | `tools/setup_local_mysql.sh` migrates and seeds it; the site serves its shops; 284/284 tests pass |
 | Education | 387/387 tests pass; serves pages from MySQL |
 | Portal | 44 tests + 32 deploy-guard checks pass; the Task Tracker saves to MySQL |
 
@@ -212,12 +212,7 @@ source .env
 curl -X POST http://localhost:3000/api/cron/daily-orders -H "Authorization: Bearer $CRON_SECRET"
 ```
 
-**Tests:** `npm test` (281 tests, on `bk_milk_test`).
-
-Two known problems on `main`, each with a fix waiting in a pull request:
-- **`/admin` answers 500 on MySQL** (two PostgreSQL casts survived the port). Fixed by bkesari#12.
-- **11 geocoding tests fail** when `.env` came from `.env.example`. The app itself is unaffected.
-  Fixed by bkesari#13.
+**Tests:** `npm test` (284 tests, on `bk_milk_test`).
 
 Production-style run: `npm run build && npm start`.
 
@@ -287,11 +282,11 @@ Every pull request that was open on 2026-10-08 is now merged:
 | bkesari-platform#1 | The dev tier, ATIP at `/ATIP/`, the stale `atip/` copy removed, and the Ladwani SQL fixed. |
 | bkesari-platform#2 | A shared menu, Global Warming and Driving Simulator pages, dev deploys and CI, and the app tabs (`/milk/`, `/edu/`, `/ladwani/`) served through the hub. |
 
-Still open:
-- bkesari#12: the admin dashboard fix, opened by another session after these merges.
-- bkesari#13: the test fix.
+Merged on 2026-10-09:
 
-Both are described in step 5. They touch neighbouring lines of `tests/setup.ts`, so whichever merges
-second needs both changes kept.
+| PR | What it fixed |
+|---|---|
+| bkesari#12 | `/admin` answered 500 on MySQL; `db:migrate` now reads the `DB_*` settings; the README describes MySQL. |
+| bkesari#13 | 11 tests failed when `.env` came from `.env.example`. |
 
 Always run ATIP from the `ATIP-DEV` repo. `bkesari-platform/atip/` now only points there.
