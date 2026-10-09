@@ -29,10 +29,12 @@ new #[Layout('layouts.app')] class extends Component
             ->where('recognition_status', 'verified');
 
         if ($this->search !== '') {
+            // whereLike() is case-insensitive on every driver (ILIKE on
+            // PostgreSQL), matching the search behaviour users expect.
             $query->where(function ($q) {
-                $q->where('name', 'like', "%{$this->search}%")
-                    ->orWhere('city', 'like', "%{$this->search}%")
-                    ->orWhere('pincode', 'like', "%{$this->search}%");
+                $q->whereLike('name', "%{$this->search}%")
+                    ->orWhereLike('city', "%{$this->search}%")
+                    ->orWhereLike('pincode', "%{$this->search}%");
             });
         }
 
