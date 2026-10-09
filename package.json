@@ -10,11 +10,14 @@
   "scripts": {
     "start": "node portal/server.js",
     "test": "node --test tests/*.test.js && bash .github/deploy/guard.test.sh",
-    "check": "node --check portal/server.js && node --check portal/db.js && node --check portal/proxy.js && node --check portal/public/shared/menu.js"
+    "check": "node --check portal/server.js && node --check portal/db.js && node --check portal/proxy.js && node --check portal/public/shared/menu.js && node --check portal/auth/index.js",
+    "auth": "node portal/auth/cli.js"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "express": "^4.19.2",
     "http-proxy-middleware": "^4.2.0",
-    "mysql2": "^3.11.0"
+    "mysql2": "^3.11.0",
+    "nodemailer": "^7.0.9"
   }
 }
