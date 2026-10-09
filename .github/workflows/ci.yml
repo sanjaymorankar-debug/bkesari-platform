@@ -81,6 +81,30 @@ jobs:
 
           kill "$(cat /tmp/hub.pid)"
 
+      # The same hub with central login on: gated tabs redirect to sign-in,
+      # ATIP is a 404, and the smoke test knows both shapes.
+      - name: Start the hub with central login on and run the smoke test
+        env:
+          DB_CLIENT: sqlite
+          SQLITE_PATH: ./data/ci-auth.db
+          PORT: 3101
+          APP_ENV: dev
+          AUTH_ENABLED: '1'
+          AUTH_PUBLIC_URL: http://127.0.0.1:3101
+          AUTH_SECRET: ci-only-not-a-real-secret-0123456789abcdef
+          AUTH_OWNER_EMAIL: owner@example.com
+          ATIP_PUBLISH_TOKEN: ci-only-not-a-real-token
+        run: |
+          set -euo pipefail
+          npm start & echo $! > /tmp/hub-auth.pid
+          for attempt in $(seq 1 20); do
+            if curl -fsS --max-time 5 http://127.0.0.1:3101/ -o /dev/null; then break; fi
+            [ "$attempt" = 20 ] && { echo "::error::the hub did not start"; exit 1; }
+            sleep 1
+          done
+          bash scripts/smoke-dev.sh http://127.0.0.1:3101 --env dev
+          kill "$(cat /tmp/hub-auth.pid)"
+
   # edu/ has 375 PHPUnit tests that nothing was running. They use in-memory
   # sqlite (see edu/phpunit.xml), so they need no database service and finish
   # in about twelve seconds — there was no good reason for them to sit unrun.

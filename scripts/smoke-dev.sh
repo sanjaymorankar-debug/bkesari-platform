@@ -141,9 +141,29 @@ esac
 # is right for a laptop and catastrophic on a public hostname: a 200 means
 # anyone on the internet can read and edit the task tracker.
 group "Access control"
-fetch /tasks/
+# Central login (AUTH_ENABLED) changes what "closed" looks like: the tracker
+# redirects to /auth/login, and ATIP answers 404 to anyone but the owner.
+fetch /auth/api/menu
+if [ "$STATUS" = 200 ]; then
+  AUTH_ON=1; ok "central login is on (/auth/api/menu answers)"
+  contains /auth/login 'name="_csrf"' "the sign-in form carries a CSRF token"
+  if grep -qi 'atip' "$BODY"; then bad "the sign-in page mentions ATIP" "ATIP must not exist for anyone but the owner."; fi
+  fetch /auth/api/menu
+  if grep -qi 'atip' "$BODY"; then bad "the logged-out menu lists ATIP" "only the owner may see it"; else ok "the logged-out menu does not list ATIP"; fi
+  status /auth/.well-known/openid-configuration "OpenID discovery is served" 200
+else
+  AUTH_ON=0
+fi
+if [ "$AUTH_ON" = 1 ]; then
+  # Not followed: the redirect itself is the answer.
+  STATUS=$(curl -sS -o /dev/null -D "$HEAD" -w '%{http_code}' --max-time 20 "$BASE/tasks/" 2>/dev/null) || STATUS=000
+else
+  fetch /tasks/
+fi
 case "$STATUS" in
   401) ok "the task tracker requires a login (401)" ;;
+  302) if [ "$AUTH_ON" = 1 ] && header location | grep -q '^/auth/login'; then ok "the task tracker sends you to central login (302)"
+       else caution "/tasks/ redirected somewhere unexpected" "$(header location)"; fi ;;
   200) bad "THE TASK TRACKER IS OPEN TO THE INTERNET" \
             "/tasks/ answered 200. Set TRACKER_USER and TRACKER_PASSWORD on the server and redeploy." ;;
   *)   caution "/tasks/ answered $STATUS" "expected 401; check the site is fully deployed" ;;
@@ -152,6 +172,8 @@ esac
 # /atip/ fails CLOSED (failClosed=true): 503 when unconfigured, never open.
 fetch /atip/
 case "$STATUS" in
+  404) if [ "$AUTH_ON" = 1 ]; then ok "ATIP does not exist for a logged-out visitor (404)"
+       else caution "/atip/ answered 404" "expected 401 with Basic auth, or 404 under central login"; fi ;;
   401) ok "the ATIP viewer requires a login (401)" ;;
   503) caution "the ATIP viewer is not configured yet (503)" \
                 "set ATIP_USER and ATIP_PASSWORD on the server. It is refusing everyone, so this is safe." ;;
@@ -166,6 +188,7 @@ UP=$(curl -sS -L --max-redirs 5 -o /dev/null -w '%{http_code}' --max-time 20 \
   -X POST -H 'Content-Type: application/json' -d '{"html":"<p>smoke</p>"}' \
   "$BASE/atip/api/snapshot" 2>/dev/null) || UP=000
 case "$UP" in
+  404) ok "the ATIP upload endpoint rejects an unauthenticated POST (404 under central login)" ;;
   401) ok "the ATIP upload endpoint rejects an unauthenticated POST (401)" ;;
   503) caution "the ATIP upload endpoint is not configured (503)" \
                 "set ATIP_PUBLISH_TOKEN before pointing the ATIP machine at this tier." ;;
@@ -260,7 +283,17 @@ contains /global-warming/ 'shared/menu.js' "/global-warming/ carries the shared 
 contains /driving-simulator/ 'shared/menu.js' "/driving-simulator/ carries the shared menu"
 
 for tab in /milk/ /edu/ /ladwani/; do
-  fetch "$tab"
+  if [ "$AUTH_ON" = 1 ]; then
+    # Gated: a logged-out visitor is sent to central login before the request
+    # can reach the project, so its content cannot be checked from here.
+    STATUS=$(curl -sS -o /dev/null -D "$HEAD" -w '%{http_code}' --max-time 20 "$BASE$tab" 2>/dev/null) || STATUS=000
+    if [ "$STATUS" = 302 ] && header location | grep -q '^/auth/login'; then
+      ok "$tab is gated by central login (302 to sign-in)"; continue
+    fi
+    fetch "$tab"
+  else
+    fetch "$tab"
+  fi
   if [ "$STATUS" = 200 ]; then
     ok "$tab is deployed and answering"
   elif [ "$STATUS" = 404 ] && grep -qF 'not on this tier yet' "$BODY"; then
@@ -284,7 +317,7 @@ done
 # and posts there, so getting it wrong means nobody can sign in while the page
 # itself looks completely healthy. A status code cannot see any of this.
 fetch /edu/
-if [ "$STATUS" = 200 ]; then
+if [ "$STATUS" = 200 ] && ! grep -qF 'action="/auth/login"' "$BODY"; then
   if grep -qF 'data-update-uri="/edu/livewire/update"' "$BODY"; then
     ok "/edu/ points Livewire at its own endpoint, so the sign-in form can post"
   elif grep -qF 'data-update-uri="/livewire/update"' "$BODY"; then

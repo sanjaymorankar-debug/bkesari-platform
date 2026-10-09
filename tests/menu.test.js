@@ -1,6 +1,6 @@
 /**
  * The shared menu is the one piece every project on every tier includes, so a
- * mistake here is visible on all seven tabs at once. These tests cover the
+ * mistake here is visible on every tab at once. These tests cover the
  * parts that cannot be seen from a diff: the tab order the brief fixes, the
  * tier detection, and the two bugs this file has actually had.
  */
@@ -27,17 +27,18 @@ function bar(options) {
 }
 
 // The order is specified, not incidental — it is the order in the brief.
+// The owner-only tab is not in this public file at all: the server adds it
+// for the owner (portal/auth/menu-tabs.js, tests/auth-units.test.js).
 const EXPECTED_TABS = [
   ['Milk & Dairy Products', '/milk/'],
   ['Education', '/edu/'],
   ['Global Warming', '/global-warming/'],
   ['LadWani', '/ladwani/'],
   ['TaskList', '/tasks/'],
-  ['ATIP', '/atip/'],
   ['Driving Simulator', '/driving-simulator/'],
 ];
 
-test('the seven tabs are present, in the specified order', () => {
+test('the six public tabs are present, in the specified order', () => {
   assert.deepEqual(
     menu.TABS.map((t) => [t.name, t.path]),
     EXPECTED_TABS,
@@ -104,7 +105,7 @@ test('a path that only looks like a tab does not activate it', () => {
   assert.equal(menu.activeTabPath('/edu-news/'), '/');
 });
 
-test('renderHtml lists all seven tabs', () => {
+test('renderHtml lists all six public tabs', () => {
   const html = menu.renderHtml({ pathname: '/', env: 'dev' });
   for (const [name] of EXPECTED_TABS) {
     const escaped = name.replace(/&/g, '&amp;');
@@ -129,7 +130,7 @@ test('the brand carries aria-current on the welcome page only', () => {
   const home = bar({ pathname: '/' });
   assert.match(home, /class="bk-brand" href="\/" aria-current="page"/);
   assert.equal(home.match(/aria-current="page"/g).length, 1);
-  const away = bar({ pathname: '/atip/' });
+  const away = bar({ pathname: '/tasks/' });
   assert.ok(!/class="bk-brand" href="\/" aria-current="page"/.test(away));
 });
 
@@ -161,9 +162,9 @@ test('the stylesheet opens the tabs from the checkbox', () => {
 });
 
 test('renderHtml needs no scripts to work', () => {
-  // The ATIP viewer's Content-Security-Policy allows inline scripts but not
-  // 'self'; the bar is server-rendered there precisely so it adds none.
-  const html = menu.renderHtml({ pathname: '/atip/', env: 'dev' });
+  // A page whose Content-Security-Policy allows inline scripts but not
+  // 'self' gets the bar server-rendered precisely so it adds none.
+  const html = menu.renderHtml({ pathname: '/tasks/', env: 'dev' });
   assert.ok(!html.includes('<script'), 'the bar injected a script tag');
 });
 
@@ -211,4 +212,21 @@ test("the welcome page's <noscript> list matches the tabs", () => {
     menu.TABS.map((t) => [menu.escapeHtml(t.name), t.path]),
     'the <noscript> list has drifted from TABS',
   );
+});
+
+test('renderHtml takes a visitor-specific tab list and an account link', () => {
+  // What the server hands back from /auth/api/menu, and what the owner's
+  // server-rendered pages pass in.
+  const html = bar({ pathname: '/x/', tabs: [{ name: 'Only <this>', path: '/x/' }], account: { label: 'Sign in', href: '/auth/login' } });
+  assert.match(html, /<a href="\/x\/" aria-current="page">Only &lt;this&gt;<\/a>/);
+  assert.match(html, /<a class="bk-account" href="\/auth\/login">Sign in<\/a>/);
+  assert.ok(!html.includes('/milk/'), 'the given list replaces TABS');
+});
+
+test('each project tab names the subscription that opens it', () => {
+  const byPath = Object.fromEntries(menu.TABS.map((t) => [t.path, t.feature || null]));
+  assert.deepEqual(byPath, {
+    '/milk/': 'MILK_DAIRY', '/edu/': 'EDUCATION', '/global-warming/': null,
+    '/ladwani/': 'LADWANI', '/tasks/': 'TASKLIST', '/driving-simulator/': null,
+  });
 });

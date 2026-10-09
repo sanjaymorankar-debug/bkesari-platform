@@ -1,3 +1,5 @@
 node_modules/
 portal/data/
 .env
+.env.*
+!.env.example
