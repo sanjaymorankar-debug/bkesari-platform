@@ -84,13 +84,13 @@ TOTP secrets).
 
 | Table | Columns (abridged) | Notes |
 |---|---|---|
-| `auth_users` | id, email (unique, lower-case), name, password_hash NULL, email_verified_at, google_sub (unique) NULL, status ACTIVE/SUSPENDED, failed_logins, locked_until, totp_secret_enc, totp_enabled_at, privacy_consent_at, privacy_version, created_at, updated_at, last_login_at | `password_hash` NULL for Google-only accounts |
+| `auth_users` | id, email (unique, lower-case), name, password_hash NULL, email_verified_at, google_sub (unique) NULL, status ACTIVE/SUSPENDED, failed_logins, locked_until, totp_secret_enc, totp_enabled_at, totp_last_step, privacy_consent_at, privacy_version, created_at, updated_at, last_login_at | `password_hash` NULL for Google-only accounts; `totp_last_step` stops a code being used twice |
 | `auth_roles` | code PK (SUPER_ADMIN, ADMIN, MODERATOR, USER), name, description | reference data |
 | `auth_features` | code PK (LADWANI, EDUCATION, TASKLIST, MILK_DAIRY, AGTCI), name, path, subscribable | ATIP is **not** a row |
 | `auth_user_roles` | id, user_id, role_code, feature_code NULL (set only for MODERATOR), granted_by, created_at; unique (user_id, role_code, feature_code) | |
 | `auth_subscriptions` | id, user_id, feature_code, status pending/active/expired/revoked, starts_at, expires_at NULL, source admin/payment/request, payment_provider, payment_ref, requested_at, decided_by, decided_at, note; unique (user_id, feature_code) | one row per user and feature, history in the audit log |
 | `auth_sessions` | id (sid), token_hash (unique), user_id, created_at, last_seen_at, expires_at, idle_expires_at, mfa_at NULL, ip, user_agent, revoked_at | idle 2 h sliding, absolute 7 days (owner: 12 h) |
-| `auth_oauth_clients` | client_id PK, name, secret_hash, redirect_uris (JSON), post_logout_redirect_uris (JSON), backchannel_logout_uri, kind oidc/internal, tier, active, created_at | `internal` = a bkesari project allowed to introspect |
+| `auth_oauth_clients` | client_id PK, name, secret_hash, kind oidc/internal, tier, feature_code, redirect_uris (JSON), post_logout_redirect_uris (JSON), backchannel_logout_uri, active, created_at | `internal` = a bkesari project allowed to introspect; `feature_code` limits what userinfo tells an OIDC client to its own feature |
 | `auth_oauth_codes` | code_hash PK, client_id, user_id, session_id, redirect_uri, code_challenge, nonce, scope, expires_at (60 s), used_at | single use |
 | `auth_email_tokens` | token_hash PK, user_id, purpose verify/reset, expires_at, used_at | verify 24 h, reset 30 min |
 | `auth_audit_log` | id, at, actor_user_id, subject_user_id, action, feature_code, detail (JSON), ip, user_agent | append-only, never updated |
@@ -241,7 +241,7 @@ agtci verifies iss/aud/exp/nonce/signature (JWKS) → creates its own session ro
 
 | Control | Implementation |
 |---|---|
-| Passwords | bcrypt cost 12 (`bcryptjs`), 10–72 bytes, never logged |
+| Passwords | bcrypt cost 12 (`bcryptjs`, pure JavaScript: Argon2 needs a native module, which Hostinger's Node hosting cannot reliably build), 10–72 bytes, never logged |
 | Rate limiting | per IP and per account on login, signup, forgot-password, TOTP, token endpoint |
 | Lockout | 5 consecutive failures → 15 min lock, doubling to 24 h max; audited |
 | CSRF | every form carries an HMAC token bound to a per-browser `bk_csrf` cookie; checked on every POST; `SameSite=Lax` session cookie as second layer |
@@ -257,11 +257,25 @@ agtci verifies iss/aud/exp/nonce/signature (JWKS) → creates its own session ro
 
 | Project | Change (all additive, all behind env flags) |
 |---|---|
-| Hub / TaskList | `/tasks/` requires `TASKLIST`; reads need `tasklist.view`, writes `tasklist.manage`. Basic auth stays as the fallback when `AUTH_ENABLED` is off. |
-| Milk & Dairy | `src/server/sso/` introspection client; `getCurrentUser()` accepts a central session and links or creates the local user by verified email; `MILK_DAIRY` required; 403 for APIs, subscribe page for pages. |
-| LadWani | `bkesari-sso` next-auth provider mints the existing JWT from a central session (so the ~119 `getServerSession` call sites keep working); middleware re-checks the central session; password login refused when enforced; central ADMIN/MODERATOR mapped to local ADMIN/OPERATOR roles (only roles granted by SSO are ever revoked by SSO). |
-| Education | `BkesariSso` middleware on the `web` group: introspect, link/create the local user, log in, log out when the central session ends; admin/officer roles require central MFA. |
-| ATIP | hub viewer owner gate; `owner_gate.py` for the hosted app. |
-| agtci.com | OIDC client, own session table, public pages (home, services, contact/enquiry form → `leads`), client area gated by `AGTCI` + `agtci.view_client_area`, enquiry management for `agtci.manage_enquiries`. |
+| Hub / TaskList | `/tasks/` requires `TASKLIST`; reads need `tasklist.view`, writes `tasklist.manage` (same-origin only). Basic auth stays as the fallback when `AUTH_ENABLED` is off. |
+| Milk & Dairy | `src/server/sso/` introspection client; `getCurrentUser()` accepts a central session with `MILK_DAIRY` and links or creates the local user by email (CUSTOMER + wallet + consent, like a new Google user); `requireUser()` answers 403 to a central user without it; `src/proxy.ts` sends pages to the subscribe page. Milk keeps its own roles (shop owner, operator, delivery partner). |
+| LadWani | `bkesari-sso` next-auth provider mints the existing JWT from a central session (so the ~119 `getServerSession` call sites keep working); the middleware re-checks the central session and ends a bridged session when the central one ends; password login, registration and password changes refused when enforced; central ADMIN → ADMIN and LADWANI moderator → OPERATOR (only roles granted by the bridge are ever revoked by it). |
+| Education | `BkesariSso` middleware on the `web` group (ahead of `auth`): introspect, link/create the local user, log in, log out when the central session ends; users whose Education roles need 2FA must have passed central TOTP; central ADMIN → `system_admin` (tracked in `sso_role_grants`). Only `bkesari-platform/edu` is changed: the standalone `edu` repo is an older copy. |
+| ATIP | Hub: the snapshot viewer behind the owner gate, and, when ATIP is hosted, `/ATIP/` forwarded to `ATIP_ORIGIN` for the owner only. ATIP-DEV: `dashboard/owner_gate.py`, outermost middleware, same 404 for everyone else. |
+| agtci.com | OIDC client (code + PKCE), own `sso_sessions` table, back-channel and RP-initiated logout, public pages (home, services, contact/enquiry form → `leads`), client area gated by `AGTCI` + `agtci.view_client_area`, enquiry management for `agtci.manage_enquiries`. See agtci `docs/STRUCTURE.md`. |
+
+## 9. Tests
+
+| Deliverable | Where |
+|---|---|
+| Auth flows (sign-up + consent, verification, login, lockout, rate limit, CSRF, reset, TOTP, logout, suspension) | `tests/auth-flows.test.js` |
+| RBAC per role, admin panel, self-change refusal, subscriptions approve / expire / revoke, payment hook | `tests/auth-rbac.test.js`, `tests/auth-units.test.js` |
+| Subscription gating at the hub for every tab, TaskList permissions, menu, introspection | `tests/auth-gating.test.js` |
+| ATIP owner-only gate (USER, MODERATOR, ADMIN, second SUPER_ADMIN, logged out → identical 404; no mention in any menu or API) | `tests/auth-atip.test.js`, `tests/auth-atip-hosted.test.js`, ATIP-DEV `tests/test_owner_gate.py` |
+| Cross-domain SSO and single logout (code + PKCE, back-channel, RP-initiated) | `tests/auth-oidc.test.js`; agtci `tests/sso.test.mts` |
+| Each project's bridge | Ladwani `tests/bkesari-sso.test.ts`, bkesari `tests/integration/bkesari-sso.test.ts`, `edu/tests/Feature/Platform/BkesariSsoTest.php` |
+
+The auth suites run on SQLite in CI and also pass on MySQL/MariaDB
+(`TEST_AUTH_MYSQL=mysql://user:pass@host/db npm test`).
 
 Deployment steps and the promotion checklist: [DEPLOY_AUTH.md](./DEPLOY_AUTH.md).
