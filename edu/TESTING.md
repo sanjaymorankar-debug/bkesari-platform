@@ -4,7 +4,19 @@
 php artisan test
 ```
 
-375 tests, all passing as of this build (Pest/PHPUnit via Laravel's test runner).
+392 tests (PHPUnit via Laravel's test runner). With no extra configuration this runs against in-memory SQLite (`phpunit.xml`), so it needs no database server; 3 PostgreSQL-specific tests are skipped there.
+
+### Against PostgreSQL (what CI runs)
+
+PostgreSQL is the production database, so run the suite against it before merging anything that touches queries or migrations. Create an empty database once (the repository root's `tools/setup_local_postgres.sh` makes `bk_edu_test` for you), then export the `DB_*` variables (they take precedence over `phpunit.xml`'s SQLite defaults):
+
+```bash
+DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 \
+DB_DATABASE=bk_edu_test DB_USERNAME=bk_edu DB_PASSWORD=... \
+php artisan test
+```
+
+All 392 pass on PostgreSQL 16. Tests use `RefreshDatabase`, which drops and recreates every table in that database — never point it at a database you care about. CI (the `edu` job in the repository root's `.github/workflows/ci.yml`) runs exactly this against a PostgreSQL 16 service container, followed by a `migrate:fresh --seed` run of every migration and seeder.
 
 ## What's covered
 
@@ -18,6 +30,7 @@ php artisan test
 - **Two-factor auth** (`tests/Feature/Platform/TwoFactorAuthTest.php`): setup + confirm with a valid TOTP generates 8 recovery codes; confirming with a wrong code fails and leaves 2FA unconfirmed; login redirects to the challenge screen when 2FA is enabled without authenticating yet; the challenge completes login with a valid TOTP code, rejects an invalid one, and a recovery code works exactly once
 - **Admin panel additions** (`tests/Feature/Platform/AdminPanelTest.php`): System Admin can review (dismiss) a fraud flag with reviewer/timestamp recorded, update moderation thresholds (persisted via the `Setting` model), toggle a role's permission, and assign/remove a role from a user found by email
 - **Teacher Effectiveness value-add** (`tests/Feature/Platform/TeacherEffectivenessTest.php`): a teacher with a subject specialization and two `student_academic_records` showing improvement gets a `value_add` component in `component_breakdown`; a teacher with no subject specialization gets none
+- **PostgreSQL compatibility** (`tests/Feature/Platform/DatabaseCompatibilityTest.php`): school search on the public directory and the onboarding picker is case-insensitive; on PostgreSQL, login, the `unique:users,email` rule and the admin user-by-email lookup match emails regardless of case (the `citext` column — see `DATABASE.md`), as they did on MySQL
 - **DPDP consent gate** (`tests/Feature/Platform/ConsentGateTest.php`): a teacher cannot see a child's growth record until the guardian consents and loses access the moment they withdraw; withdrawal preserves the record that consent once existed (so past collection stays auditable); an adult who is not a school-verified guardian of that specific child cannot grant consent; consent is per purpose and does not leak between the growth, career and life-skills modules; observations cannot be written without it; re-granting doesn't reset the original date; a guardian who withdrew sees an explanation and a way back rather than a bare 403, while the school still sees nothing; the child can always see their own record
 - **Growth access boundaries** (`tests/Feature/Platform/GrowthAccessBoundaryTest.php`): district officers, state officers, national admins and researchers are each blocked (403) from an individual child's growth, career and life-skills records — spec section 32 grants government aggregate access only, and `DevelopmentAccessService` has no officer branch at all; another family's parent, a classmate, and a teacher at a different school are all blocked; the guardian and the child themself are allowed. **These guards were mutation-tested**: forcing `canView()` to return `true` fails 10 of these tests, confirming they aren't passing vacuously
 - **No-labeling / no-bias rules** (`tests/Feature/Platform/NoLabelingRulesTest.php`): a schema-level guard failing if any score/rating/grade/level/band/percentile/rank column is ever added to the development tables, and another failing if an "assigned track" column appears; identical career suggestions regardless of gender (asserting specifically that a girl stating STEM interests is shown STEM pathways); every suggestion explains which stated interest produced it; no suggestions at all for a child who stated none; a growth goal cannot be saved without both a school action and a home action; a term caps at 3 goals; a draft plan is invisible to the guardian until shared; a guardian can add their own observation from home

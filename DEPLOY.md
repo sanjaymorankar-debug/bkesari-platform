@@ -18,7 +18,7 @@ main branch →  bkesari.com          (production)
 | Git branch | `dev` | `staging` | `main` |
 | Portal (Node) | dev.bkesari.com | test.bkesari.com | bkesari.com |
 | Education (PHP) | devedu.bkesari.com | testedu.bkesari.com | edu.bkesari.com |
-| MySQL database | its own | its own | its own (never share with dev/test) |
+| PostgreSQL database | its own | its own | its own (never share with dev/test) |
 
 **Promoting a tier** (once its site is confirmed working):
 
@@ -32,6 +32,40 @@ directly to `staging` or `main`.
 
 The repository is **private**. Hostinger's GitHub connection (step 1) asks for access to it,
 and the SSH clone in part 2 needs a GitHub Personal Access Token or a deploy key.
+
+### Databases: PostgreSQL everywhere — and where it has to come from
+
+**PostgreSQL** (13 or newer; CI and local setup use 16) is the one database for every app on
+bkesari.com. In this repository the portal, `edu` and every script under `database/` use nothing
+else; Milk & Dairy, LadWani and ATIP are moved over in their own repositories (Parts 3 and 5 say
+what that means here).
+
+> **Hostinger's shared and cloud web hosting does not provide PostgreSQL.** hPanel's
+> *Databases* section only creates MySQL/MariaDB databases, and phpMyAdmin is a MySQL tool.
+> So the databases have to live somewhere else, reachable over the network from the
+> Hostinger sites:
+>
+> - a **managed PostgreSQL service** (any provider that gives you a host, port, database, user
+>   and password, normally with TLS required), or
+> - **PostgreSQL on a VPS** you run yourself (Hostinger's VPS plans included) — the same VPS
+>   ATIP's full app would need (Part 3).
+>
+> This file does not walk through any provider's console: create, per tier and per app, one
+> database and one user that owns it, note the connection details, and allow connections from
+> the Hostinger sites (providers call this an allow-list, trusted sources or firewall). Turn TLS
+> on: `DB_SSL=require` for the portal, `DB_SSLMODE=require` for `edu`. Before relying on a
+> provider, check that the Hostinger server can reach it at all
+> (`psql "postgresql://…" -c 'select 1'` over SSH, if `psql` is there, or the app's own logs).
+
+Every `.sql` file in this repository is PostgreSQL and is run with `psql` (or any PostgreSQL
+SQL console your provider offers), not phpMyAdmin:
+
+```bash
+psql "postgresql://USER:PASSWORD@HOST:5432/DBNAME?sslmode=require" -v ON_ERROR_STOP=1 -1 -f FILE.sql
+```
+
+`-1` runs the file as one transaction (PostgreSQL DDL is transactional, so a failure leaves
+nothing half-applied); `ON_ERROR_STOP` stops at the first error instead of carrying on.
 
 ---
 
@@ -57,16 +91,18 @@ For **test.bkesari.com**, do the same with branch `staging`. For **bkesari.com**
 
 ### 2. Database
 
-hPanel → Databases → MySQL: create a database and user (for example `u…_bk_test`).
-In phpMyAdmin, run `portal/sql/mysql_schema.sql`. It is safe to re-run, and the app also creates missing tables on start.
+Create a PostgreSQL database and a user that owns it for this tier (for example `bk_portal_test`)
+on your PostgreSQL service — see *Databases* above; hPanel cannot do this. Nothing else is needed:
+the app creates its tables on start from `portal/sql/schema.sql`. To create them beforehand, run
+that file (or its copy, `database/portal/01_portal_schema.sql`) with `psql`; it is safe to re-run.
 
 ### 3. Environment variables
 
 | Variable | Value |
 |---|---|
-| `DB_CLIENT` | `mysql` |
-| `DB_HOST` | `localhost` (or what hPanel shows) |
-| `DB_NAME`, `DB_USER`, `DB_PASSWORD` | from step 2 |
+| `DB_HOST`, `DB_PORT` | your PostgreSQL server (port normally `5432`) |
+| `DB_NAME`, `DB_USER`, `DB_PASSWORD` | from step 2 — or set `DATABASE_URL=postgresql://user:password@host:5432/dbname` instead of all five |
+| `DB_SSL` | `require` for a database reached over the network (`no-verify` only if your provider says its certificate cannot be verified) |
 | `TRACKER_USER`, `TRACKER_PASSWORD` | login for `/tasks/` |
 | `ATIP_USER`, `ATIP_PASSWORD` | login for `/ATIP/` |
 | `ATIP_PUBLISH_TOKEN` | long random secret. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Use a **different one per tier** (dev/test/production). |
@@ -83,14 +119,19 @@ alongside the existing **TEST** one in `portal/` if you want the two visually di
 ## Part 2: Education (Laravel, PHP)
 
 Same pattern as the existing `edu/DEPLOYMENT.md`, except that the app now lives in the `edu/` folder of this repo.
-Prefer phpMyAdmin for schema changes (`database/edu/*.sql`, in order) over `php artisan migrate`
-where you can — see that folder's own notes — but `migrate --force` is shown below too since a
-fresh environment needs the `migrations` table populated either way.
+Schema changes go in with `php artisan migrate --force` (below). The hand-run alternative is
+`database/edu/*.sql` with `psql`, in order — see that folder's own notes; either way leaves the
+`migrations` table populated, so the two can be mixed.
+
+The site's PHP needs the **`pdo_pgsql`** extension. Check over SSH with `php -m | grep -i pgsql`;
+if it is not listed, it has to be enabled for the site before anything below will connect (this
+was not verified against Hostinger here).
 
 Do this for **devedu.bkesari.com** / branch `dev` first. Once it checks out, repeat verbatim for
 **testedu.bkesari.com** / branch `staging`, then **edu.bkesari.com** / branch `main`.
 
-1. hPanel → create the website/subdomain (e.g. **devedu.bkesari.com**) (PHP 8.3) and a MySQL database for it.
+1. hPanel → create the website/subdomain (e.g. **devedu.bkesari.com**) (PHP 8.3). Create its PostgreSQL
+   database and owner on your PostgreSQL service (see *Databases* at the top).
 2. SSH in and clone:
 
 ```bash
@@ -99,7 +140,9 @@ git clone -b dev https://github.com/sanjaymorankar-debug/bkesari-platform.git pl
 cd platform/edu
 composer install --no-dev --optimize-autoloader
 cp .env.example .env
-nano .env        # APP_URL=https://devedu.bkesari.com, APP_DEBUG=false, DB_* from step 1
+nano .env        # APP_URL=https://devedu.bkesari.com, APP_DEBUG=false,
+                 # DB_CONNECTION=pgsql and DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD
+                 # from step 1, DB_SSLMODE=require
 php artisan key:generate --force
 php artisan migrate --force
 php artisan db:seed --force      # first time only
@@ -200,12 +243,15 @@ Read `/Users/agtci/Documents/Project_Documents/Projects/ATIP/docs/HOSTED_DEPLOYM
    ones), `enterprise.enabled: true` and `execution.mode: paper` are prerequisites,
    not polish.
 
-In outline: run ATIP on the VPS with `ATIP_DATABASE_URL=mysql://…`,
+In outline: run ATIP on the VPS with `ATIP_DATABASE_URL=postgresql://…`,
 `ATIP_ROOT_PATH=/ATIP`, then reverse-proxy `/ATIP/` to it. The prefix-stripping
-nginx block, the MySQL setup and the per-tier table are all in that document.
+nginx block and the per-tier table are in that document; the PostgreSQL setup and
+the config switch that opts ATIP's runtime in to it are in the ATIP repo's
+`docs/POSTGRESQL_MIGRATION.md`.
 
-ATIP's own database is **MySQL** (`db/mysql.py`), one database per tier, never
-shared — same rule as the portal and `edu`.
+ATIP's server database is **PostgreSQL**, one database per tier, never shared —
+same rule as the portal and `edu`. A VPS that runs ATIP can host PostgreSQL for
+the other apps too.
 
 ## Part 4: The shared menu
 
@@ -281,13 +327,22 @@ what `main` now holds. The rebuild covers Family Registry, Matrimony, Community 
 Bookings/Assets, Payments/Fees/Ledger and Admin/Reporting (M0–M6), vs. the older app's Family
 Registry/Directory/Matrimony only.
 
-**Database**: `database/ladwani/01_ladwani_schema.sql` (**73 tables, 108 foreign keys**),
-`02_ladwani_reference_data.sql` and `03_ladwani_first_admin.sql` were regenerated on 2026-10-02
-from `rebuild` at `516d3b9` ("M6: profile data model…") with the rebuild's own tooling
-(`prisma migrate diff --from-empty --to-schema-datamodel`), and validated end-to-end against a
-real MySQL server: fresh import of all three, a re-run of 02 and 03 to confirm idempotency, and a
-round-trip insert proving the new foreign keys resolve. Import all three via phpMyAdmin, in
-order, exactly like `edu`'s migrations.
+**Database (PostgreSQL)**: `database/ladwani/01_ladwani_schema.sql` (**73 tables, 108 foreign
+keys**), `02_ladwani_reference_data.sql` and `03_ladwani_first_admin.sql`. 01 was regenerated on
+2026-10-09 from `rebuild` at `516d3b9` ("M6: profile data model…") with the rebuild's own tooling
+(`prisma migrate diff --from-empty --to-schema-datamodel`), with the schema's datasource switched
+from `provider = "mysql"` to `"postgresql"` and nothing else changed; 02 and 03 were converted by
+hand (same rows). Validated against PostgreSQL 16: fresh load of all three, a re-run of 02 and 03
+to confirm idempotency, the first-admin options run, and `prisma migrate diff` from the loaded
+database to the schema reporting nothing to change. Load all three with `psql`, in order, as the
+database's owner (*Databases* at the top).
+
+> **The `rebuild` app itself still says `provider = "mysql"`** in
+> `apps/api/prisma/schema.prisma`, and its `prisma/migrations/` are MySQL DDL. Before it can run
+> on this database, that branch needs the provider switched to `postgresql`, its migrations
+> regenerated for PostgreSQL (or the database baselined with `prisma migrate resolve`), and any
+> MySQL-only raw SQL in the API checked. That work belongs in the Ladwani repository and has not
+> been done here.
 
 > The previous export (2026-10-01, 69 tables) predated the **M6** commit and would have produced
 > a database the app cannot run against. M6 added four tables *and* columns to tables that
@@ -453,11 +508,11 @@ property rather than a comment.
 
 ### Migrations are not applied automatically
 
-By design, and consistent with the rest of this file preferring phpMyAdmin for
-schema changes: a deploy ships code and never alters a database. Each deploy's
+By design: a deploy ships code and never alters a database. Each deploy's
 summary lists any migration files the push brought, with a warning, so you can
-apply them yourself — through phpMyAdmin, or over SSH with `npm run db:migrate`
-(Milk & Dairy) or `npx prisma migrate deploy` (LadWani).
+apply them yourself — over SSH with `php artisan migrate --force` (edu),
+`npm run db:migrate` (Milk & Dairy) or `npx prisma migrate deploy` (LadWani), or
+with `psql` and the hand-run scripts under `database/`.
 
 ### Repositories that deliberately have no deploy workflow
 

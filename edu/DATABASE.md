@@ -1,6 +1,6 @@
 # Database
 
-MySQL in production (Hostinger), SQLite for local dev. 65 tables (see `database/migrations/`).
+PostgreSQL in every environment (local dev, CI, dev/test/production; 13+, CI uses 16). SQLite is used only for the zero-setup in-memory test run (`phpunit.xml`); CI runs the same suite against PostgreSQL too. 66 migrations, 74 tables (see `database/migrations/`).
 
 ## Core groups
 
@@ -66,6 +66,28 @@ MySQL in production (Hostinger), SQLite for local dev. 65 tables (see `database/
 
 Search-relevant columns on `schools` (name, pincode, board, state/district), `complaints` (status, school_id+status, district_id+status, anonymous_ref), and `school_quality_scores` (school_id+calculated_at) are indexed. Nothing here is tuned for the 100k+-school scale the full spec envisions — see `ROADMAP.md` for aggregation-table/caching work that's deferred.
 
+## PostgreSQL notes
+
+The schema was originally written for MySQL; these are the places where PostgreSQL behaves differently and what the app does about it:
+
+- **Case-sensitive text comparison.** MySQL's `utf8mb4_unicode_ci` collation made `=` and `LIKE` case-insensitive; PostgreSQL does not. `users.email` is therefore a `citext` column on PostgreSQL (migration `2026_10_09_000000_make_user_email_case_insensitive_on_pgsql`, which runs `CREATE EXTENSION IF NOT EXISTS citext`), so login, password reset, `unique:users,email` and the admin email lookup still match regardless of case, and the unique index still rejects `Alice@x.com` next to `alice@x.com`. User-facing search uses `whereLike()`, which compiles to `ILIKE`. New code that searches free text should use `whereLike()` / `orWhereLike()`, not `where(..., 'like', ...)`. Machine-generated values (statuses, slugs, tokens, `anonymous_ref`, complaint numbers) are always written in one case, so their exact comparisons are unaffected.
+- **`enum()` columns** become `varchar` + a `CHECK` constraint (Laravel's pgsql grammar), so invalid values are still rejected at the database level.
+- **`unsigned*()` columns** have no unsigned equivalent: `unsignedInteger` is a signed `integer`, `unsignedSmallInteger` a `smallint`, `unsignedBigInteger` a `bigint`. Nothing stored here approaches those limits, but negative values are not rejected by the database — validate them in the app.
+- **`json()` columns** are PostgreSQL `json`. `json` has no equality operator, so don't use `DISTINCT`, `GROUP BY`, or `=` on these columns (nothing currently does).
+- **Booleans** are real `boolean`s; every boolean column has a `'boolean'` cast on its model, so PHP sees `true`/`false` on both drivers.
+- **Grouping:** PostgreSQL requires every selected non-aggregate column to be in `GROUP BY` (the queries in `RecalculateAnalyticsSnapshots` already comply).
+- **Transactions:** after any error inside a PostgreSQL transaction, every further statement in it fails until rollback — don't catch-and-continue on a `QueryException` inside `DB::transaction()`.
+
+## Backups
+
+```bash
+pg_dump --format=custom --no-owner -h <DB_HOST> -U <DB_USERNAME> -d <DB_DATABASE> -f backup-$(date +%Y%m%d-%H%M%S).dump
+# restore into an empty database:
+pg_restore --no-owner -h <DB_HOST> -U <DB_USERNAME> -d <DB_DATABASE> backup-....dump
+```
+
+Use a `pg_dump` client whose major version is the same as or newer than the server's. Most managed PostgreSQL services also take automatic snapshots — check what your provider keeps and for how long.
+
 ## Migrating on the live server
 
 ```bash
@@ -76,8 +98,14 @@ php artisan migrate --force
 
 ### Applying schema changes by hand instead
 
-If you prefer running SQL in phpMyAdmin over `artisan migrate`, `database/sql/` holds ready-to-run
-scripts. They were generated from the migrations using Laravel's own MySQL schema grammar, so they
-match what `artisan migrate` would produce, and each one also records itself in the `migrations`
-table so a later `artisan migrate` doesn't try to recreate the same tables. Read the header comment
-in the script before running it — back up first.
+If you prefer running SQL with `psql` over `artisan migrate`, `database/sql/` holds ready-to-run
+PostgreSQL scripts. Their DDL was generated from the migrations by Laravel's own PostgreSQL schema
+grammar (`php artisan migrate --pretend` on a pgsql connection), so it matches what `artisan migrate`
+produces — applied in order they give an identical schema — and each one also records itself in
+the `migrations` table so a later `artisan migrate` doesn't try to recreate the same tables. Run
+each with `psql "$EDU_DATABASE_URL" -v ON_ERROR_STOP=1 -1 -f <file>`. Read the header comment in
+the script before running it — back up first.
+
+For a whole new database, the repository root's `database/edu/` has the full schema
+(`01_edu_schema.sql`, a `pg_dump` of what the migrations create), the reference data, demo data
+for the test site, and a first-admin script.

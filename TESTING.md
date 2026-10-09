@@ -22,10 +22,10 @@ is already established and your time is better spent on sections 2 and 4.
 
 | Repository | What runs | Covers |
 |---|---|---|
-| `bkesari-platform` | `ci.yml` | the server, proxy and shared menu parse; **19 menu unit tests**; **20 proxy tests**, including a real proxy against a real upstream; **32 deploy-guard cases**; the hub boots against sqlite and passes the full smoke test; correct logins are accepted and wrong ones rejected |
-| `bkesari` (Milk & Dairy) | `ci.yml` | migrations apply to a real **MySQL 8**; typecheck; eslint; **281 unit and integration tests**; a production build; the deploy-guard cases |
-| `Ladwani` | `ci.yml` | migrations apply to a real **MySQL 8**; reference and UAT data seed; typecheck; `prisma validate`; the schema still targets MySQL; the test suite; a production build; the deploy-guard cases |
-| `bkesari-platform/edu` | `ci.yml` (`edu` job) | **387 PHPUnit tests** (1,085 assertions, 43 files) against in-memory sqlite, including 12 covering the app served under the hub's `/edu/` path; `composer validate`; the Vite manifest matches the files on disk |
+| `bkesari-platform` | `ci.yml` | the server, proxy and shared menu parse; **19 menu unit tests**; **20 proxy tests**, including a real proxy against a real upstream; **7 Task Tracker / ATIP-snapshot tests against a real PostgreSQL 16** (every DB-backed route, the app creating its own tables, bad input answered 400/404 rather than 500); 2 checks that the portal schema and its `database/` copy agree; **32 deploy-guard cases**; the hub boots against PostgreSQL and passes the full smoke test; correct logins are accepted and wrong ones rejected |
+| `bkesari` (Milk & Dairy) | `ci.yml` | migrations apply to a real database server; typecheck; eslint; **281 unit and integration tests**; a production build; the deploy-guard cases. *That repository is moving from MySQL 8 to PostgreSQL on its own branch; its `ci.yml` says which it runs.* |
+| `Ladwani` | `ci.yml` | migrations apply to a real database server; reference and UAT data seed; typecheck; `prisma validate`; the test suite; a production build; the deploy-guard cases. *Moving from MySQL 8 to PostgreSQL on its own branch, as above.* |
+| `bkesari-platform/edu` | `ci.yml` (`edu` job) | **392 PHPUnit tests** (1,094 assertions) **twice**: on in-memory sqlite (389 pass; the 3 that need PostgreSQL's `citext` email column skip) and on a real **PostgreSQL 16** (all 392), including 12 covering the app served under the hub's `/edu/` path; every migration and seeder from empty on PostgreSQL; `composer validate`; the Vite manifest matches the files on disk |
 
 Each project's **deploy** workflow re-runs its own suite before it publishes, so
 a build that reaches dev is one that passed. Nothing is deployed on a red build.
@@ -37,22 +37,31 @@ the site is reachable, and that it looks right in a browser.
 ### Running a suite yourself
 
 ```bash
-# bkesari-platform (the hub) — needs nothing
-npm ci && npm test && npm run check
+# bkesari-platform (the hub). The Task Tracker tests need a PostgreSQL database
+# they may WIPE; without TEST_DATABASE_URL they are skipped (and say so).
+# tools/setup_local_postgres.sh writes one (bk_portal_test) into .env:
+npm ci && node --env-file=.env --test tests/*.test.js && bash .github/deploy/guard.test.sh && npm run check
+# ... or name it yourself:
+TEST_DATABASE_URL='postgresql://bk_portal:pw@127.0.0.1:5432/bk_portal_test' npm test
 
-# bkesari (Milk & Dairy) — needs a MySQL you don't mind being wiped
-DATABASE_URL='mysql://root:pw@127.0.0.1:3306/scratch' \
-TEST_DATABASE_URL='mysql://root:pw@127.0.0.1:3306/scratch' \
+# bkesari (Milk & Dairy) — needs a database you don't mind being wiped; that
+# repository's README and ci.yml give the exact URL form for its current engine
+DATABASE_URL='postgresql://bk_milk:pw@127.0.0.1:5432/bk_milk_test' \
+TEST_DATABASE_URL='postgresql://bk_milk:pw@127.0.0.1:5432/bk_milk_test' \
 AUTH_SECRET=local CRON_SECRET=local \
   npm ci && npm run db:migrate && npm test
 
 # Ladwani — the suite reads .env.test; ci.yml shows exactly what to put in it
 npm ci && npm run test:migrate && npm test
 
-# edu (Laravel) — in-memory sqlite, no database needed, ~12 seconds
+# edu (Laravel) — in-memory sqlite by default, no database needed, ~25 seconds
 cd edu && composer install
 cp .env.example .env && php artisan key:generate --force   # APP_KEY, first time only
 php artisan test
+# ... and on PostgreSQL, as CI does (environment variables beat phpunit.xml's
+# sqlite defaults). Use a database the suite may wipe, e.g. bk_edu_test:
+DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=bk_edu_test \
+DB_USERNAME=bk_edu DB_PASSWORD=pw php artisan test
 ```
 
 > **Never point a test suite at a dev, test or production database.** Several of
@@ -69,7 +78,13 @@ automated check in this repo can make for you: they need hPanel or SSH.
 
 The brief's hard rule: *an environment must never connect to another
 environment's database, and a project connects only to its own.* Open each
-site's `.env` on the server and read `DB_NAME`:
+site's `.env` on the server and read `DB_NAME` (`DB_DATABASE` for edu, or the
+database at the end of `DATABASE_URL`).
+
+The names below are the MySQL databases the dev sites used on Hostinger. The
+PostgreSQL databases replacing them live on your PostgreSQL service (Hostinger's
+web hosting has none — `DEPLOY.md`, *Databases*); keep the same rule, a `_dev`
+suffix per tier, and update this table when they exist:
 
 | Project | dev database |
 |---|---|
@@ -82,13 +97,14 @@ site's `.env` on the server and read `DB_NAME`:
 - [ ] Every `DB_NAME` on the dev sites ends in `_dev`.
 - [ ] No dev `.env` names a `_test` or `_prod` database, and none names another
       project's database.
-- [ ] Database names match hPanel **exactly** — they are case-sensitive on Linux,
-      so `_Edu_dev` is not `_edu_dev`.
+- [ ] Database names match your PostgreSQL service **exactly** — PostgreSQL
+      folds unquoted names to lower case but a name created quoted keeps its
+      case, so `_Edu_dev` and `_edu_dev` can be two different databases.
 
 A quick way to see all of them at once over SSH:
 
 ```bash
-grep -H '^DB_NAME' ~/domains/dev*.bkesari.com/*/.env
+grep -HE '^(DB_NAME|DB_DATABASE|DATABASE_URL)=' ~/domains/dev*.bkesari.com/*/.env | sed -E 's#(://[^:]+:)[^@]+@#\1***@#'
 ```
 
 ### 2.2 The tier knows which tier it is
@@ -107,13 +123,17 @@ itself and fails if it is not the one you asked for.
 - [ ] Each repo's `.gitignore` covers `.env`, and `.env.example` holds only blanks.
 - [ ] The only secrets in GitHub are the SSH ones listed in `DEPLOY.md` Part 6.
       **No database password belongs there** — credentials live on the server.
+      (The `ci-only-not-a-real-password` in the workflows belongs to CI's own
+      throwaway PostgreSQL container, which exists only for the length of a run.)
 - [ ] The smoke test's **Nothing private is served** group passes (it tries to
       fetch `/.env` and `/.git/config` over HTTPS).
 
 ### 2.4 You can get back
 
-- [ ] A database dump exists from *before* today's deploy, and you have read
-      `DEPLOYMENT.md` §7 in `bkesari` for the restore command.
+- [ ] A database dump exists from *before* today's deploy
+      (`pg_dump -Fc -f before.dump "$DATABASE_URL"`, or your PostgreSQL
+      provider's backup), and you know the restore command
+      (`pg_restore --clean --if-exists -d "$DATABASE_URL" before.dump`).
 - [ ] You have tried the restore at least once. An untested backup is a
       hypothesis, not a backup.
 
