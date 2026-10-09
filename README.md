@@ -44,10 +44,20 @@ above, so it is gated on TLS, auth on every route, `enterprise.enabled` and
 
 ## Run the portal locally
 
+The portal keeps its data in **PostgreSQL** (13+), the database every app on bkesari.com uses.
+`tools/setup_local_postgres.sh` creates a local one and writes the settings into `.env`
+(docs/MAC_DEPLOYMENT.md, step 3); `.env.example` lists them.
+
 ```
 npm install
-npm start          # http://localhost:3000  (uses SQLite in portal/data/, needs Node 22.13+)
+node --env-file=.env portal/server.js   # http://localhost:3001 with the .env the setup script writes
+# or, with your own database:
+DATABASE_URL=postgresql://user:password@127.0.0.1:5432/bk_portal npm start   # http://localhost:3000
 ```
+
+The app creates its tables on first start (`portal/sql/schema.sql`). Every hand-run SQL script for
+the sites is under `database/`, all PostgreSQL. Hosting needs a PostgreSQL service — Hostinger's
+web hosting has none; see DEPLOY.md, *Databases*.
 
 ## Task Tracker
 

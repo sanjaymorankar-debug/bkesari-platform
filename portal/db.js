@@ -1,74 +1,129 @@
 const fs = require('fs');
 const path = require('path');
+const { Pool, types: pgTypes } = require('pg');
 
 /* ============================================================
-   Thin database adapter so the same SQL runs on:
-   - MySQL  (DB_CLIENT=mysql)  -> Hostinger production
-   - SQLite (DB_CLIENT=sqlite) -> local, zero-setup (node:sqlite)
-   Both expose: all(sql, params), get(sql, params), run(sql, params)
+   PostgreSQL access for the portal (Task Tracker + ATIP snapshot).
+
+   Connection, in order of preference:
+     DATABASE_URL  postgresql://user:password@host:5432/dbname
+     DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD
+   DB_SSL=require (or true) turns TLS on, which managed PostgreSQL
+   services generally insist on; DB_SSL=no-verify skips certificate checks.
+
+   The helpers take PostgreSQL's numbered placeholders ($1, $2, ...):
+     all(sql, params)  -> every row
+     get(sql, params)  -> the first row, or null
+     run(sql, params)  -> { rowCount, rows }  (add RETURNING id for the new id)
+     tx(async (q) => { ... })  -> the same three helpers inside one transaction
    ============================================================ */
+
+const OID = { INT8: 20, DATE: 1082, TIMESTAMP: 1114, TIMESTAMPTZ: 1184 };
+
+// The API has always handed dates and times to the browser as the plain text
+// the database holds ("2026-10-09", "2026-10-09 14:05:00"), never as JS Dates
+// shifted through the server's time zone. COUNT(*) is BIGINT, which pg returns
+// as a string by default; the counts here are small, so return numbers.
+const types = {
+  getTypeParser(oid, format) {
+    if (oid === OID.DATE || oid === OID.TIMESTAMP || oid === OID.TIMESTAMPTZ) return (v) => v;
+    if (oid === OID.INT8) return (v) => (v === null ? null : Number(v));
+    return pgTypes.getTypeParser(oid, format);
+  },
+};
 
 function toParams(params) {
   return (params || []).map(v => (v === undefined ? null : v));
 }
 
-async function createMysql() {
-  const mysql = require('mysql2/promise');
-  const pool = mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
-    port: Number(process.env.DB_PORT || 3306),
-    database: process.env.DB_NAME,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    connectionLimit: 5,
-    dateStrings: true, // keep DATE/DATETIME as plain strings, no timezone shifting
-    timezone: 'Z',
-    charset: 'utf8mb4',
-  });
+function sslOption(value) {
+  const v = String(value || '').toLowerCase();
+  if (!v || v === 'false' || v === '0' || v === 'disable' || v === 'off') return undefined;
+  if (v === 'no-verify') return { rejectUnauthorized: false };
+  return { rejectUnauthorized: true };
+}
 
-  const schema = fs.readFileSync(path.join(__dirname, 'sql', 'mysql_schema.sql'), 'utf8');
-  for (const stmt of schema.split(';').map(s => s.trim()).filter(Boolean)) {
-    await pool.query(stmt);
-  }
-  console.log(`Database: MySQL ${process.env.DB_USER}@${process.env.DB_HOST || 'localhost'}/${process.env.DB_NAME}`);
-
+function connectionConfig(env = process.env) {
+  const common = { max: Number(env.DB_POOL_MAX || 5), ssl: sslOption(env.DB_SSL), types };
+  if (env.DATABASE_URL) return { ...common, connectionString: env.DATABASE_URL };
   return {
-    async all(sql, params) { const [rows] = await pool.query(sql, toParams(params)); return rows; },
-    async get(sql, params) { const [rows] = await pool.query(sql, toParams(params)); return rows[0] || null; },
-    async run(sql, params) { const [res] = await pool.query(sql, toParams(params)); return { insertId: res.insertId, changes: res.affectedRows }; },
+    ...common,
+    host: env.DB_HOST || 'localhost',
+    port: Number(env.DB_PORT || 5432),
+    database: env.DB_NAME,
+    user: env.DB_USER,
+    password: env.DB_PASSWORD,
   };
 }
 
-async function createSqlite() {
-  // node:sqlite landed in Node 22.5 and is the reason the README asks for 22.13+.
-  // SQLite is the DEFAULT client, so on an older Node a bare `npm start` would
-  // otherwise die with an unexplained "Cannot find module 'node:sqlite'".
-  // Hostinger runs this on MySQL, where any Node >= 20 is fine.
-  let DatabaseSync;
+function describe(config) {
+  if (config.connectionString) {
+    try {
+      const u = new URL(config.connectionString);
+      return `${decodeURIComponent(u.username)}@${u.hostname}:${u.port || 5432}${u.pathname}`;
+    } catch {
+      return '(DATABASE_URL)';
+    }
+  }
+  return `${config.user}@${config.host}:${config.port}/${config.database}`;
+}
+
+function helpers(client) {
+  return {
+    async all(sql, params) { return (await client.query(sql, toParams(params))).rows; },
+    async get(sql, params) { return (await client.query(sql, toParams(params))).rows[0] || null; },
+    async run(sql, params) {
+      const r = await client.query(sql, toParams(params));
+      return { rowCount: r.rowCount, rows: r.rows };
+    },
+  };
+}
+
+const SCHEMA_FILE = path.join(__dirname, 'sql', 'schema.sql');
+// Any constant works; it only has to be the same in every process.
+const SCHEMA_LOCK = 4823501;
+
+module.exports = async function createDb(options = {}) {
+  const config = { ...connectionConfig(options.env || process.env), ...(options.config || {}) };
+  if (!config.connectionString && !config.database) {
+    throw new Error('No database configured: set DATABASE_URL, or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD (PostgreSQL).');
+  }
+  const pool = new Pool(config);
+  // An idle client that loses its connection (database restart, network blip)
+  // emits 'error' on the pool; unhandled, that would take the process down.
+  pool.on('error', (err) => console.error('PostgreSQL idle client error:', err.message));
+
+  async function tx(fn) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await fn(helpers(client));
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  // Create any missing tables. Serialised with an advisory lock: two app
+  // processes starting at once would otherwise both try to create the same
+  // table, and IF NOT EXISTS does not stop that race in PostgreSQL.
+  const schema = fs.readFileSync(SCHEMA_FILE, 'utf8');
   try {
-    ({ DatabaseSync } = require('node:sqlite'));
-  } catch {
-    throw new Error(
-      `The local SQLite client needs Node 22.13+ for node:sqlite (this is ${process.version}). ` +
-      'Either upgrade Node, or set DB_CLIENT=mysql with DB_HOST/DB_NAME/DB_USER/DB_PASSWORD.');
+    await tx(async (q) => {
+      await q.run('SELECT pg_advisory_xact_lock($1)', [SCHEMA_LOCK]);
+      await q.run(schema);
+    });
+  } catch (err) {
+    await pool.end().catch(() => {});
+    throw err;
   }
-  const file = path.resolve(__dirname, process.env.SQLITE_PATH || './data/tasks.db');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new DatabaseSync(file);
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
-  db.exec(fs.readFileSync(path.join(__dirname, 'sql', 'sqlite_schema.sql'), 'utf8'));
-  console.log('Database: SQLite file', file);
+  if (!options.quiet) console.log(`Database: PostgreSQL ${describe(config)}`);
 
-  return {
-    async all(sql, params) { return db.prepare(sql).all(...toParams(params)); },
-    async get(sql, params) { return db.prepare(sql).get(...toParams(params)) || null; },
-    async run(sql, params) { const r = db.prepare(sql).run(...toParams(params)); return { insertId: Number(r.lastInsertRowid), changes: r.changes }; },
-  };
-}
-
-module.exports = async function createDb() {
-  const client = (process.env.DB_CLIENT || 'sqlite').toLowerCase();
-  if (client === 'mysql') return createMysql();
-  if (client === 'sqlite') return createSqlite();
-  throw new Error(`Unknown DB_CLIENT "${client}" (use mysql or sqlite)`);
+  return { ...helpers(pool), tx, end: () => pool.end() };
 };
+
+module.exports.connectionConfig = connectionConfig;

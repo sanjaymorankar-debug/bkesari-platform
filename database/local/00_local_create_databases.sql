@@ -1,35 +1,57 @@
--- OPTIONAL: only for trying the sites on your own machine's MySQL 8.4+.
---   macOS:  brew install mysql && brew services start mysql
---           mysql -u root -p < 00_local_create_databases.sql
---   (or MySQL Workbench)
--- NOT for Hostinger: there, databases and users are created in hPanel -> Databases ->
--- MySQL Databases (see database/README.md), and phpMyAdmin cannot create them.
+-- OPTIONAL: only for trying the sites on your own machine's PostgreSQL (13 or newer).
+--   macOS:  brew install postgresql@16 && brew services start postgresql@16
+--           psql -d postgres -f 00_local_create_databases.sql
+--   (Homebrew's PostgreSQL makes your macOS user a superuser, so no password is asked.)
+-- tools/setup_local_postgres.sh does all of this for you, with generated passwords,
+-- and also points each app at its database. Use this file when you want to do it by hand.
 --
--- Replace every CHANGE_ME password before running. Each site gets its own database and
--- its own user that can touch only that database.
+-- NOT for production: on a managed PostgreSQL service the provider's console creates
+-- databases and users. (Hostinger's shared / cloud web hosting has no PostgreSQL at all;
+-- see DEPLOY.md.)
+--
+-- Must be run with psql: it uses psql's \gexec, because PostgreSQL has no
+-- CREATE DATABASE IF NOT EXISTS. Safe to re-run.
+--
+-- Replace every CHANGE_ME password before running. Each site gets its own database,
+-- owned by its own login role, and nobody else may connect to it.
 
-CREATE DATABASE IF NOT EXISTS bk_portal  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE DATABASE IF NOT EXISTS bk_edu     CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE DATABASE IF NOT EXISTS bk_ladwani CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
--- ATIP's own database. Its schema is NOT in this folder: ATIP creates its 186
--- tables itself with `python main.py --init` once ATIP_DATABASE_URL points here
--- and config.json sets database.backend = "mysql" (see the ATIP repo's
--- docs/HOSTED_DEPLOYMENT.md).
-CREATE DATABASE IF NOT EXISTS bk_atip    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+DO $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+      ('bk_portal',  'CHANGE_ME_portal'),
+      ('bk_edu',     'CHANGE_ME_edu'),
+      ('bk_ladwani', 'CHANGE_ME_ladwani'),
+      ('bk_atip',    'CHANGE_ME_atip')) AS t(name, pw)
+  LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r.name) THEN
+      EXECUTE format('ALTER ROLE %I WITH LOGIN PASSWORD %L', r.name, r.pw);
+    ELSE
+      EXECUTE format('CREATE ROLE %I WITH LOGIN PASSWORD %L', r.name, r.pw);
+    END IF;
+  END LOOP;
+END
+$$;
 
-CREATE USER IF NOT EXISTS 'bk_portal'@'localhost'  IDENTIFIED BY 'CHANGE_ME_portal';
-CREATE USER IF NOT EXISTS 'bk_edu'@'localhost'     IDENTIFIED BY 'CHANGE_ME_edu';
-CREATE USER IF NOT EXISTS 'bk_ladwani'@'localhost' IDENTIFIED BY 'CHANGE_ME_ladwani';
-CREATE USER IF NOT EXISTS 'bk_atip'@'localhost'    IDENTIFIED BY 'CHANGE_ME_atip';
+SELECT format('CREATE DATABASE %I OWNER %I ENCODING %L TEMPLATE template0', d, d, 'UTF8')
+FROM unnest(ARRAY['bk_portal', 'bk_edu', 'bk_ladwani',
+                  -- ATIP's own database. Its schema is NOT in this folder: ATIP creates its
+                  -- tables itself once ATIP_DATABASE_URL points here and its config opts in
+                  -- to PostgreSQL (see the ATIP repo's docs/POSTGRESQL_MIGRATION.md).
+                  'bk_atip']) AS d
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = d)
+\gexec
 
-GRANT ALL PRIVILEGES ON bk_portal.*  TO 'bk_portal'@'localhost';
-GRANT ALL PRIVILEGES ON bk_edu.*     TO 'bk_edu'@'localhost';
-GRANT ALL PRIVILEGES ON bk_ladwani.* TO 'bk_ladwani'@'localhost';
-GRANT ALL PRIVILEGES ON bk_atip.*    TO 'bk_atip'@'localhost';
-FLUSH PRIVILEGES;
+-- Only each database's owner (and superusers) may connect to it.
+REVOKE CONNECT ON DATABASE bk_portal, bk_edu, bk_ladwani, bk_atip FROM PUBLIC;
+GRANT  CONNECT ON DATABASE bk_portal  TO bk_portal;
+GRANT  CONNECT ON DATABASE bk_edu     TO bk_edu;
+GRANT  CONNECT ON DATABASE bk_ladwani TO bk_ladwani;
+GRANT  CONNECT ON DATABASE bk_atip    TO bk_atip;
 
--- Then load each site's scripts into its own database, in order, e.g.
---   mysql -u bk_edu -p bk_edu < ../edu/01_edu_schema.sql
+-- Then load each site's scripts into its own database, in order, as that site's user, e.g.
+--   psql -h 127.0.0.1 -U bk_edu -d bk_edu -v ON_ERROR_STOP=1 -f ../edu/01_edu_schema.sql
 --
 -- One database per TIER as well as per site: dev, test and production never share
 -- one (DEPLOY.md). On a local Mac, suffix them if you want more than one tier

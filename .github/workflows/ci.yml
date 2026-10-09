@@ -15,6 +15,20 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # The portal's database. Disposable: the tracker tests wipe their tables.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bk_portal
+          POSTGRES_PASSWORD: ci-only-not-a-real-password
+          POSTGRES_DB: bk_portal_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U bk_portal -d bk_portal_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -30,21 +44,27 @@ jobs:
       - name: Parse the server and the shared menu
         run: npm run check
 
-      # The menu's unit tests, plus the deploy guard's own tests: the rules
+      # The menu's unit tests, the Task Tracker and ATIP snapshot routes against
+      # the real PostgreSQL above, plus the deploy guard's own tests: the rules
       # that keep a dev deploy off test and production are themselves tested.
       - name: Tests
+        env:
+          TEST_DATABASE_URL: postgresql://bk_portal:ci-only-not-a-real-password@127.0.0.1:5432/bk_portal_test
         run: npm test
 
       # The app has to survive being started, not just parsed — and the smoke
       # script that gates every deploy should itself be exercised somewhere.
-      # sqlite needs no server, so this runs without touching any real
-      # database. The logins are set so the access-control checks have
-      # something to assert; unset, the tracker would be open and the smoke
-      # test would (correctly) fail.
+      # It runs against the CI PostgreSQL service, never a real database. The
+      # logins are set so the access-control checks have something to assert;
+      # unset, the tracker would be open and the smoke test would (correctly)
+      # fail.
       - name: Start the hub and run the smoke test against it
         env:
-          DB_CLIENT: sqlite
-          SQLITE_PATH: ./data/ci.db
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_NAME: bk_portal_test
+          DB_USER: bk_portal
+          DB_PASSWORD: ci-only-not-a-real-password
           PORT: 3100
           APP_ENV: dev
           TRACKER_USER: ci
@@ -81,11 +101,25 @@ jobs:
 
           kill "$(cat /tmp/hub.pid)"
 
-  # edu/ has 375 PHPUnit tests that nothing was running. They use in-memory
-  # sqlite (see edu/phpunit.xml), so they need no database service and finish
-  # in about twelve seconds — there was no good reason for them to sit unrun.
+  # edu/'s PHPUnit suite, twice: on in-memory sqlite (edu/phpunit.xml's
+  # default, so it also runs anywhere with no database) and on PostgreSQL,
+  # which is what every tier actually runs.
   edu:
     runs-on: ubuntu-latest
+    # A throwaway PostgreSQL (the production database engine) for the suite's
+    # second run below.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bk_edu
+          POSTGRES_PASSWORD: ci-only-not-a-real-password
+          POSTGRES_DB: bk_edu_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U bk_edu -d bk_edu_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
     defaults:
       run:
         working-directory: edu
@@ -97,7 +131,7 @@ jobs:
         with:
           # Matches composer.json's "php": "^8.3" and Hostinger's PHP version.
           php-version: '8.3'
-          extensions: mbstring, bcmath, pdo_sqlite, sqlite3, zip, intl, gd
+          extensions: mbstring, bcmath, pdo_sqlite, sqlite3, pdo_pgsql, pgsql, zip, intl, gd
           coverage: none
 
       - name: Install dependencies
@@ -114,6 +148,30 @@ jobs:
 
       - name: Tests
         run: php artisan test
+
+      # The same suite again on PostgreSQL, the engine every tier runs on, so
+      # SQL that only SQLite accepts cannot reach a server. Environment
+      # variables win over phpunit.xml's sqlite defaults.
+      - name: Tests on PostgreSQL
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: bk_edu_test
+          DB_USERNAME: bk_edu
+          DB_PASSWORD: ci-only-not-a-real-password
+        run: php artisan test
+
+      # Every migration and seeder, from empty, on PostgreSQL.
+      - name: Migrate and seed on PostgreSQL
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: bk_edu_test
+          DB_USERNAME: bk_edu
+          DB_PASSWORD: ci-only-not-a-real-password
+        run: php artisan migrate:fresh --seed --force
 
       # The compiled front-end assets are committed, so a manifest that names
       # a file which is not there means every page 500s on a missing asset.
