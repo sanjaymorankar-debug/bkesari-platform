@@ -23,6 +23,7 @@ test('a tab is proxied for each project that can have its own app', () => {
       ['/milk/', 'MILK_ORIGIN'],
       ['/edu/', 'EDU_ORIGIN'],
       ['/ladwani/', 'LADWANI_ORIGIN'],
+      ['/tasklist/', 'TASKLIST_ORIGIN'],
     ],
   );
 });
@@ -39,6 +40,7 @@ test('only the tab that cannot own its prefix has it stripped', () => {
       ['/milk/', false],
       ['/edu/', true],
       ['/ladwani/', false],
+      ['/tasklist/', false],
     ],
   );
 });
@@ -198,6 +200,7 @@ async function hubWith(env, { parsersFirst = false, timeoutMs } = {}) {
 
   if (parsersFirst) app.use(express.json({ limit: '1mb' }));
   const routes = mountProxy();
+  proxy.mountMoved(app, routes);
   if (!parsersFirst) app.use(express.json({ limit: '1mb' }));
 
   app.use((req, res) => res.status(404).type('html').send('not on this tier yet'));
@@ -461,5 +464,80 @@ test('a large response body streams through', async () => {
   } finally {
     await close(hub.server);
     await close(upstream.server);
+  }
+});
+
+// --- TaskList, and the old /tasks/ address -------------------------------------
+
+test('TaskList is forwarded with its /tasklist prefix intact, POST bodies included', async () => {
+  // The TaskList app serves itself under /tasklist/, the same way a Next.js
+  // app with a basePath does, so nothing is stripped.
+  const upstream = await listen((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ url: req.url, method: req.method, body, auth: req.headers.authorization || null }));
+    });
+  });
+  const hub = await hubWith({ TASKLIST_ORIGIN: upstream.origin });
+  try {
+    for (const path of ['/tasklist', '/tasklist/', '/tasklist/app.js', '/tasklist/api/tasks?delayed=1']) {
+      const got = await (await fetch(hub.origin + path)).json();
+      assert.equal(got.url, path, `${path} arrived as ${got.url}`);
+    }
+    // TaskList's own login travels through untouched.
+    const payload = JSON.stringify({ name: 'From the hub' });
+    const post = await (await fetch(hub.origin + '/tasklist/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Basic dTpw' },
+      body: payload,
+    })).json();
+    assert.deepEqual([post.method, post.body, post.auth], ['POST', payload, 'Basic dTpw']);
+  } finally {
+    await close(hub.server);
+    await close(upstream.server);
+  }
+});
+
+test('with TASKLIST_ORIGIN set, /tasks and /tasks/ redirect to /tasklist/', async () => {
+  const upstream = await listen((req, res) => res.end('tasklist'));
+  const hub = await hubWith({ TASKLIST_ORIGIN: upstream.origin });
+  try {
+    for (const [path, to] of [
+      ['/tasks', '/tasklist/'],
+      ['/tasks/', '/tasklist/'],
+      ['/tasks/?status=Completed', '/tasklist/?status=Completed'],
+    ]) {
+      const res = await fetch(hub.origin + path, { redirect: 'manual' });
+      assert.equal(res.status, 302, path);
+      assert.equal(res.headers.get('location'), to, path);
+    }
+    // Only the page moves. The old tracker's API is left where it was.
+    const api = await fetch(hub.origin + '/tasks/api/overview', { redirect: 'manual' });
+    assert.notEqual(api.status, 302);
+  } finally {
+    await close(hub.server);
+    await close(upstream.server);
+  }
+});
+
+test('without TASKLIST_ORIGIN, /tasks/ is not redirected', async () => {
+  // A tier where TaskList is not running keeps the old tracker reachable,
+  // rather than sending bookmarks to the "not on this tier yet" page.
+  const hub = await hubWith({});
+  try {
+    const res = await fetch(hub.origin + '/tasks/', { redirect: 'manual' });
+    assert.notEqual(res.status, 302);
+  } finally {
+    await close(hub.server);
+  }
+});
+
+test('every move points at a proxied tab', () => {
+  for (const m of proxy.MOVED) {
+    const tab = proxy.PROXIED_TABS.find((t) => t.env === m.env);
+    assert.ok(tab, `${m.env} is not a proxied tab`);
+    assert.equal(m.to, tab.path);
   }
 });

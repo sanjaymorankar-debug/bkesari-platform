@@ -37,6 +37,11 @@ and the SSH clone in part 2 needs a GitHub Personal Access Token or a deploy key
 
 ## Part 1: Portal, Task Tracker and ATIP viewer (Node.js)
 
+The Task Tracker at `/tasks/` is being replaced by **TaskList** at `/tasklist/`, a
+separate app (the `TaskList` repository) that the hub forwards to once
+`TASKLIST_ORIGIN` is set (Part 7). Until then `/tasks/` keeps working as below;
+once it is set, `/tasks/` redirects to `/tasklist/`.
+
 ### 1. Point the site at this repo
 
 **test.bkesari.com currently runs the GoKesari staging app. These steps replace it.**
@@ -67,14 +72,15 @@ In phpMyAdmin, run `portal/sql/mysql_schema.sql`. It is safe to re-run, and the 
 | `DB_CLIENT` | `mysql` |
 | `DB_HOST` | `localhost` (or what hPanel shows) |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD` | from step 2 |
-| `TRACKER_USER`, `TRACKER_PASSWORD` | login for `/tasks/` |
+| `TRACKER_USER`, `TRACKER_PASSWORD` | login for the old Task Tracker at `/tasks/` |
+| `TASKLIST_ORIGIN` | where the TaskList app runs, once it is deployed (Part 7). Leave blank until then |
 | `ATIP_USER`, `ATIP_PASSWORD` | login for `/ATIP/` |
 | `ATIP_PUBLISH_TOKEN` | long random secret. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Use a **different one per tier** (dev/test/production). |
 
 Redeploy. Check (same checks for dev.bkesari.com and test.bkesari.com — add a **DEV** badge
 alongside the existing **TEST** one in `portal/` if you want the two visually distinguishable):
 - the site shows the menu
-- `/tasks/` asks for a login
+- `/tasks/` asks for a login (or, with `TASKLIST_ORIGIN` set, redirects to `/tasklist/`, which asks for TaskList's login)
 - `/ATIP/` asks for a login, then says *No dashboard snapshot has been published yet*
   (`/atip/` still resolves, for old bookmarks)
 
@@ -249,15 +255,15 @@ and server-rendering keeps that page's policy untouched.
 
 | Path | Served by |
 |---|---|
-| `/`, `/tasks/`, `/atip/` | this repo (`portal/`) |
+| `/`, `/tasks/`, `/atip/` | this repo (`portal/`); `/tasks/` redirects to `/tasklist/` once `TASKLIST_ORIGIN` is set |
 | `/global-warming/`, `/driving-simulator/` | this repo, static — still to be added |
-| `/milk/`, `/edu/`, `/ladwani/` | their own apps, reached through the hub |
+| `/milk/`, `/edu/`, `/ladwani/`, `/tasklist/` | their own apps, reached through the hub |
 
 A tab whose destination is not deployed on a tier yet answers with a short
 "not available on this tier" page rather than a bare 404, so the menu never
 dead-ends while the estate is still being assembled.
 
-How `/milk/`, `/edu/` and `/ladwani/` get served is Part 7.
+How `/milk/`, `/edu/`, `/ladwani/` and `/tasklist/` get served is Part 7.
 
 ---
 
@@ -546,8 +552,8 @@ unstyled markup with broken navigation — and the HTTP status is still 200, so
 nothing looks wrong until you open it. `scripts/smoke-dev.sh` reports this case
 by name.
 
-The same two settings, for the other two projects, are `EDU_ORIGIN` and
-`LADWANI_ORIGIN`. Each tab is independent: an origin that is not set leaves
+The same two settings, for the other projects, are `EDU_ORIGIN`,
+`LADWANI_ORIGIN` and `TASKLIST_ORIGIN`. Each tab is independent: an origin that is not set leaves
 that tab on its placeholder, so you can bring them up one at a time.
 
 ### Two ways to live under a prefix
@@ -587,6 +593,7 @@ story is not obvious.
 |---|---|---|
 | **Milk & Dairy** | `MILK_ORIGIN` | ✅ built for it — `BASE_PATH=/milk` in its deploy build; set it in that site's `.env` too |
 | **LadWani** | `LADWANI_ORIGIN` | ✅ built for it — `BASE_PATH=/ladwani` in its deploy build; set it in that site's `.env` too |
+| **TaskList** | `TASKLIST_ORIGIN` | ✅ built for it — it always serves itself under `/tasklist/`; nothing to set on its side but its own login (`TASKLIST_USER`, `TASKLIST_PASSWORD`). Setting this also redirects `/tasks/` to `/tasklist/` |
 | **Education** | `EDU_ORIGIN` | ✅ built for it — set `APP_URL=https://dev.bkesari.com/edu` in that site's `.env`; nothing else, and no change to its document root |
 
 Education needs no deploy-time flag: the path in `APP_URL` is the whole switch,
@@ -675,7 +682,7 @@ The hub does not take the rest of the estate down with it:
   is dropped and the browser shows its own error. Nothing can be rendered at
   that point — the request is already in flight.
 
-Either way the hub itself, `/tasks/`, `/atip/` and the static pages keep
+Either way the hub itself, `/atip/` and the static pages keep
 working. The hub's log names the tab and the target for every proxy error.
 
 ### Guardrails

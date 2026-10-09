@@ -10,8 +10,10 @@ const proxy = require('./proxy');
 /* ============================================================
    bkesari.com
      /            -> welcome portal (public/index.html)
-     /tasks/      -> Task Tracker UI (public/tasks/index.html)
+     /tasks/      -> Task Tracker UI (public/tasks/index.html); redirects to
+                     /tasklist/ instead once TASKLIST_ORIGIN is set
      /tasks/api/  -> Task Tracker REST API
+     /tasklist/   -> the TaskList app, forwarded by proxy.js when TASKLIST_ORIGIN is set
      /atip/       -> read-only ATIP snapshot, menu rendered server-side
      other tabs   -> served here when static, else a "not on this tier" page
    ============================================================ */
@@ -185,6 +187,9 @@ async function main() {
     // badge comes from the same place every other page gets it.
     renderMenu: (pathname, req) => menu.renderHtml({ pathname, env: currentEnv(req) }),
   });
+  // Old bookmarks: /tasks/ goes to /tasklist/ once TaskList is configured.
+  // Before the Task Tracker's login below, so the redirect needs no login.
+  const moved = proxy.mountMoved(app, proxied);
 
   // The ATIP snapshot is a full HTML page, so its route gets a larger limit.
   // Both spellings are listed on every ATIP route below. Express's routing is
@@ -400,8 +405,9 @@ ${menu.renderHtml({ pathname: req.path, env: currentEnv(req) })}
     console.log(`Task Tracker at http://localhost:${port}/tasks/`);
     if (!process.env.TRACKER_PASSWORD) console.warn('WARNING: TRACKER_USER/TRACKER_PASSWORD not set - the tracker is open to anyone who can reach it.');
     for (const route of proxied) console.log(`${route.path} -> ${route.target}`);
+    for (const m of moved) console.log(`${m.paths.join(', ')} redirect to ${m.to}`);
     if (!proxied.length) {
-      console.log('No project origins set (MILK_ORIGIN, EDU_ORIGIN, LADWANI_ORIGIN);');
+      console.log('No project origins set (MILK_ORIGIN, EDU_ORIGIN, LADWANI_ORIGIN, TASKLIST_ORIGIN);');
       console.log('those tabs will show the "not on this tier yet" page.');
     }
   });

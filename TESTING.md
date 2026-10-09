@@ -185,9 +185,14 @@ more than the welcome page.
       tier is ever public: they are not live readings.*
 - [ ] **`/driving-simulator/`** — reads correctly, and the dashed
       "still to be filled in" panel is still obviously a placeholder.
-- [ ] **`/tasks/`** — the login is accepted; you can create a project and a task,
-      edit one, add a comment, and see them again after a reload. (That last part
-      is what proves the database is actually connected.)
+- [ ] **`/tasks/`** — without `TASKLIST_ORIGIN`: the login is accepted; you can
+      create a project and a task, edit one, add a comment, and see them again
+      after a reload. (That last part is what proves the database is actually
+      connected.) With `TASKLIST_ORIGIN` set: it redirects to `/tasklist/`.
+- [ ] **`/tasklist/`** — with `TASKLIST_ORIGIN` set: TaskList asks for its own
+      login, then shows the task list under the menu with the **TaskList** tab
+      highlighted. Add a task, add a comment, reload: both are still there.
+      Without it: the "not on this tier yet" page with the menu.
 - [ ] **`/atip/`** — the login is accepted, and you see either a dashboard or
       *"No dashboard snapshot has been published yet."* Confirm the page is
       **view-only**: no order buttons, no broker banner.
@@ -234,9 +239,10 @@ The brief's constraint: *do not delete or rewrite existing working features.*
 After any deploy that touched the hub:
 
 - [ ] The Task Tracker's existing projects and tasks are all still there, with
-      their comments.
-- [ ] The Task Tracker API still answers. `GET /tasks/api/overview` is the one
-      call the dashboard makes, and returns every project and task:
+      their comments (its tables stay until the import into TaskList is confirmed).
+- [ ] The Task Tracker API still answers, even with `TASKLIST_ORIGIN` set (only
+      the `/tasks/` page redirects). `GET /tasks/api/overview` is the one call the
+      dashboard makes, and returns every project and task:
 
       ```bash
       curl -u "$TRACKER_USER:$TRACKER_PASSWORD" \
