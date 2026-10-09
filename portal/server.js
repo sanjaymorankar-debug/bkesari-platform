@@ -189,6 +189,16 @@ async function createApp() {
   // Before the proxy for the reason given below, and it reads no body.
   if (auth) app.use(auth.gate.edge);
 
+  // The hosted, interactive ATIP (ATIP_ORIGIN), behind the owner gate: the
+  // owner is forwarded, everyone else falls through to the routes below and
+  // ends in the same 404 as any missing path. Only with central login on —
+  // without it there is no owner to recognise, so it is never exposed.
+  if (auth && process.env.ATIP_ORIGIN) {
+    const hosted = auth.gate.atipRouter();
+    hosted.use(proxy.atipProxy(process.env.ATIP_ORIGIN));
+    app.use(hosted);
+  }
+
   // The projects that live in their own apps, each served under its own tab
   // path. Off until its origin is set, in which case its tab keeps falling
   // through to the "not on this tier yet" page further down.

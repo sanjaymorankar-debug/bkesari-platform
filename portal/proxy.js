@@ -251,4 +251,37 @@ function mount(app, {
   return routes;
 }
 
-module.exports = { PROXIED_TABS, parseOrigin, readRoutes, matches, stripPrefix, mount };
+/**
+ * The full, interactive ATIP app, when it is hosted (ATIP_ORIGIN) rather than
+ * published as a snapshot. Not a menu tab and not mounted by mount(): it is
+ * only ever placed behind the owner gate (portal/auth/gate.js atipRouter), so
+ * nobody but the owner reaches it. Strips /atip or /ATIP, so run ATIP with
+ * ATIP_ROOT_PATH=/ATIP. Like every proxy here, it must come before any body parser.
+ */
+function atipProxy(origin, { timeoutMs = 30_000, log = console } = {}) {
+  const parsed = parseOrigin(origin);
+  if (!parsed.ok) throw new Error(`ATIP_ORIGIN ${parsed.reason}`);
+  return createProxyMiddleware({
+    target: parsed.origin,
+    pathRewrite: (url) => {
+      const m = /^\/atip/i.exec(String(url));
+      return m ? (String(url).slice(m[0].length) || '/').replace(/^(?=[?#])/, '/') : url;
+    },
+    changeOrigin: true,
+    secure: true,
+    xfwd: true,
+    followRedirects: false,
+    proxyTimeout: timeoutMs,
+    timeout: timeoutMs,
+    on: {
+      error: (err, req, res) => {
+        log.error(`ATIP proxy error for ${req.url}: ${err.message}`);
+        if (!res || typeof res.writeHead !== 'function' || res.headersSent) return;
+        res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end('ATIP is not responding.');
+      },
+    },
+  });
+}
+
+module.exports = { PROXIED_TABS, parseOrigin, readRoutes, matches, stripPrefix, mount, atipProxy };
