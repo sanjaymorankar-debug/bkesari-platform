@@ -6,6 +6,9 @@ const createDb = require('./db');
 const menu = require('./public/shared/menu.js');
 // Serves the projects that live in their own apps under their own tab paths.
 const proxy = require('./proxy');
+// Central login, RBAC and subscriptions. Off unless AUTH_ENABLED is set.
+const { createAuth } = require('./auth');
+const { tabsFor, accountFor } = require('./auth/menu-tabs');
 
 /* ============================================================
    bkesari.com
@@ -13,6 +16,7 @@ const proxy = require('./proxy');
      /tasks/      -> Task Tracker UI (public/tasks/index.html)
      /tasks/api/  -> Task Tracker REST API
      /atip/       -> read-only ATIP snapshot, menu rendered server-side
+     /auth/       -> central login, admin panel, OpenID provider (AUTH_ENABLED)
      other tabs   -> served here when static, else a "not on this tier" page
    ============================================================ */
 
@@ -143,10 +147,20 @@ function escapeHtml(s) {
 
 const wrap = fn => (req, res, next) => fn(req, res, next).catch(next);
 
-async function main() {
+/**
+ * Builds the hub without starting to listen, so tests can drive the real app.
+ * Reads its settings from process.env, exactly as `npm start` does.
+ */
+async function createApp() {
   const db = await createDb();
+  // null unless AUTH_ENABLED: every `if (auth)` below keeps the hub exactly as
+  // it was on a tier that has not switched central login on.
+  const auth = await createAuth();
   const app = express();
   app.disable('x-powered-by');
+  // Rate limits and the audit log need the visitor's address, not the
+  // hosting proxy's. Only set with auth on; nothing else reads req.ip.
+  if (auth) app.set('trust proxy', auth.config.trustProxy);
 
   // Keep every tier but production out of search indexes. dev.bkesari.com and
   // test.bkesari.com carry the same real-looking content as production, so
@@ -169,6 +183,11 @@ async function main() {
     if (env !== 'prod') res.set('X-Robots-Tag', 'noindex, nofollow');
     next();
   });
+
+  // Central login's edge gate: before a request reaches any project, the
+  // session and the tab's subscription are checked (see portal/auth/gate.js).
+  // Before the proxy for the reason given below, and it reads no body.
+  if (auth) app.use(auth.gate.edge);
 
   // The projects that live in their own apps, each served under its own tab
   // path. Off until its origin is set, in which case its tab keeps falling
@@ -194,6 +213,8 @@ async function main() {
   // Naming both keeps old publishers working whatever that setting says.
   app.use(['/atip/api/snapshot', '/ATIP/api/snapshot'], express.json({ limit: '15mb' }));
   app.use(express.json({ limit: '1mb' }));
+
+  if (auth) app.use('/auth', auth.router);
 
   const api = express.Router();
 
@@ -324,15 +345,38 @@ async function main() {
   });
 
   // Express treats /tasks and /tasks/ as the same route, so check the raw path.
-  app.get(['/tasks', '/atip', '/ATIP'], (req, res, next) => {
+  const addSlash = (req, res, next) => {
     if (req.path.endsWith('/')) return next();
     res.redirect(302, req.path + '/');
-  });
-  app.use('/tasks', basicAuth('TRACKER_USER', 'TRACKER_PASSWORD', 'bkesari Task Tracker', false));
+  };
+  app.get('/tasks', addSlash);
+  // With central login gating /tasks/ (TASKLIST, tasklist.view / .manage),
+  // the edge gate has already decided; otherwise the Basic auth login as before.
+  if (!(auth && auth.config.gateTabs.includes('tasks'))) {
+    app.use('/tasks', basicAuth('TRACKER_USER', 'TRACKER_PASSWORD', 'bkesari Task Tracker', false));
+  }
   app.use('/tasks/api', api);
 
+  // The ATIP routes. Without central login: Basic auth, as before. With it:
+  // the owner gate, under which ATIP answers 404 to everyone but the owner,
+  // exactly like a path that does not exist.
+  const validPublishToken = (req) => {
+    const token = process.env.ATIP_PUBLISH_TOKEN;
+    const [scheme, given] = (req.headers.authorization || '').split(' ');
+    return Boolean(token) && scheme === 'Bearer' && Boolean(given) && same(given, token);
+  };
+  const atip = auth
+    ? auth.gate.atipRouter({ machine: (req) => req.method === 'POST' && /^\/atip\/api\/snapshot$/i.test(req.path) && validPublishToken(req) })
+    : app;
+  atip.get(['/atip', '/ATIP'], addSlash);
+  const atipViewerAuth = auth ? (req, res, next) => next() : basicAuth('ATIP_USER', 'ATIP_PASSWORD', 'bkesari ATIP', true);
+  // The bar on the ATIP page: the owner's own tabs when central login is on.
+  const atipMenu = (req) => menu.renderHtml(auth
+    ? { pathname: '/atip/', env: currentEnv(req), tabs: tabsFor(req._bkResolved), account: accountFor(req._bkResolved) }
+    : { pathname: '/ATIP/', env: currentEnv(req) });
+
   // Upload from the ATIP machine: bearer token, not the viewer login.
-  app.post(['/atip/api/snapshot', '/ATIP/api/snapshot'], wrap(async (req, res) => {
+  atip.post(['/atip/api/snapshot', '/ATIP/api/snapshot'], wrap(async (req, res) => {
     const token = process.env.ATIP_PUBLISH_TOKEN;
     const [scheme, given] = (req.headers.authorization || '').split(' ');
     if (!token) return res.status(503).json({ error: 'ATIP_PUBLISH_TOKEN is not set on the server' });
@@ -343,10 +387,11 @@ async function main() {
     await db.run('INSERT INTO atip_snapshots (html, trade_date, generated_at, received_at) VALUES (?,?,?,?)',
       [html, cleanText(trade_date, 20), cleanText(generated_at, 40), now]);
     await db.run('DELETE FROM atip_snapshots WHERE id < (SELECT m FROM (SELECT MAX(id) AS m FROM atip_snapshots) AS latest)');
+    if (auth) await auth.audit.record({ action: 'ATIP_SNAPSHOT_UPLOADED', detail: { trade_date: cleanText(trade_date, 20) }, req });
     res.json({ ok: true, received_at: now });
   }));
 
-  app.get(['/ATIP/', '/atip/'], basicAuth('ATIP_USER', 'ATIP_PASSWORD', 'bkesari ATIP', true), wrap(async (req, res) => {
+  atip.get(['/ATIP/', '/atip/'], atipViewerAuth, wrap(async (req, res) => {
     res.set('Content-Security-Policy', ATIP_CSP);
     res.set('Cache-Control', 'no-store');
     res.set('X-Robots-Tag', 'noindex');
@@ -354,7 +399,7 @@ async function main() {
     if (!snap) {
       return res.send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ATIP</title>
         <body style="font:15px system-ui;background:#0f172a;color:#e2e8f0;min-height:100vh;margin:0">
-        ${menu.renderHtml({ pathname: '/ATIP/', env: currentEnv(req) })}
+        ${atipMenu(req)}
         <div style="display:grid;place-items:center;padding:64px 16px;text-align:center">
         <div><h1 style="margin:0 0 8px">ATIP</h1><p>No dashboard snapshot has been published yet.</p></div></div>`);
     }
@@ -363,11 +408,12 @@ async function main() {
     const banner = `<div id="bk-banner"><span><a href="/">← bkesari</a> &nbsp; <b>Read-only view</b> · trade date ${escapeHtml(snap.trade_date)} · built ${escapeHtml((snap.generated_at || '').slice(0, 16))} IST · uploaded ${age}</span><span>Orders can only be placed on the ATIP machine.</span></div>`;
     // Rendered here rather than by the browser script: this page's CSP allows
     // inline scripts but not 'self', so an external <script> would be blocked.
-    const top = menu.renderHtml({ pathname: '/ATIP/', env: currentEnv(req) }) + banner;
+    const top = atipMenu(req) + banner;
     let html = snap.html.replace(/<\/head>/i, `${ATIP_READONLY_CSS}</head>`);
     html = /<body[^>]*>/i.test(html) ? html.replace(/<body[^>]*>/i, m => m + top) : top + html;
     res.type('html').send(html);
   }));
+  if (auth) app.use(atip);
   app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 
   // A tab whose destination is not deployed on this tier yet. Answer with a
@@ -394,11 +440,17 @@ ${menu.renderHtml({ pathname: req.path, env: currentEnv(req) })}
     );
   });
 
+  return { app, auth, db, proxied };
+}
+
+async function main() {
+  const { app, auth, proxied } = await createApp();
   const port = process.env.PORT || 3000;
   app.listen(port, () => {
     console.log(`bkesari portal running at http://localhost:${port}`);
     console.log(`Task Tracker at http://localhost:${port}/tasks/`);
-    if (!process.env.TRACKER_PASSWORD) console.warn('WARNING: TRACKER_USER/TRACKER_PASSWORD not set - the tracker is open to anyone who can reach it.');
+    if (auth) console.log(`Central login at http://localhost:${port}/auth/ (tier ${auth.config.tier}; gating ${auth.config.gateTabs.join(', ') || 'nothing'})`);
+    if (!auth && !process.env.TRACKER_PASSWORD) console.warn('WARNING: TRACKER_USER/TRACKER_PASSWORD not set - the tracker is open to anyone who can reach it.');
     for (const route of proxied) console.log(`${route.path} -> ${route.target}`);
     if (!proxied.length) {
       console.log('No project origins set (MILK_ORIGIN, EDU_ORIGIN, LADWANI_ORIGIN);');
@@ -407,7 +459,11 @@ ${menu.renderHtml({ pathname: req.path, env: currentEnv(req) })}
   });
 }
 
-main().catch(err => {
-  console.error('Failed to start:', err.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(err => {
+    console.error('Failed to start:', err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { createApp };

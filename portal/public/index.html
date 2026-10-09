@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>bkesari</title>
-<meta name="description" content="One home for the bkesari projects: dairy ordering, education, community, tasks and trading intelligence.">
+<meta name="description" content="One home for the bkesari projects: dairy ordering, education, community and tasks.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🟠</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -47,7 +47,6 @@
         <li><a href="/global-warming/">Global Warming</a></li>
         <li><a href="/ladwani/">LadWani</a></li>
         <li><a href="/tasks/">TaskList</a></li>
-        <li><a href="/atip/">ATIP</a></li>
         <li><a href="/driving-simulator/">Driving Simulator</a></li>
       </ul>
     </div>
@@ -60,13 +59,15 @@
 
 <script src="/shared/menu.js"></script>
 <script>
-// The cards are built from the menu's own TABS, so the welcome page and the bar
-// can never list different projects.
+// The cards are built from the menu's own tabs, so the welcome page and the bar
+// can never list different projects. They are drawn once from the static list
+// and again when the bar has asked the central login what this visitor gets.
 (function () {
   const menu = window.BKESARI_MENU;
   if (!menu) return; // the <noscript> list above already covers this
   const esc = menu.escapeHtml;
-  document.getElementById('cards').innerHTML = menu.TABS.map((tab) => `
+  function draw(tabs) {
+    document.getElementById('cards').innerHTML = tabs.map((tab) => `
     <a class="card" href="${esc(tab.path)}">
       <span class="icon" aria-hidden="true">${esc(tab.icon || '•')}</span>
       <span>
@@ -75,6 +76,9 @@
         <span class="card-path">${esc(tab.path)}</span>
       </span>
     </a>`).join('');
+  }
+  draw(menu.current ? menu.current.tabs : menu.TABS);
+  document.addEventListener('bkesari:menu', (e) => draw(e.detail.tabs));
   document.getElementById('year').textContent = new Date().getFullYear();
 })();
 </script>

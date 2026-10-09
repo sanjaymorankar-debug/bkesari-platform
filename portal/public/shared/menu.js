@@ -11,7 +11,7 @@
  *     one tag and no markup of its own.
  *
  *   Node — `require('./public/shared/menu.js')` hands back `renderHtml()`, for
- *     pages the server builds. The ATIP viewer needs this: its
+ *     pages the server builds. A page with a strict policy needs this: its
  *     Content-Security-Policy allows inline scripts but not `'self'`, so an
  *     external <script> there would be blocked. Server-rendering the same
  *     markup keeps that page's policy untouched and still shows the same bar.
@@ -43,14 +43,21 @@
    * The tabs, in the order they appear. `path` is deliberately a path and not a
    * URL: every project is served under one origin per tier, so the same link
    * works on dev, test and production without substitution.
+   *
+   * `feature` names the subscription that opens a tab. With central login on,
+   * the bar asks /auth/api/menu which of these the visitor gets; without it,
+   * or if that call fails, every tab below is shown.
+   *
+   * This file is public, so it lists only what anyone may know exists. The
+   * owner-only tab is added by the server for the owner and is never written
+   * here (portal/auth/menu-tabs.js).
    */
   const TABS = [
-    { name: 'Milk & Dairy Products', path: '/milk/',              icon: '🥛', tagline: 'Dairy and bakery ordering' },
-    { name: 'Education',             path: '/edu/',               icon: '🎓', tagline: 'School and student governance' },
+    { name: 'Milk & Dairy Products', path: '/milk/',              icon: '🥛', tagline: 'Dairy and bakery ordering', feature: 'MILK_DAIRY' },
+    { name: 'Education',             path: '/edu/',               icon: '🎓', tagline: 'School and student governance', feature: 'EDUCATION' },
     { name: 'Global Warming',        path: '/global-warming/',    icon: '🌍', tagline: 'Climate facts and local impact' },
-    { name: 'LadWani',               path: '/ladwani/',           icon: '👪', tagline: 'Family and community portal' },
-    { name: 'TaskList',              path: '/tasks/',             icon: '✅', tagline: 'Projects, tasks and status updates' },
-    { name: 'ATIP',                  path: '/atip/',              icon: '📈', tagline: 'Trading intelligence, view only' },
+    { name: 'LadWani',               path: '/ladwani/',           icon: '👪', tagline: 'Family and community portal', feature: 'LADWANI' },
+    { name: 'TaskList',              path: '/tasks/',             icon: '✅', tagline: 'Projects, tasks and status updates', feature: 'TASKLIST' },
     { name: 'Driving Simulator',     path: '/driving-simulator/', icon: '🚗', tagline: 'Driver training simulator' },
   ];
 
@@ -85,10 +92,10 @@
    * Prefix rather than equality so a page deep inside a project — /milk/cart,
    * /tasks/42 — still lights up its own tab.
    */
-  function activeTabPath(pathname) {
+  function activeTabPath(pathname, tabs) {
     const path = String(pathname || '/');
     let match = '/';
-    for (const tab of TABS) {
+    for (const tab of tabs || TABS) {
       // Compare without the trailing slash so /milk and /milk/ both match.
       const base = tab.path.replace(/\/$/, '');
       if ((path === base || path.startsWith(base + '/')) && base.length > match.length) {
@@ -127,6 +134,9 @@
   padding:7px 10px;border-radius:8px;white-space:nowrap}
 .bk-tabs a:hover{background:var(--bk-accent-soft);color:var(--bk-accent-dark)}
 .bk-tabs a:focus-visible{outline:2px solid var(--bk-accent);outline-offset:1px}
+.bk-account{margin-left:6px;flex:none;font-size:13px;font-weight:600;color:var(--bk-ink-soft);text-decoration:none;
+  padding:6px 10px;border:1px solid var(--bk-line);border-radius:8px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.bk-account:hover{color:var(--bk-accent-dark);border-color:var(--bk-accent)}
 .bk-tabs a[aria-current="page"]{color:var(--bk-accent-dark);background:var(--bk-accent-soft);
   box-shadow:inset 0 -2px 0 var(--bk-accent)}
 /* Mobile: the disclosure collapses into a hamburger. No JavaScript involved. */
@@ -155,20 +165,33 @@
    */
   function renderHtml(options) {
     const opts = options || {};
+    return `${styleTag()}\n${renderNav(opts)}`;
+  }
+
+  /**
+   * Just the <nav>, without the stylesheet: what a refresh swaps in.
+   *
+   * `tabs` replaces TABS (the server's answer for this visitor). `account`,
+   * when given, is the sign-in / account link at the end of the bar.
+   */
+  function renderNav(opts) {
     const env = opts.env || 'prod';
-    const active = activeTabPath(opts.pathname || '/');
+    const tabs = Array.isArray(opts.tabs) ? opts.tabs : TABS;
+    const active = activeTabPath(opts.pathname || '/', tabs);
     const isHome = active === '/';
     const envPill = env === 'prod' ? '' : ` <span class="bk-env">${escapeHtml(env)}</span>`;
 
-    const items = TABS.map((tab) => {
+    const items = tabs.map((tab) => {
       const current = tab.path === active ? ' aria-current="page"' : '';
       return `<li><a href="${escapeHtml(tab.path)}"${current}>${escapeHtml(tab.name)}</a></li>`;
     }).join('');
+    const account = opts.account && opts.account.href
+      ? `<a class="bk-account" href="${escapeHtml(opts.account.href)}">${escapeHtml(opts.account.label || 'Account')}</a>`
+      : '';
 
     // The brand doubles as the Home link, and carries aria-current on the
     // welcome page itself.
-    return `${styleTag()}
-<nav class="bk-menu" aria-label="bkesari projects">
+    return `<nav class="bk-menu" aria-label="bkesari projects">
   <div class="bk-menu-inner">
     <a class="bk-brand" href="/"${isHome ? ' aria-current="page"' : ''}>
       <span class="bk-brand-dot" aria-hidden="true"></span>bkesari${envPill}
@@ -179,7 +202,7 @@
         <span class="bk-bars" aria-hidden="true"><span></span><span></span><span></span></span>Menu
       </label>
       <ul class="bk-tabs">${items}</ul>
-    </span>
+    </span>${account}
   </div>
 </nav>`;
   }
@@ -196,17 +219,61 @@
     if (d.getElementById('bk-menu-style')) return;
     const html = renderHtml({
       pathname: d.location ? d.location.pathname : '/',
-      env: resolveEnv(
-        d.location ? d.location.hostname : '',
-        // A server-rendered page can pin its own tier before this runs.
-        typeof window !== 'undefined' ? window.BKESARI_ENV : '',
-      ),
+      env: currentEnv(d),
     });
     const slot = d.querySelector('[data-bkesari-menu]');
-    if (slot) { slot.innerHTML = html; return; }
-    const holder = d.createElement('div');
-    holder.innerHTML = html;
-    while (holder.firstChild) d.body.insertBefore(holder.firstChild, d.body.firstChild);
+    if (slot) {
+      slot.innerHTML = html;
+    } else {
+      const holder = d.createElement('div');
+      holder.innerHTML = html;
+      while (holder.firstChild) d.body.insertBefore(holder.firstChild, d.body.firstChild);
+    }
+    personalise(d);
+  }
+
+  function currentEnv(d) {
+    return resolveEnv(
+      d.location ? d.location.hostname : '',
+      // A server-rendered page can pin its own tier before this runs.
+      typeof window !== 'undefined' ? window.BKESARI_ENV : '',
+    );
+  }
+
+  /**
+   * Asks the central login which tabs this visitor gets, and redraws the bar.
+   *
+   * The static bar is already on screen, so a slow, failed or absent answer
+   * (central login off on this tier, a project on its own origin) leaves the
+   * page exactly as it was. Hiding a tab here is presentation only: every
+   * project refuses on the server whatever the bar shows.
+   *
+   * Fires `bkesari:menu` on the document with { tabs, account } either way,
+   * so the welcome page can draw its cards from the same answer.
+   */
+  function personalise(d) {
+    const done = (data) => {
+      const detail = { tabs: (data && data.tabs) || TABS, account: (data && data.account) || null };
+      api.current = detail;
+      try { d.dispatchEvent(new CustomEvent('bkesari:menu', { detail })); } catch (e) { /* old browser */ }
+    };
+    if (typeof fetch !== 'function') return done(null);
+    fetch('/auth/api/menu', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data || !Array.isArray(data.tabs)) return done(null);
+        const account = data.account && data.account.href === '/auth/login'
+          ? { label: data.account.label, href: '/auth/login?return_to=' + encodeURIComponent(d.location.pathname + d.location.search) }
+          : data.account;
+        const nav = d.querySelector('nav.bk-menu');
+        if (nav) {
+          const holder = d.createElement('div');
+          holder.innerHTML = renderNav({ pathname: d.location.pathname, env: currentEnv(d), tabs: data.tabs, account });
+          nav.replaceWith(holder.firstElementChild);
+        }
+        done({ tabs: data.tabs, account });
+      })
+      .catch(() => done(null));
   }
 
   function autoMount() {
@@ -218,5 +285,6 @@
     }
   }
 
-  return { DOMAIN, TABS, escapeHtml, resolveEnv, activeTabPath, styleTag, renderHtml, mount, autoMount };
+  const api = { DOMAIN, TABS, escapeHtml, resolveEnv, activeTabPath, styleTag, renderHtml, renderNav, mount, autoMount, current: null };
+  return api;
 });
