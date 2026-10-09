@@ -33,12 +33,26 @@ env:
   DEV_SITE: devedu.bkesari.com
 
 jobs:
-  # The 375 PHPUnit tests, on in-memory sqlite, so the build that reaches dev
-  # is one that passed them. They need dev dependencies (phpunit is one), which
-  # is why this is a separate job: the deploy below installs --no-dev, since
-  # nothing dev-only should be shipped to a server.
+  # The PHPUnit suite, on in-memory sqlite and on PostgreSQL, so the build that
+  # reaches dev is one that passed them. They need dev dependencies (phpunit is
+  # one), which is why this is a separate job: the deploy below installs
+  # --no-dev, since nothing dev-only should be shipped to a server.
   check:
     runs-on: ubuntu-latest
+    # A throwaway PostgreSQL (the production database engine) for the suite's
+    # second run below.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bk_edu
+          POSTGRES_PASSWORD: ci-only-not-a-real-password
+          POSTGRES_DB: bk_edu_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U bk_edu -d bk_edu_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
     defaults:
       run:
         working-directory: edu
@@ -49,7 +63,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: mbstring, bcmath, pdo_sqlite, sqlite3, zip, intl, gd
+          extensions: mbstring, bcmath, pdo_sqlite, sqlite3, pdo_pgsql, pgsql, zip, intl, gd
           coverage: none
 
       - name: Install dependencies
@@ -66,6 +80,30 @@ jobs:
 
       - name: Tests
         run: php artisan test
+
+      # The same suite again on PostgreSQL, the engine every tier runs on, so
+      # SQL that only SQLite accepts cannot reach a server. Environment
+      # variables win over phpunit.xml's sqlite defaults.
+      - name: Tests on PostgreSQL
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: bk_edu_test
+          DB_USERNAME: bk_edu
+          DB_PASSWORD: ci-only-not-a-real-password
+        run: php artisan test
+
+      # Every migration and seeder, from empty, on PostgreSQL.
+      - name: Migrate and seed on PostgreSQL
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: bk_edu_test
+          DB_USERNAME: bk_edu
+          DB_PASSWORD: ci-only-not-a-real-password
+        run: php artisan migrate:fresh --seed --force
 
   deploy:
     needs: check
@@ -95,7 +133,7 @@ jobs:
         with:
           # Matches composer.json's "php": "^8.3" and Hostinger's PHP version.
           php-version: '8.3'
-          extensions: mbstring, bcmath, pdo_mysql, zip, intl, gd
+          extensions: mbstring, bcmath, pdo_pgsql, pgsql, zip, intl, gd
           coverage: none
 
       - name: Install PHP dependencies
