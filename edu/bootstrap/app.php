@@ -26,6 +26,16 @@ return Application::configure(basePath: dirname(__DIR__))
         // those are pinned to APP_URL in AppServiceProvider.
         $middleware->trustProxies(at: '*');
 
+        // Central login (bkesari.com). Inert unless BKESARI_SSO_INTROSPECT_URL
+        // is set; see App\Http\Middleware\BkesariSso.
+        $middleware->web(append: [\App\Http\Middleware\BkesariSso::class]);
+        // It must run before `auth` decides the visitor is a guest, and route
+        // middleware in the priority list would otherwise be sorted ahead of it.
+        $middleware->prependToPriorityList(
+            before: \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
+            prepend: \App\Http\Middleware\BkesariSso::class,
+        );
+
         $middleware->alias([
             'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,

@@ -20,6 +20,14 @@ new class extends Component
     {
         $logout();
 
+        // Signed in through bkesari.com: end the central session too, which
+        // signs out every other project and agtci.com as well.
+        if (app(\App\Services\BkesariSso::class)->enabled()) {
+            $this->redirect(config('bkesari_sso.hub_url').'/auth/logout');
+
+            return;
+        }
+
         $this->redirect(route('home'), navigate: true);
     }
 }; ?>
