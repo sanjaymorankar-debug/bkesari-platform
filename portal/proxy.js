@@ -42,7 +42,7 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 /**
  * The tabs that a separate application can serve, and the environment variable
  * that points each one at its origin. Every other tab is the hub's own: `/`,
- * `/tasks/`, `/atip/`, and the two static pages.
+ * `/atip/`, and the two static pages.
  */
 const PROXIED_TABS = [
   { path: '/milk/', env: 'MILK_ORIGIN', name: 'Milk & Dairy Products' },
@@ -51,6 +51,21 @@ const PROXIED_TABS = [
   // Next.js app does. It puts the prefix back on its own output instead.
   { path: '/edu/', env: 'EDU_ORIGIN', name: 'Education', strip: true },
   { path: '/ladwani/', env: 'LADWANI_ORIGIN', name: 'LadWani' },
+  // The TaskList repo's Express app, which serves itself under /tasklist/.
+  { path: '/tasklist/', env: 'TASKLIST_ORIGIN', name: 'TaskList' },
+];
+
+/**
+ * Old addresses whose page has moved to a proxied tab. Each redirects only
+ * while that tab's origin is set: on a tier where the new app is not running,
+ * the old page stays reachable instead of sending visitors to a placeholder.
+ *
+ * Only the exact paths listed move. The hub's Task Tracker still owns
+ * everything under /tasks/ (its API included), and its code and tables stay
+ * until the owner has confirmed the import into TaskList.
+ */
+const MOVED = [
+  { paths: ['/tasks', '/tasks/'], to: '/tasklist/', env: 'TASKLIST_ORIGIN' },
 ];
 
 /**
@@ -251,4 +266,24 @@ function mount(app, {
   return routes;
 }
 
-module.exports = { PROXIED_TABS, parseOrigin, readRoutes, matches, stripPrefix, mount };
+/**
+ * Mounts the redirects in MOVED whose destination tab is configured, given the
+ * routes `mount` returned. Returns the ones mounted, for the startup log.
+ *
+ * 302 rather than 301: a browser keeps a 301 forever, so unsetting the origin
+ * later would leave old bookmarks pointing at a tab with nothing behind it.
+ */
+function mountMoved(app, routes) {
+  const active = MOVED.filter((m) => routes.some((r) => r.env === m.env));
+  for (const move of active) {
+    app.get(move.paths, (req, res, next) => {
+      // Express matches /tasks and /tasks/ to each other, but nothing deeper.
+      if (!move.paths.includes(req.path)) return next();
+      const q = req.originalUrl.indexOf('?');
+      res.redirect(302, move.to + (q === -1 ? '' : req.originalUrl.slice(q)));
+    });
+  }
+  return active;
+}
+
+module.exports = { PROXIED_TABS, MOVED, parseOrigin, readRoutes, matches, stripPrefix, mount, mountMoved };
