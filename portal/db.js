@@ -6,6 +6,11 @@ const path = require('path');
    - MySQL  (DB_CLIENT=mysql)  -> Hostinger production
    - SQLite (DB_CLIENT=sqlite) -> local, zero-setup (node:sqlite)
    Both expose: all(sql, params), get(sql, params), run(sql, params)
+   and close(), which releases the connection pool / file handle.
+
+   The server never calls close() -- it holds one database for the life of the
+   process -- but a test opens several, and a MySQL pool keeps the event loop
+   alive until it is ended, so without this a test run hangs instead of exiting.
    ============================================================ */
 
 function toParams(params) {
@@ -36,6 +41,7 @@ async function createMysql() {
     async all(sql, params) { const [rows] = await pool.query(sql, toParams(params)); return rows; },
     async get(sql, params) { const [rows] = await pool.query(sql, toParams(params)); return rows[0] || null; },
     async run(sql, params) { const [res] = await pool.query(sql, toParams(params)); return { insertId: res.insertId, changes: res.affectedRows }; },
+    async close() { await pool.end(); },
   };
 }
 
@@ -63,6 +69,7 @@ async function createSqlite() {
     async all(sql, params) { return db.prepare(sql).all(...toParams(params)); },
     async get(sql, params) { return db.prepare(sql).get(...toParams(params)) || null; },
     async run(sql, params) { const r = db.prepare(sql).run(...toParams(params)); return { insertId: Number(r.lastInsertRowid), changes: r.changes }; },
+    async close() { db.close(); },
   };
 }
 
