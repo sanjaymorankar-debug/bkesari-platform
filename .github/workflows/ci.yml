@@ -81,6 +81,63 @@ jobs:
 
           kill "$(cat /tmp/hub.pid)"
 
+  # The `test` job above runs the database tests on SQLite, because that is what
+  # needs no server. Production runs on MySQL, so the MySQL half of
+  # tests/db-dialects.test.js skips there and would never run anywhere. This job
+  # is where it runs: same tests, same assertions, real MySQL.
+  db-mysql:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        # Matches the local devstack, so a failure here reproduces with
+        # `npm run test:mysql` rather than only in CI.
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: bkesari_platform_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      TEST_MYSQL_HOST: 127.0.0.1
+      TEST_MYSQL_PORT: 3306
+      TEST_MYSQL_NAME: bkesari_platform_test
+      TEST_MYSQL_USER: root
+      TEST_MYSQL_PASSWORD: root
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # No --env-file here: the service's coordinates are in `env` above, and
+      # .env.test is gitignored so it does not exist in a checkout. Reaching
+      # for `npm run test:mysql` would fail on the missing file.
+      #
+      # The skip check is the point of the job as much as the tests are: the
+      # MySQL cases skip themselves when TEST_MYSQL_NAME is unset, so if the
+      # env block above were ever dropped this job would still go green while
+      # proving nothing. A skip here is a failure.
+      - name: Database tests on MySQL
+        run: |
+          set -euo pipefail
+          node --test tests/*.test.js 2>&1 | tee /tmp/db-tests.txt
+          if grep -q '# SKIP' /tmp/db-tests.txt; then
+            echo "::error::tests skipped on the MySQL job - TEST_MYSQL_* is not reaching them"
+            exit 1
+          fi
+
   # edu/ has 375 PHPUnit tests that nothing was running. They use in-memory
   # sqlite (see edu/phpunit.xml), so they need no database service and finish
   # in about twelve seconds — there was no good reason for them to sit unrun.
