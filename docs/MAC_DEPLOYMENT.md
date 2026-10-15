@@ -5,8 +5,9 @@ How to run all three repositories on one Mac: **ATIP-DEV**, **bkesari** and **bk
 - ATIP is meant to run on your Mac permanently: it is the trading platform.
 - The two websites (bkesari and bkesari-platform) normally live on Hostinger. On the Mac you run them locally to try changes before pushing; for the hosted sites see `bkesari/DEPLOYMENT.md` and `bkesari-platform/DEPLOY.md`.
 
-The feature and merge status of all three repos is in
-[`FEATURE_STATUS_2026-10-08.xlsx`](FEATURE_STATUS_2026-10-08.xlsx), next to this file.
+The feature list of all three repos, by phase and with each feature's status, is in
+[`FEATURE_STATUS.xlsx`](FEATURE_STATUS.xlsx), next to this file. Its **Phases** sheet has one row per
+phase with a phase status; change a feature's Status on **All Features** and the phase recalculates.
 
 **Checked on 2026-10-08**, after every open pull request was merged, from fresh clones of
 `master` / `main` against a local MySQL 8.0. The checks ran on Linux, so the macOS-only parts
