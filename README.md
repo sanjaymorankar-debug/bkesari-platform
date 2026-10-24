@@ -44,44 +44,31 @@ above, so it is gated on TLS, auth on every route, `enterprise.enabled` and
 
 ## Run the portal locally
 
+The portal keeps its data in **PostgreSQL** (13+), the database every app on bkesari.com uses.
+`tools/setup_local_postgres.sh` creates a local one and writes the settings into `.env`
+(docs/MAC_DEPLOYMENT.md, step 3); `.env.example` lists them.
+
 ```
 npm install
-npm start          # http://localhost:3000  (uses SQLite in portal/data/, needs Node 22.13+)
+node --env-file=.env portal/server.js   # http://localhost:3001 with the .env the setup script writes
+# or, with your own database:
+DATABASE_URL=postgresql://user:password@127.0.0.1:5432/bk_portal npm start   # http://localhost:3000
 ```
+
+The app creates its tables on first start (`portal/sql/schema.sql`). Every hand-run SQL script for
+the sites is under `database/`, all PostgreSQL. Hosting needs a PostgreSQL service — Hostinger's
+web hosting has none; see DEPLOY.md, *Databases*.
 
 ## Tests
 
 ```
 npm run check      # parse the server and the shared menu
-npm test           # 61 tests: menu, proxy, database, and the deploy guard
+npm test           # menu, proxy, deploy guard; the database tests need TEST_DATABASE_URL
 ```
 
-`npm test` needs no setup. The database tests run on SQLite, which needs no
-server, and the eight MySQL cases skip themselves with a reason.
-
-Production runs on MySQL, so those eight are the ones that matter most. To run
-them, point them at a throwaway database:
-
-```
-cp .env.test.example .env.test     # defaults match the local devstack
-npm run test:mysql                 # all 61, nothing skipped
-```
-
-They apply the schema, then assert that the adapter and the app's trickier SQL
-behave identically on both clients — auto-increment ids, `null` versus
-`undefined`, date and timestamp formats, the latest-comment subqueries, and the
-snapshot prune, whose derived-table alias MySQL requires and SQLite does not
-care about. A ninth test compares `portal/sql/mysql_schema.sql` against
-`portal/sql/sqlite_schema.sql`, since nothing else keeps the two in step.
-
-CI runs both: the `test` job on SQLite and the `db-mysql` job against a real
-MySQL 8.0 service, which fails if any case skips. Note that Hostinger may serve
-MySQL or MariaDB; these tests prove the SQL works on MySQL 8.0, not that
-MariaDB behaves the same.
-
-The tests take `TEST_MYSQL_*`, not the `DB_*` names the app reads. They delete
-every row in the four tracker tables, so they must not be able to pick up a
-real database from a `.env` by accident.
+The database tests run against a throwaway PostgreSQL named in `TEST_DATABASE_URL`
+(never a `DB_*` or `DATABASE_URL` setting: they delete every row in the tracker
+tables). `TEST_SPEC.md` has the full list of what to run.
 
 ## Task Tracker
 

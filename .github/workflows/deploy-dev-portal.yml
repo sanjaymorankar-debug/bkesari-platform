@@ -38,6 +38,18 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # A throwaway PostgreSQL for the tracker tests, as in ci.yml.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bk_portal
+          POSTGRES_PASSWORD: ci-only-not-a-real-password
+          POSTGRES_DB: bk_portal_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U bk_portal -d bk_portal_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +63,8 @@ jobs:
       # The same checks CI runs. The deploy is gated on them so that the thing
       # which publishes is the thing that verified.
       - run: npm test
+        env:
+          TEST_DATABASE_URL: postgresql://bk_portal:ci-only-not-a-real-password@127.0.0.1:5432/bk_portal_test
 
   deploy:
     needs: check
@@ -106,7 +120,8 @@ jobs:
           #
           #   .env          the credentials, filled in by hand on the server
           #   node_modules  installed on the server by the next step
-          #   data/         portal/data, the sqlite file when DB_CLIENT=sqlite
+          #   data/         portal/data, which older releases used for a local
+          #                 SQLite file; kept excluded so nothing there is deleted
           RSYNC_FLAGS=(
             --archive --compress --human-readable
             --delete
