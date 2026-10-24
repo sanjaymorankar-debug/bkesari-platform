@@ -33,35 +33,24 @@ directly to `staging` or `main`.
 The repository is **private**. Hostinger's GitHub connection (step 1) asks for access to it,
 and the SSH clone in part 2 needs a GitHub Personal Access Token or a deploy key.
 
-### Databases: PostgreSQL everywhere — and where it has to come from
+### Databases: PostgreSQL on Neon
 
-**PostgreSQL** (13 or newer; CI and local setup use 16) is the one database for every app on
-bkesari.com. In this repository the portal, `edu` and every script under `database/` use nothing
-else; Milk & Dairy, LadWani and ATIP are moved over in their own repositories (Parts 3 and 5 say
-what that means here).
+Every app on bkesari.com keeps its data in **PostgreSQL on Neon** (CI and local setup use a
+throwaway PostgreSQL 16 instead, and never reach Neon). Hostinger's web hosting has no
+PostgreSQL of its own, so the sites stay on Hostinger and connect out to Neon.
 
-> **Hostinger's shared and cloud web hosting does not provide PostgreSQL.** hPanel's
-> *Databases* section only creates MySQL/MariaDB databases, and phpMyAdmin is a MySQL tool.
-> So the databases have to live somewhere else, reachable over the network from the
-> Hostinger sites:
->
-> - a **managed PostgreSQL service** (any provider that gives you a host, port, database, user
->   and password, normally with TLS required), or
-> - **PostgreSQL on a VPS** you run yourself (Hostinger's VPS plans included) — the same VPS
->   ATIP's full app would need (Part 3).
->
-> This file does not walk through any provider's console: create, per tier and per app, one
-> database and one user that owns it, note the connection details, and allow connections from
-> the Hostinger sites (providers call this an allow-list, trusted sources or firewall). Turn TLS
-> on: `DB_SSL=require` for the portal, `DB_SSLMODE=require` for `edu`. Before relying on a
-> provider, check that the Hostinger server can reach it at all
-> (`psql "postgresql://…" -c 'select 1'` over SSH, if `psql` is there, or the app's own logs).
+**[docs/NEON.md](docs/NEON.md)** is the one place for the rest: one Neon branch per tier
+(`production` → bkesari.com, `test` → test.bkesari.com, `dev` → dev.bkesari.com), one database
+and one owning role per project on each, the two connection strings every app takes
+(`DATABASE_URL` pooled for the app, `DATABASE_URL_UNPOOLED` direct for schema changes), where in
+the Neon console to copy them from, and the script that creates it all. Each tier's server `.env`
+holds **only that tier's** strings.
 
 Every `.sql` file in this repository is PostgreSQL and is run with `psql` (or any PostgreSQL
 SQL console your provider offers), not phpMyAdmin:
 
 ```bash
-psql "postgresql://USER:PASSWORD@HOST:5432/DBNAME?sslmode=require" -v ON_ERROR_STOP=1 -1 -f FILE.sql
+psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -1 -f FILE.sql     # the direct string, never the pooled one
 ```
 
 `-1` runs the file as one transaction (PostgreSQL DDL is transactional, so a failure leaves
@@ -91,21 +80,24 @@ For **test.bkesari.com**, do the same with branch `staging`. For **bkesari.com**
 
 ### 2. Database
 
-Create a PostgreSQL database and a user that owns it for this tier (for example `bk_portal_test`)
-on your PostgreSQL service — see *Databases* above; hPanel cannot do this. Nothing else is needed:
-the app creates its tables on start from `portal/sql/schema.sql`. To create them beforehand, run
-that file (or its copy, `database/portal/01_portal_schema.sql`) with `psql`; it is safe to re-run.
+On Neon, this tier's branch has a database `portal` owned by role `portal_app` (docs/NEON.md
+creates it). Nothing else is needed: the app creates its tables on start from
+`portal/sql/schema.sql`, over the direct connection. To create them beforehand, run that file
+(or its copy, `database/portal/01_portal_schema.sql`) with `psql "$DATABASE_URL_UNPOOLED"`; it is
+safe to re-run.
 
 ### 3. Environment variables
 
 | Variable | Value |
 |---|---|
-| `DB_HOST`, `DB_PORT` | your PostgreSQL server (port normally `5432`) |
-| `DB_NAME`, `DB_USER`, `DB_PASSWORD` | from step 2 — or set `DATABASE_URL=postgresql://user:password@host:5432/dbname` instead of all five |
-| `DB_SSL` | `require` for a database reached over the network (`no-verify` only if your provider says its certificate cannot be verified) |
+| `DATABASE_URL` | Neon console → this tier's branch → **Connect** → database `portal`, role `portal_app`, *Connection pooling* **on**. Paste it whole: the `?sslmode=require&channel_binding=require` on the end is what turns TLS on |
+| `DATABASE_URL_UNPOOLED` | the same, with *Connection pooling* **off**. Used only to create the tables |
 | `TRACKER_USER`, `TRACKER_PASSWORD` | login for `/tasks/` |
 | `ATIP_USER`, `ATIP_PASSWORD` | login for `/ATIP/` |
 | `ATIP_PUBLISH_TOKEN` | long random secret. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Use a **different one per tier** (dev/test/production). |
+
+`DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` (and `DB_SSL=require` for TLS) still work
+in place of `DATABASE_URL` for a database that is not on Neon; `.env.example` lists them.
 
 Redeploy. Check (same checks for dev.bkesari.com and test.bkesari.com — add a **DEV** badge
 alongside the existing **TEST** one in `portal/` if you want the two visually distinguishable):

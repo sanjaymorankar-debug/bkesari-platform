@@ -285,10 +285,12 @@ if [[ $CREATED == 1 ]]; then
     set_env "$PORTAL_ENV" ATIP_PASSWORD "$(openssl rand -hex 8)"
     set_env "$PORTAL_ENV" ATIP_PUBLISH_TOKEN "$(openssl rand -hex 32)"
 fi
-# Left over from the MySQL / SQLite days; the portal no longer reads them.
+# Left over from the MySQL / SQLite days, or copied from a Neon .env: a local
+# setup uses the DB_* parts below, so neither URL may point anywhere else.
 unset_env "$PORTAL_ENV" DB_CLIENT
 unset_env "$PORTAL_ENV" SQLITE_PATH
 unset_env "$PORTAL_ENV" DATABASE_URL
+unset_env "$PORTAL_ENV" DATABASE_URL_UNPOOLED
 set_env "$PORTAL_ENV" DB_HOST "$PG_HOST"
 set_env "$PORTAL_ENV" DB_PORT "$PG_PORT"
 set_env "$PORTAL_ENV" DB_NAME "${P}portal"

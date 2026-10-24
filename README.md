@@ -63,7 +63,8 @@ web hosting has none; see DEPLOY.md, *Databases*.
 
 ```
 npm run check      # parse the server and the shared menu
-npm test           # menu, proxy, deploy guard; the database tests need TEST_DATABASE_URL
+npm test           # 80 tests + 32 deploy-guard cases; the 15 database tests need TEST_DATABASE_URL
+npm run test:pg    # the same, reading TEST_DATABASE_URL from .env.test (copy .env.test.example)
 ```
 
 The database tests run against a throwaway PostgreSQL named in `TEST_DATABASE_URL`

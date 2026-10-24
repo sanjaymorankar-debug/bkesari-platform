@@ -35,7 +35,7 @@
  * still carries the original Content-Length, so the app waits for bytes that
  * will never arrive, and the visitor sits there until the proxy timeout fires
  * and hands them a 502. Verified, not guessed — tests/proxy.test.js covers
- * both orders, so moving this in server.js fails the suite.
+ * both orders, and tests/server.test.js fails if server.js moves it.
  */
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
@@ -230,7 +230,10 @@ function mount(app, {
         timeout: timeoutMs,
         on: {
           error: (err, req, res) => {
-            log.error(`Proxy error for ${req.url} -> ${route.target}: ${err.message}`);
+            // originalUrl: for a stripping tab, req.url has already lost the
+            // prefix by now, and the bar would light up no tab at all.
+            const url = req.originalUrl || req.url;
+            log.error(`Proxy error for ${url} -> ${route.target}: ${err.message}`);
             // The socket may already be gone, or headers already sent.
             if (!res || typeof res.writeHead !== 'function' || res.headersSent) return;
             res.writeHead(502, {
@@ -240,7 +243,7 @@ function mount(app, {
             });
             // Pathname only: the query string would be noise in the bar's
             // active-tab matching and has no business in the page.
-            const pathname = String(req.url || route.path).split('?')[0];
+            const pathname = String(url || route.path).split('?')[0];
             res.end(unreachablePage(route, renderMenu, pathname, req));
           },
         },

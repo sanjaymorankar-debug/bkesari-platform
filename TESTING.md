@@ -22,7 +22,7 @@ is already established and your time is better spent on sections 2 and 4.
 
 | Repository | What runs | Covers |
 |---|---|---|
-| `bkesari-platform` | `ci.yml` | the server, proxy and shared menu parse; **19 menu unit tests**; **20 proxy tests**, including a real proxy against a real upstream; **7 Task Tracker / ATIP-snapshot tests against a real PostgreSQL 16** (every DB-backed route, the app creating its own tables, bad input answered 400/404 rather than 500); 2 checks that the portal schema and its `database/` copy agree; **32 deploy-guard cases**; the hub boots against PostgreSQL and passes the full smoke test; correct logins are accepted and wrong ones rejected |
+| `bkesari-platform` | `ci.yml` | the server, proxy and shared menu parse; **19 menu unit tests**; **26 proxy tests**, including a real proxy against a real upstream; **3 tests of the assembled server** (the Task Tracker's login however a path is spelled, no stack trace for a malformed body, the proxy mounted before the body parsers); **15 Task Tracker / ATIP-snapshot / database tests against a real PostgreSQL 16** (every DB-backed route, the app creating its own tables, over `DATABASE_URL_UNPOOLED` when set, bad input answered 400/404 rather than 500, connections dropped by the server survived); **5 tests of the connection settings** a Neon URL produces; **10 tests of the Neon provisioning tool** against a stand-in for Neon's API; 2 checks that the portal schema and its `database/` copy agree; **32 deploy-guard cases**; a skipped test fails the job; the hub boots on PostgreSQL with `DATABASE_URL` and `DATABASE_URL_UNPOOLED` and passes the full smoke test; correct logins are accepted and wrong ones rejected. What CI cannot show (PgBouncer, TLS, dropped connections end to end) is `TEST_SPEC.md`'s Neon parity level |
 | `bkesari` (Milk & Dairy) | `ci.yml` | migrations apply to a real database server; typecheck; eslint; **281 unit and integration tests**; a production build; the deploy-guard cases. *That repository is moving from MySQL 8 to PostgreSQL on its own branch; its `ci.yml` says which it runs.* |
 | `Ladwani` | `ci.yml` | migrations apply to a real database server; reference and UAT data seed; typecheck; `prisma validate`; the test suite; a production build; the deploy-guard cases. *Moving from MySQL 8 to PostgreSQL on its own branch, as above.* |
 | `bkesari-platform/edu` | `ci.yml` (`edu` job) | **392 PHPUnit tests** (1,094 assertions) **twice**: on in-memory sqlite (389 pass; the 3 that need PostgreSQL's `citext` email column skip) and on a real **PostgreSQL 16** (all 392), including 12 covering the app served under the hub's `/edu/` path; every migration and seeder from empty on PostgreSQL; `composer validate`; the Vite manifest matches the files on disk |
@@ -37,12 +37,15 @@ the site is reachable, and that it looks right in a browser.
 ### Running a suite yourself
 
 ```bash
-# bkesari-platform (the hub). The Task Tracker tests need a PostgreSQL database
-# they may WIPE; without TEST_DATABASE_URL they are skipped (and say so).
-# tools/setup_local_postgres.sh writes one (bk_portal_test) into .env:
-npm ci && node --env-file=.env --test tests/*.test.js && bash .github/deploy/guard.test.sh && npm run check
+# bkesari-platform (the hub). The PostgreSQL tests need a database they may
+# WIPE; without TEST_DATABASE_URL they are skipped (and say so).
+# tools/setup_local_postgres.sh creates one (bk_portal_test) and writes its URL into .env:
+grep '^TEST_DATABASE_URL=' .env > .env.test
+npm ci && npm run test:pg && npm run check      # everything, nothing skipped
 # ... or name it yourself:
 TEST_DATABASE_URL='postgresql://bk_portal:pw@127.0.0.1:5432/bk_portal_test' npm test
+# The full standard and regression suites, the smoke run and the Neon parity
+# checks are TEST_SPEC.md.
 
 # bkesari (Milk & Dairy) — needs a database you don't mind being wiped; that
 # repository's README and ci.yml give the exact URL form for its current engine
@@ -77,34 +80,26 @@ automated check in this repo can make for you: they need hPanel or SSH.
 ### 2.1 This tier talks only to its own database
 
 The brief's hard rule: *an environment must never connect to another
-environment's database, and a project connects only to its own.* Open each
-site's `.env` on the server and read `DB_NAME` (`DB_DATABASE` for edu, or the
-database at the end of `DATABASE_URL`).
+environment's database, and a project connects only to its own.* Every database
+is on Neon: one branch per tier, one database and one owning role per project.
+**[docs/NEON.md](docs/NEON.md), *Layout*, is the table of names** — this file
+does not repeat it. Open each site's `.env` on the server and read the host and
+database in its connection strings (`DATABASE_URL` / `DATABASE_URL_UNPOOLED`;
+`DB_URL` / `DB_URL_UNPOOLED` for edu).
 
-The names below are the MySQL databases the dev sites used on Hostinger. The
-PostgreSQL databases replacing them live on your PostgreSQL service (Hostinger's
-web hosting has none — `DEPLOY.md`, *Databases*); keep the same rule, a `_dev`
-suffix per tier, and update this table when they exist:
-
-| Project | dev database |
-|---|---|
-| Milk & Dairy | `u879099820_main_milk_dev` |
-| Education | `u879099820_Edu_dev` |
-| LadWani | `u879099820_Ladwani_dev` |
-| TaskList (the hub) | `u879099820_Tasklist_dev` |
-| ATIP | `u879099820_ATIP_dev` *(to be confirmed)* |
-
-- [ ] Every `DB_NAME` on the dev sites ends in `_dev`.
-- [ ] No dev `.env` names a `_test` or `_prod` database, and none names another
-      project's database.
-- [ ] Database names match your PostgreSQL service **exactly** — PostgreSQL
-      folds unquoted names to lower case but a name created quoted keeps its
-      case, so `_Edu_dev` and `_edu_dev` can be two different databases.
+- [ ] Every string on a dev site points at the Neon **`dev` branch** (console →
+      the `dev` branch → Connect shows its hosts; the pooled one has `-pooler`
+      in it, the direct one does not, and otherwise they match).
+- [ ] No dev `.env` holds a `test` or `production` branch host, and none names
+      another project's database or role (`portal` / `portal_app` for the hub).
+- [ ] The pooled and the direct string on one site name the same endpoint and
+      the same database: a pair copied from two branches would create the
+      tables on one tier and use them on another.
 
 A quick way to see all of them at once over SSH:
 
 ```bash
-grep -HE '^(DB_NAME|DB_DATABASE|DATABASE_URL)=' ~/domains/dev*.bkesari.com/*/.env | sed -E 's#(://[^:]+:)[^@]+@#\1***@#'
+grep -HE '^(DATABASE_URL|DATABASE_URL_UNPOOLED|DB_URL|DB_URL_UNPOOLED)=' ~/domains/dev*.bkesari.com/*/.env | sed -E 's#(://[^:]+:)[^@]+@#\1***@#'
 ```
 
 ### 2.2 The tier knows which tier it is
@@ -131,9 +126,10 @@ itself and fails if it is not the one you asked for.
 ### 2.4 You can get back
 
 - [ ] A database dump exists from *before* today's deploy
-      (`pg_dump -Fc -f before.dump "$DATABASE_URL"`, or your PostgreSQL
-      provider's backup), and you know the restore command
-      (`pg_restore --clean --if-exists -d "$DATABASE_URL" before.dump`).
+      (`pg_dump -Fc -f before.dump "$DATABASE_URL_UNPOOLED"` — the direct
+      string: pg_dump keeps session state, which the pooled one drops — or a
+      Neon restore point, docs/NEON.md), and you know the restore command
+      (`pg_restore --clean --if-exists -d "$DATABASE_URL_UNPOOLED" before.dump`).
 - [ ] You have tried the restore at least once. An untested backup is a
       hypothesis, not a backup.
 

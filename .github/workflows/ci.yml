@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     # The portal's database. Disposable: the tracker tests wipe their tables.
+    # CI never reaches Neon: everything here runs against this container.
     services:
       postgres:
         image: postgres:16
@@ -47,10 +48,20 @@ jobs:
       # The menu's unit tests, the Task Tracker and ATIP snapshot routes against
       # the real PostgreSQL above, plus the deploy guard's own tests: the rules
       # that keep a dev deploy off test and production are themselves tested.
+      #
+      # The PostgreSQL tests skip themselves when TEST_DATABASE_URL is unset, so
+      # if the env below were ever dropped this step would still go green while
+      # proving nothing about the database. A skip here is a failure.
       - name: Tests
         env:
           TEST_DATABASE_URL: postgresql://bk_portal:ci-only-not-a-real-password@127.0.0.1:5432/bk_portal_test
-        run: npm test
+        run: |
+          set -euo pipefail
+          npm test 2>&1 | tee /tmp/tests.txt
+          if grep -q '# SKIP' /tmp/tests.txt; then
+            echo "::error::tests skipped - TEST_DATABASE_URL is not reaching them"
+            exit 1
+          fi
 
       # The app has to survive being started, not just parsed — and the smoke
       # script that gates every deploy should itself be exercised somewhere.
@@ -58,13 +69,14 @@ jobs:
       # logins are set so the access-control checks have something to assert;
       # unset, the tracker would be open and the smoke test would (correctly)
       # fail.
+      #
+      # The two names a Neon tier's .env uses (docs/NEON.md), both pointing at
+      # the one container here: CI has no pooler, so this proves the settings
+      # are read, not how PgBouncer behaves (TEST_SPEC.md, Neon parity).
       - name: Start the hub and run the smoke test against it
         env:
-          DB_HOST: 127.0.0.1
-          DB_PORT: 5432
-          DB_NAME: bk_portal_test
-          DB_USER: bk_portal
-          DB_PASSWORD: ci-only-not-a-real-password
+          DATABASE_URL: postgresql://bk_portal:ci-only-not-a-real-password@127.0.0.1:5432/bk_portal_test
+          DATABASE_URL_UNPOOLED: postgresql://bk_portal:ci-only-not-a-real-password@127.0.0.1:5432/bk_portal_test
           PORT: 3100
           APP_ENV: dev
           TRACKER_USER: ci

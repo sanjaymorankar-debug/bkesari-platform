@@ -21,6 +21,10 @@ macOS-only parts (Homebrew, LaunchAgents) are as documented but untested.
 | Education | `tools/setup_local_postgres.sh` migrates and seeds it; 392/392 tests pass on PostgreSQL; serves pages and logs in from PostgreSQL |
 | Portal | 53 tests (7 of them against PostgreSQL) + 32 deploy-guard checks pass; the Task Tracker saves to PostgreSQL |
 
+The portal was checked again on 2026-10-24, made ready for Neon: 80 tests (15 of them against
+PostgreSQL) and the 32 deploy-guard checks pass, and so do the smoke and Neon-parity runs. The
+current counts and how to run them are in `TEST_SPEC.md`.
+
 ## What runs where
 
 Each app gets its own port, so all four can run at the same time.
@@ -67,7 +71,7 @@ Check the versions:
 
 ```bash
 python3.13 --version   # 3.13.x  (ATIP needs 3.11+. macOS's own python3 is 3.9, too old)
-node --version         # v22.x   (the portal needs 22.13+)
+node --version         # v22.x   (the portal needs 20+; CI uses 22)
 psql --version         # 16.x (from Homebrew)
 php --version          # 8.3 or newer
 php -m | grep pdo_pgsql   # Education needs it; Homebrew's PHP normally has it
@@ -246,7 +250,8 @@ generated logins for the Task Tracker (`TRACKER_USER` / `TRACKER_PASSWORD`) and 
 (`ATIP_USER` / `ATIP_PASSWORD`). The portal creates any missing tables when it starts.
 
 Tests: `node --env-file=.env --test tests/*.test.js` (the Task Tracker ones use `bk_portal_test`,
-named by `TEST_DATABASE_URL` in that `.env`; plain `npm test` skips them).
+named by `TEST_DATABASE_URL` in that `.env`; plain `npm test` skips them), or `npm run test:pg`
+once that line is copied into `.env.test`. The whole procedure is `TEST_SPEC.md`.
 
 To see ATIP's read-only dashboard here:
 1. Point ATIP's `atip_data/publish.json` at `http://localhost:3001/ATIP/api/snapshot`, using the

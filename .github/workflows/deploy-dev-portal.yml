@@ -5,7 +5,10 @@
 # mis-aimed deploy to production is the one mistake this stage cannot afford.
 #
 # No database credential is stored in GitHub. The server's own .env holds them
-# and rsync never writes or deletes it — see the "Upload" step.
+# and rsync never writes or deletes it — see the "Upload" step. On dev that is
+# DATABASE_URL (pooled) and DATABASE_URL_UNPOOLED (direct) for the `portal`
+# database on Neon's `dev` branch, and nothing of any other tier (docs/NEON.md).
+# The checks below never reach Neon; they use their own throwaway PostgreSQL.
 name: Deploy dev (portal)
 
 on:
@@ -62,9 +65,17 @@ jobs:
 
       # The same checks CI runs. The deploy is gated on them so that the thing
       # which publishes is the thing that verified.
-      - run: npm test
+      # A skip would mean the database tests proved nothing; ci.yml says why.
+      - name: Tests
         env:
           TEST_DATABASE_URL: postgresql://bk_portal:ci-only-not-a-real-password@127.0.0.1:5432/bk_portal_test
+        run: |
+          set -euo pipefail
+          npm test 2>&1 | tee /tmp/tests.txt
+          if grep -q '# SKIP' /tmp/tests.txt; then
+            echo "::error::tests skipped - TEST_DATABASE_URL is not reaching them"
+            exit 1
+          fi
 
   deploy:
     needs: check

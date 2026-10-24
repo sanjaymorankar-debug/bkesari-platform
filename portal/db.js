@@ -1,15 +1,26 @@
 const fs = require('fs');
 const path = require('path');
-const { Pool, types: pgTypes } = require('pg');
+const { Pool, Client, types: pgTypes } = require('pg');
 
 /* ============================================================
    PostgreSQL access for the portal (Task Tracker + ATIP snapshot).
 
    Connection, in order of preference:
-     DATABASE_URL  postgresql://user:password@host:5432/dbname
-     DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD
-   DB_SSL=require (or true) turns TLS on, which managed PostgreSQL
-   services generally insist on; DB_SSL=no-verify skips certificate checks.
+     DATABASE_URL           postgresql://user:password@host:5432/dbname
+                            On Neon, the POOLED string (its host has -pooler
+                            in it): every query the app makes goes over it.
+     DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD   instead of a URL
+   DATABASE_URL_UNPOOLED, set beside DATABASE_URL, is the DIRECT string, used
+   only to create the tables on start: DDL and the advisory lock around it
+   belong on a direct connection, not on PgBouncer. Unset, that goes over the
+   connection above.
+   docs/NEON.md has the Neon side.
+
+   TLS. A URL carries its own: ?sslmode=require (node-postgres 8 verifies the
+   certificate, as verify-full does), and channel_binding=require, which turns
+   on SCRAM channel binding where the server offers it. DB_SSL=require (or
+   true) turns TLS on for the DB_* settings or a URL without sslmode;
+   DB_SSL=no-verify skips certificate checks. A URL's sslmode wins over DB_SSL.
 
    The helpers take PostgreSQL's numbered placeholders ($1, $2, ...):
      all(sql, params)  -> every row
@@ -43,9 +54,26 @@ function sslOption(value) {
   return { rejectUnauthorized: true };
 }
 
+// Long enough for a Neon compute waking from suspend, which takes a few
+// seconds; short enough that an unreachable database is an error in the log
+// rather than a start-up, or a request, that hangs for ever. pg's default is
+// no limit at all.
+const CONNECT_TIMEOUT_MS = 15000;
+
+// node-postgres reads sslmode from a URL but ignores channel_binding, which
+// libpq honours; this turns it into the option pg does read. pg still falls
+// back to plain SCRAM when the server offers nothing better (PgBouncer).
+function urlConfig(url) {
+  let binding = '';
+  try { binding = new URL(url).searchParams.get('channel_binding') || ''; } catch { /* pg reports a bad URL */ }
+  return { connectionString: url, ...(binding === 'require' || binding === 'prefer' ? { enableChannelBinding: true } : {}) };
+}
+
 function connectionConfig(env = process.env) {
-  const common = { max: Number(env.DB_POOL_MAX || 5), ssl: sslOption(env.DB_SSL), types };
-  if (env.DATABASE_URL) return { ...common, connectionString: env.DATABASE_URL };
+  const common = {
+    max: Number(env.DB_POOL_MAX || 5), ssl: sslOption(env.DB_SSL), types, connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+  };
+  if (env.DATABASE_URL) return { ...common, ...urlConfig(env.DATABASE_URL) };
   return {
     ...common,
     host: env.DB_HOST || 'localhost',
@@ -54,6 +82,16 @@ function connectionConfig(env = process.env) {
     user: env.DB_USER,
     password: env.DB_PASSWORD,
   };
+}
+
+/**
+ * The direct connection the schema is applied over, or null to use the pool.
+ * Only as the twin of a DATABASE_URL: beside DB_* settings it could name a
+ * different database from the one the app then uses.
+ */
+function schemaConfig(env = process.env) {
+  if (!env.DATABASE_URL || !env.DATABASE_URL_UNPOOLED) return null;
+  return { ssl: sslOption(env.DB_SSL), connectionTimeoutMillis: CONNECT_TIMEOUT_MS, ...urlConfig(env.DATABASE_URL_UNPOOLED) };
 }
 
 function describe(config) {
@@ -83,47 +121,83 @@ const SCHEMA_FILE = path.join(__dirname, 'sql', 'schema.sql');
 // Any constant works; it only has to be the same in every process.
 const SCHEMA_LOCK = 4823501;
 
+// BEGIN ... COMMIT on one client, rolled back if anything in `fn` throws.
+async function transaction(client, fn) {
+  await client.query('BEGIN');
+  try {
+    const result = await fn(helpers(client));
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  }
+}
+
 module.exports = async function createDb(options = {}) {
-  const config = { ...connectionConfig(options.env || process.env), ...(options.config || {}) };
+  const env = options.env || process.env;
+  const config = { ...connectionConfig(env), ...(options.config || {}) };
   if (!config.connectionString && !config.database) {
     throw new Error('No database configured: set DATABASE_URL, or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD (PostgreSQL).');
   }
+  const direct = schemaConfig(env);
   const pool = new Pool(config);
-  // An idle client that loses its connection (database restart, network blip)
-  // emits 'error' on the pool; unhandled, that would take the process down.
+  // An idle client that loses its connection (database restart, network blip,
+  // Neon suspending an idle compute) emits 'error' on the pool; unhandled,
+  // that would take the process down. The pool has already dropped it.
   pool.on('error', (err) => console.error('PostgreSQL idle client error:', err.message));
 
   async function tx(fn) {
     const client = await pool.connect();
+    // While a client is checked out the pool stops listening for its errors,
+    // and an 'error' nobody listens for ends the process. A connection the
+    // server drops between two statements of a transaction does exactly
+    // that, so listen here, and hand a dead client back to be destroyed
+    // rather than reused.
+    let lost;
+    const onError = (err) => { lost = err; };
+    client.on('error', onError);
     try {
-      await client.query('BEGIN');
-      const result = await fn(helpers(client));
-      await client.query('COMMIT');
-      return result;
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => {});
-      throw err;
+      return await transaction(client, fn);
     } finally {
-      client.release();
+      client.removeListener('error', onError);
+      client.release(lost);
     }
   }
 
   // Create any missing tables. Serialised with an advisory lock: two app
   // processes starting at once would otherwise both try to create the same
-  // table, and IF NOT EXISTS does not stop that race in PostgreSQL.
+  // table, and IF NOT EXISTS does not stop that race in PostgreSQL. The lock
+  // is transaction-scoped, so it is safe even through PgBouncer, but with
+  // DATABASE_URL_UNPOOLED set all of it goes over the direct connection.
   const schema = fs.readFileSync(SCHEMA_FILE, 'utf8');
+  const applySchema = async (q) => {
+    await q.run('SELECT pg_advisory_xact_lock($1)', [SCHEMA_LOCK]);
+    await q.run(schema);
+  };
   try {
-    await tx(async (q) => {
-      await q.run('SELECT pg_advisory_xact_lock($1)', [SCHEMA_LOCK]);
-      await q.run(schema);
-    });
+    if (direct) {
+      const client = new Client(direct);
+      client.on('error', () => {}); // a lost connection fails the query below instead
+      await client.connect();
+      try {
+        await transaction(client, applySchema);
+      } finally {
+        await client.end().catch(() => {});
+      }
+    } else {
+      await tx(applySchema);
+    }
   } catch (err) {
     await pool.end().catch(() => {});
     throw err;
   }
-  if (!options.quiet) console.log(`Database: PostgreSQL ${describe(config)}`);
+  if (!options.quiet) {
+    console.log(`Database: PostgreSQL ${describe(config)}${direct ? ` (tables set up over ${describe(direct)})` : ''}`);
+  }
 
   return { ...helpers(pool), tx, end: () => pool.end() };
 };
 
 module.exports.connectionConfig = connectionConfig;
+module.exports.schemaConfig = schemaConfig;

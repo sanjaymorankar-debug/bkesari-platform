@@ -155,6 +155,22 @@ function escapeHtml(s) {
 
 const wrap = fn => (req, res, next) => fn(req, res, next).catch(next);
 
+/**
+ * True when express.static would serve this request from public/tasks/.
+ *
+ * The router matches the RAW path, but the file server percent-decodes it and
+ * folds dot segments and repeated slashes before it looks for the file. So
+ * /%74asks/, //tasks/ and /shared/../tasks/ never matched app.use('/tasks')
+ * and its login, yet still reached public/tasks/index.html. This answers for
+ * the path the file server will actually open (lower-cased, because on a
+ * case-insensitive disk /TASKS/ is the same folder).
+ */
+function servesTrackerFile(rawPath) {
+  let p;
+  try { p = path.posix.normalize(decodeURIComponent(rawPath)).toLowerCase(); } catch { return false; }
+  return p === '/tasks' || p.startsWith('/tasks/');
+}
+
 // The whole site as an Express app, given an open database (db.js). Split
 // from main() so tests can drive it against a database of their own.
 function createApp(db) {
@@ -191,8 +207,8 @@ function createApp(db) {
   // consumes the request stream, and the forwarded request still carries the
   // original Content-Length — so the app waits for bytes that never arrive and
   // the visitor hangs until the proxy timeout hands them a 502. Every POST
-  // into a proxied project would do it. tests/proxy.test.js covers both
-  // orders, so moving this fails the suite.
+  // into a proxied project would do it. tests/proxy.test.js shows both
+  // orders on a copy; tests/server.test.js fails if this one moves.
   const proxied = proxy.mount(app, {
     // The bar for the proxy's own error page. Takes the request so the tier
     // badge comes from the same place every other page gets it.
@@ -374,7 +390,8 @@ function createApp(db) {
     if (req.path.endsWith('/')) return next();
     res.redirect(302, req.path + '/');
   });
-  app.use('/tasks', basicAuth('TRACKER_USER', 'TRACKER_PASSWORD', 'bkesari Task Tracker', false));
+  const trackerAuth = basicAuth('TRACKER_USER', 'TRACKER_PASSWORD', 'bkesari Task Tracker', false);
+  app.use('/tasks', trackerAuth);
   app.use('/tasks/api', api);
 
   // Upload from the ATIP machine: bearer token, not the viewer login.
@@ -412,10 +429,18 @@ function createApp(db) {
     // Rendered here rather than by the browser script: this page's CSP allows
     // inline scripts but not 'self', so an external <script> would be blocked.
     const top = menu.renderHtml({ pathname: '/ATIP/', env: currentEnv(req) }) + banner;
-    let html = snap.html.replace(/<\/head>/i, `${ATIP_READONLY_CSS}</head>`);
-    html = /<body[^>]*>/i.test(html) ? html.replace(/<body[^>]*>/i, m => m + top) : top + html;
+    // The stylesheet that hides the order controls goes in the head, after the
+    // page's own styles. A page may have no </head> at all (it is optional in
+    // HTML), and then the controls would show: put it at the top instead.
+    const hasHead = /<\/head>/i.test(snap.html);
+    let html = hasHead ? snap.html.replace(/<\/head>/i, `${ATIP_READONLY_CSS}</head>`) : snap.html;
+    const lead = (hasHead ? '' : ATIP_READONLY_CSS) + top;
+    html = /<body[^>]*>/i.test(html) ? html.replace(/<body[^>]*>/i, m => m + lead) : lead + html;
     res.type('html').send(html);
   }));
+  // The tracker's page, however its path is spelled, goes through the same
+  // login as /tasks/ above (see servesTrackerFile).
+  app.use((req, res, next) => (servesTrackerFile(req.path) ? trackerAuth(req, res, next) : next()));
   app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 
   // A tab whose destination is not deployed on this tier yet. Answer with a
@@ -440,6 +465,21 @@ ${menu.renderHtml({ pathname: req.path, env: currentEnv(req) })}
   <p style="color:#9A9EA9;margin:0">Everything else in the menu above still works.</p>
 </div></body></html>`,
     );
+  });
+
+  // Last: any error nothing above answered. Express's own handler sends the
+  // stack trace whenever NODE_ENV is not "production" (locally, in CI, and on
+  // any host that does not set it), and a malformed JSON body reached it on
+  // every path, before any login. Answer with the status and a plain message.
+  app.use((err, req, res, next) => {
+    if (res.headersSent) return next(err);
+    const status = Number(err.status || err.statusCode) >= 400 ? Number(err.status || err.statusCode) : 500;
+    if (status >= 500) console.error(err);
+    const message = status >= 500 ? 'Server error'
+      : err.type === 'entity.parse.failed' ? 'The request body is not valid JSON'
+      : err.type === 'entity.too.large' ? 'The request body is too large'
+      : 'Bad request';
+    res.status(status).json({ error: message });
   });
 
   return { app, proxied };
