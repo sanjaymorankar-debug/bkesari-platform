@@ -22,10 +22,10 @@ is already established and your time is better spent on sections 2 and 4.
 
 | Repository | What runs | Covers |
 |---|---|---|
-| `bkesari-platform` | `ci.yml` | the server, proxy and shared menu parse; **19 menu unit tests**; **20 proxy tests**, including a real proxy against a real upstream; **32 deploy-guard cases**; the hub boots against sqlite and passes the full smoke test; correct logins are accepted and wrong ones rejected |
-| `bkesari` (Milk & Dairy) | `ci.yml` | migrations apply to a real **MySQL 8**; typecheck; eslint; **281 unit and integration tests**; a production build; the deploy-guard cases |
-| `Ladwani` | `ci.yml` | migrations apply to a real **MySQL 8**; reference and UAT data seed; typecheck; `prisma validate`; the schema still targets MySQL; the test suite; a production build; the deploy-guard cases |
-| `bkesari-platform/edu` | `ci.yml` (`edu` job) | **387 PHPUnit tests** (1,085 assertions, 43 files) against in-memory sqlite, including 12 covering the app served under the hub's `/edu/` path; `composer validate`; the Vite manifest matches the files on disk |
+| `bkesari-platform` | `ci.yml` | the server, proxy and shared menu parse; **19 menu unit tests**; **26 proxy tests**, including a real proxy against a real upstream; **3 tests of the assembled server** (the Task Tracker's login however a path is spelled, no stack trace for a malformed body, the proxy mounted before the body parsers); **15 Task Tracker / ATIP-snapshot / database tests against a real PostgreSQL 16** (every DB-backed route, the app creating its own tables, over `DATABASE_URL_UNPOOLED` when set, bad input answered 400/404 rather than 500, connections dropped by the server survived); **5 tests of the connection settings** a Neon URL produces; **12 tests of the Neon provisioning tool** against a stand-in for Neon's API (including the SQL that shuts other logins out of each database, and never taking over a database someone else owns); 2 checks that the portal schema and its `database/` copy agree; **32 deploy-guard cases**; a skipped test fails the job; the hub boots on PostgreSQL with `DATABASE_URL` and `DATABASE_URL_UNPOOLED` and passes the full smoke test; correct logins are accepted and wrong ones rejected. What CI cannot show (PgBouncer, TLS, dropped connections end to end) is `TEST_SPEC.md`'s Neon parity level |
+| `bkesari` (Milk & Dairy) | `ci.yml` | migrations apply to a real database server; typecheck; eslint; **281 unit and integration tests**; a production build; the deploy-guard cases. *That repository is moving from MySQL 8 to PostgreSQL on its own branch; its `ci.yml` says which it runs.* |
+| `Ladwani` | `ci.yml` | migrations apply to a real database server; reference and UAT data seed; typecheck; `prisma validate`; the test suite; a production build; the deploy-guard cases. *Moving from MySQL 8 to PostgreSQL on its own branch, as above.* |
+| `bkesari-platform/edu` | `ci.yml` (`edu` job) | **423 PHPUnit tests** **three times**: on in-memory sqlite (418 pass; the 5 that need a PostgreSQL server skip), on a real **PostgreSQL 16** (all 423, 1,241 assertions), and through **PgBouncer in transaction mode with TLS**, as a role that is not a superuser (all 423): the way `DB_URL` reaches Neon on every tier. They include 13 covering the app served under the hub's `/edu/` path (Livewire's signed upload URL among them) and 18 covering the Neon settings (`DB_URL` for the app, `DB_URL_UNPOOLED` for `migrate` and the other schema commands, `channel_binding` passed on, no named prepared statements, no session `SET`, and a suite that refuses to run against a hosted database); every migration and seeder from empty on PostgreSQL; `composer validate`; the Vite manifest matches the files on disk. What CI cannot show (dropped connections, concurrent complaint numbers, the app behind the hub in a browser) is `edu/TEST_SPEC.md`'s S5 and S7 |
 
 Each project's **deploy** workflow re-runs its own suite before it publishes, so
 a build that reaches dev is one that passed. Nothing is deployed on a red build.
@@ -37,22 +37,40 @@ the site is reachable, and that it looks right in a browser.
 ### Running a suite yourself
 
 ```bash
-# bkesari-platform (the hub) — needs nothing
-npm ci && npm test && npm run check
+# bkesari-platform (the hub). The PostgreSQL tests need a database they may
+# WIPE; without TEST_DATABASE_URL they are skipped (and say so).
+# tools/setup_local_postgres.sh creates one (bk_portal_test) and writes its URL into .env:
+grep '^TEST_DATABASE_URL=' .env > .env.test
+npm ci && npm run test:pg && npm run check      # everything, nothing skipped
+# ... or name it yourself:
+TEST_DATABASE_URL='postgresql://bk_portal:pw@127.0.0.1:5432/bk_portal_test' npm test
+# The full standard and regression suites, the smoke run and the Neon parity
+# checks are TEST_SPEC.md.
 
-# bkesari (Milk & Dairy) — needs a MySQL you don't mind being wiped
-DATABASE_URL='mysql://root:pw@127.0.0.1:3306/scratch' \
-TEST_DATABASE_URL='mysql://root:pw@127.0.0.1:3306/scratch' \
+# bkesari (Milk & Dairy) — needs a database you don't mind being wiped; that
+# repository's README and ci.yml give the exact URL form for its current engine
+DATABASE_URL='postgresql://bk_milk:pw@127.0.0.1:5432/bk_milk_test' \
+TEST_DATABASE_URL='postgresql://bk_milk:pw@127.0.0.1:5432/bk_milk_test' \
 AUTH_SECRET=local CRON_SECRET=local \
   npm ci && npm run db:migrate && npm test
 
 # Ladwani — the suite reads .env.test; ci.yml shows exactly what to put in it
 npm ci && npm run test:migrate && npm test
 
-# edu (Laravel) — in-memory sqlite, no database needed, ~12 seconds
+# edu (Laravel) — in-memory sqlite by default, no database needed, ~25 seconds
 cd edu && composer install
 cp .env.example .env && php artisan key:generate --force   # APP_KEY, first time only
 php artisan test
+# ... and on PostgreSQL, as CI does (environment variables beat phpunit.xml's
+# sqlite defaults). Use a database the suite may wipe, e.g. bk_edu_test:
+DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=bk_edu_test \
+DB_USERNAME=bk_edu DB_PASSWORD=pw php artisan test
+# ... or through a PgBouncer in transaction mode, the way Neon's pooled endpoint
+# serves every tier (DB_URL wins over the DB_* lines):
+DB_CONNECTION=pgsql DB_URL='postgresql://bk_edu:pw@127.0.0.1:6432/bk_edu_test?sslmode=require' \
+php artisan test
+# The full standard and regression suites, the smoke run and the Neon parity
+# checks are edu/TEST_SPEC.md.
 ```
 
 > **Never point a test suite at a dev, test or production database.** Several of
@@ -68,27 +86,26 @@ automated check in this repo can make for you: they need hPanel or SSH.
 ### 2.1 This tier talks only to its own database
 
 The brief's hard rule: *an environment must never connect to another
-environment's database, and a project connects only to its own.* Open each
-site's `.env` on the server and read `DB_NAME`:
+environment's database, and a project connects only to its own.* Every database
+is on Neon: one branch per tier, one database and one owning role per project.
+**[docs/NEON.md](docs/NEON.md), *Layout*, is the table of names** — this file
+does not repeat it. Open each site's `.env` on the server and read the host and
+database in its connection strings (`DATABASE_URL` / `DATABASE_URL_UNPOOLED`;
+`DB_URL` / `DB_URL_UNPOOLED` for edu).
 
-| Project | dev database |
-|---|---|
-| Milk & Dairy | `u879099820_main_milk_dev` |
-| Education | `u879099820_Edu_dev` |
-| LadWani | `u879099820_Ladwani_dev` |
-| TaskList (the hub) | `u879099820_Tasklist_dev` |
-| ATIP | `u879099820_ATIP_dev` *(to be confirmed)* |
-
-- [ ] Every `DB_NAME` on the dev sites ends in `_dev`.
-- [ ] No dev `.env` names a `_test` or `_prod` database, and none names another
-      project's database.
-- [ ] Database names match hPanel **exactly** — they are case-sensitive on Linux,
-      so `_Edu_dev` is not `_edu_dev`.
+- [ ] Every string on a dev site points at the Neon **`dev` branch** (console →
+      the `dev` branch → Connect shows its hosts; the pooled one has `-pooler`
+      in it, the direct one does not, and otherwise they match).
+- [ ] No dev `.env` holds a `test` or `production` branch host, and none names
+      another project's database or role (`neondb` / `bk_portal_app` for the hub).
+- [ ] The pooled and the direct string on one site name the same endpoint and
+      the same database: a pair copied from two branches would create the
+      tables on one tier and use them on another.
 
 A quick way to see all of them at once over SSH:
 
 ```bash
-grep -H '^DB_NAME' ~/domains/dev*.bkesari.com/*/.env
+grep -HE '^(DATABASE_URL|DATABASE_URL_UNPOOLED|DB_URL|DB_URL_UNPOOLED)=' ~/domains/dev*.bkesari.com/*/.env | sed -E 's#(://[^:]+:)[^@]+@#\1***@#'
 ```
 
 ### 2.2 The tier knows which tier it is
@@ -107,13 +124,18 @@ itself and fails if it is not the one you asked for.
 - [ ] Each repo's `.gitignore` covers `.env`, and `.env.example` holds only blanks.
 - [ ] The only secrets in GitHub are the SSH ones listed in `DEPLOY.md` Part 6.
       **No database password belongs there** — credentials live on the server.
+      (The `ci-only-not-a-real-password` in the workflows belongs to CI's own
+      throwaway PostgreSQL container, which exists only for the length of a run.)
 - [ ] The smoke test's **Nothing private is served** group passes (it tries to
       fetch `/.env` and `/.git/config` over HTTPS).
 
 ### 2.4 You can get back
 
-- [ ] A database dump exists from *before* today's deploy, and you have read
-      `DEPLOYMENT.md` §7 in `bkesari` for the restore command.
+- [ ] A database dump exists from *before* today's deploy
+      (`pg_dump -Fc -f before.dump "$DATABASE_URL_UNPOOLED"` — the direct
+      string: pg_dump keeps session state, which the pooled one drops — or a
+      Neon restore point, docs/NEON.md), and you know the restore command
+      (`pg_restore --clean --if-exists -d "$DATABASE_URL_UNPOOLED" before.dump`).
 - [ ] You have tried the restore at least once. An untested backup is a
       hypothesis, not a backup.
 
@@ -267,13 +289,15 @@ promoting dev to test later — nothing is promoted on a warning you have not re
 
 Honest list, so nothing here is mistaken for covered:
 
-- **Signed URLs would break under a tab path.** Laravel validates a signature
-  by rebuilding the URL from the request, which reaches the Education app with
-  the `/edu` prefix already stripped, so a signature generated with the prefix
-  can never match. Nothing signs a URL today (`MustVerifyEmail` is switched off
-  on the `User` model), so this is a trap rather than a fault — but password
-  reset links or email verification will need the prefix restored before the
-  check. `DEPLOY.md` Part 7 says where.
+- **Signed URLs break under a tab path unless handled.** Laravel validates a
+  signature by rebuilding the URL from the request, which reaches the Education
+  app with the `/edu` prefix already stripped, so a signature generated with
+  the prefix can never match. Livewire signs every file upload, which is why
+  complaint evidence could not be uploaded through `/edu/` until
+  `App\Routing\BasePathSignedUploadUrl` (covered by `BasePathTest` and
+  `edu/tests/smoke/browser.cjs`). The app signs nothing else today
+  (`MustVerifyEmail` is off on the `User` model), but email verification links,
+  which are signed, will need the same treatment.
 - **The three tab paths are wired but unproven against Hostinger.** `/milk/`,
   `/edu/` and `/ladwani/` have each been driven end to end against their real
   app behind the real hub locally, including a browser sign-in through

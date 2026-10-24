@@ -4,3 +4,7 @@ portal/data/
 .env.test
 .neon
 .env.local
+
+# Testing agent: gate state and run reports (local only)
+.claude/state/
+.claude/test-runs/

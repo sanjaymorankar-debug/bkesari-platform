@@ -156,7 +156,7 @@ change.
 | Growth plan & goals | `resources/views/livewire/growth/plan.blade.php` |
 | Career exploration | `resources/views/livewire/career/show.blade.php` |
 | Life-skills participation | `resources/views/livewire/life-skills/show.blade.php` |
-| Raw SQL for phpMyAdmin | `database/sql/2026_09_02_student_growth_career_modules.sql` |
+| Raw SQL for psql (PostgreSQL) | `database/sql/2026_09_02_student_growth_career_modules.sql` |
 
 ## Writing observations well
 

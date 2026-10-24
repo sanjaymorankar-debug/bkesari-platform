@@ -1,159 +1,203 @@
 const fs = require('fs');
 const path = require('path');
+const { Pool, Client, types: pgTypes } = require('pg');
 
 /* ============================================================
-   Thin database adapter so the same SQL runs on:
-   - MySQL    (DB_CLIENT=mysql)    -> Hostinger production
-   - Postgres (DB_CLIENT=postgres) -> Neon (DATABASE_URL from `neon deploy`)
-   - SQLite   (DB_CLIENT=sqlite)   -> local, zero-setup (node:sqlite)
-   All expose: all(sql, params), get(sql, params), run(sql, params)
-   and close(), which releases the connection pool / file handle.
+   PostgreSQL access for the portal (Task Tracker + ATIP snapshot).
 
-   The server never calls close() -- it holds one database for the life of the
-   process -- but a test opens several, and a MySQL pool keeps the event loop
-   alive until it is ended, so without this a test run hangs instead of exiting.
+   Connection, in order of preference:
+     DATABASE_URL           postgresql://user:password@host:5432/dbname
+                            On Neon, the POOLED string (its host has -pooler
+                            in it): every query the app makes goes over it.
+     DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD   instead of a URL
+   DATABASE_URL_UNPOOLED, set beside DATABASE_URL, is the DIRECT string, used
+   only to create the tables on start: DDL and the advisory lock around it
+   belong on a direct connection, not on PgBouncer. Unset, that goes over the
+   connection above.
+   docs/NEON.md has the Neon side.
+
+   TLS. A URL carries its own: ?sslmode=require (node-postgres 8 verifies the
+   certificate, as verify-full does), and channel_binding=require, which turns
+   on SCRAM channel binding where the server offers it. DB_SSL=require (or
+   true) turns TLS on for the DB_* settings or a URL without sslmode;
+   DB_SSL=no-verify skips certificate checks. A URL's sslmode wins over DB_SSL.
+
+   The helpers take PostgreSQL's numbered placeholders ($1, $2, ...):
+     all(sql, params)  -> every row
+     get(sql, params)  -> the first row, or null
+     run(sql, params)  -> { rowCount, rows }  (add RETURNING id for the new id)
+     tx(async (q) => { ... })  -> the same three helpers inside one transaction
    ============================================================ */
+
+const OID = { INT8: 20, DATE: 1082, TIMESTAMP: 1114, TIMESTAMPTZ: 1184 };
+
+// The API has always handed dates and times to the browser as the plain text
+// the database holds ("2026-10-09", "2026-10-09 14:05:00"), never as JS Dates
+// shifted through the server's time zone. COUNT(*) is BIGINT, which pg returns
+// as a string by default; the counts here are small, so return numbers.
+const types = {
+  getTypeParser(oid, format) {
+    if (oid === OID.DATE || oid === OID.TIMESTAMP || oid === OID.TIMESTAMPTZ) return (v) => v;
+    if (oid === OID.INT8) return (v) => (v === null ? null : Number(v));
+    return pgTypes.getTypeParser(oid, format);
+  },
+};
 
 function toParams(params) {
   return (params || []).map(v => (v === undefined ? null : v));
 }
 
-async function createMysql() {
-  const mysql = require('mysql2/promise');
-  const pool = mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
-    port: Number(process.env.DB_PORT || 3306),
-    database: process.env.DB_NAME,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    connectionLimit: 5,
-    dateStrings: true, // keep DATE/DATETIME as plain strings, no timezone shifting
-    timezone: 'Z',
-    charset: 'utf8mb4',
-  });
+function sslOption(value) {
+  const v = String(value || '').toLowerCase();
+  if (!v || v === 'false' || v === '0' || v === 'disable' || v === 'off') return undefined;
+  if (v === 'no-verify') return { rejectUnauthorized: false };
+  return { rejectUnauthorized: true };
+}
 
-  const schema = fs.readFileSync(path.join(__dirname, 'sql', 'mysql_schema.sql'), 'utf8');
-  for (const stmt of schema.split(';').map(s => s.trim()).filter(Boolean)) {
-    await pool.query(stmt);
-  }
-  console.log(`Database: MySQL ${process.env.DB_USER}@${process.env.DB_HOST || 'localhost'}/${process.env.DB_NAME}`);
+// Long enough for a Neon compute waking from suspend, which takes a few
+// seconds; short enough that an unreachable database is an error in the log
+// rather than a start-up, or a request, that hangs for ever. pg's default is
+// no limit at all.
+const CONNECT_TIMEOUT_MS = 15000;
 
+// node-postgres reads sslmode from a URL but ignores channel_binding, which
+// libpq honours; this turns it into the option pg does read. pg still falls
+// back to plain SCRAM when the server offers nothing better (PgBouncer).
+function urlConfig(url) {
+  let binding = '';
+  try { binding = new URL(url).searchParams.get('channel_binding') || ''; } catch { /* pg reports a bad URL */ }
+  return { connectionString: url, ...(binding === 'require' || binding === 'prefer' ? { enableChannelBinding: true } : {}) };
+}
+
+function connectionConfig(env = process.env) {
+  const common = {
+    max: Number(env.DB_POOL_MAX || 5), ssl: sslOption(env.DB_SSL), types, connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+  };
+  if (env.DATABASE_URL) return { ...common, ...urlConfig(env.DATABASE_URL) };
   return {
-    async all(sql, params) { const [rows] = await pool.query(sql, toParams(params)); return rows; },
-    async get(sql, params) { const [rows] = await pool.query(sql, toParams(params)); return rows[0] || null; },
-    async run(sql, params) { const [res] = await pool.query(sql, toParams(params)); return { insertId: res.insertId, changes: res.affectedRows }; },
-    async close() { await pool.end(); },
+    ...common,
+    host: env.DB_HOST || 'localhost',
+    port: Number(env.DB_PORT || 5432),
+    database: env.DB_NAME,
+    user: env.DB_USER,
+    password: env.DB_PASSWORD,
   };
 }
 
 /**
- * The app writes MySQL/SQLite-style `?` placeholders; Postgres wants $1, $2, ...
- * A `?` inside a quoted literal is left alone. None of the app's SQL has one,
- * but a status string containing a question mark is one edit away.
+ * The direct connection the schema is applied over, or null to use the pool.
+ * Only as the twin of a DATABASE_URL: beside DB_* settings it could name a
+ * different database from the one the app then uses.
  */
-function toPgPlaceholders(sql) {
-  let n = 0;
-  let out = '';
-  let quote = null;
-  for (const ch of sql) {
-    if (quote) {
-      if (ch === quote) quote = null;
-      out += ch;
-    } else if (ch === "'" || ch === '"') {
-      quote = ch;
-      out += ch;
-    } else if (ch === '?') {
-      out += `$${++n}`;
-    } else {
-      out += ch;
+function schemaConfig(env = process.env) {
+  if (!env.DATABASE_URL || !env.DATABASE_URL_UNPOOLED) return null;
+  return { ssl: sslOption(env.DB_SSL), connectionTimeoutMillis: CONNECT_TIMEOUT_MS, ...urlConfig(env.DATABASE_URL_UNPOOLED) };
+}
+
+function describe(config) {
+  if (config.connectionString) {
+    try {
+      const u = new URL(config.connectionString);
+      return `${decodeURIComponent(u.username)}@${u.hostname}:${u.port || 5432}${u.pathname}`;
+    } catch {
+      return '(DATABASE_URL)';
     }
   }
-  return out;
+  return `${config.user}@${config.host}:${config.port}/${config.database}`;
 }
 
-async function createPostgres() {
-  const { Pool, Client, types } = require('pg');
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error('DB_CLIENT=postgres needs DATABASE_URL (`neon deploy` writes it to .env.local)');
-
-  // Match what the other two clients hand back, so the API's JSON is the same
-  // on all three: DATE and TIMESTAMP as the plain strings that were written
-  // (pg's default is a JS Date, which serialises as "...T05:06:07.000Z"), and
-  // COUNT(*) as a number (pg's default for bigint is a string, "3").
-  const parsers = {
-    1082: (v) => v, // date
-    1114: (v) => v, // timestamp without time zone
-    20: (v) => Number(v), // int8 / bigint, i.e. COUNT(*)
-  };
-  const getTypeParser = (oid, format) => parsers[oid] || types.getTypeParser(oid, format);
-
-  // Neon's pooled DATABASE_URL goes through PgBouncer in transaction mode, which
-  // is right for the app's queries but not for DDL. Run the schema over the
-  // direct connection when there is one.
-  const schemaClient = new Client({ connectionString: process.env.DATABASE_URL_UNPOOLED || url });
-  await schemaClient.connect();
-  try {
-    await schemaClient.query(fs.readFileSync(path.join(__dirname, 'sql', 'postgres_schema.sql'), 'utf8'));
-  } finally {
-    await schemaClient.end();
-  }
-
-  const pool = new Pool({ connectionString: url, max: 5, types: { getTypeParser } });
-  const host = new URL(url).hostname;
-  console.log(`Database: Postgres ${host}/${new URL(url).pathname.slice(1)}`);
-
-  const query = (sql, params) => pool.query(toPgPlaceholders(sql), toParams(params));
+function helpers(client) {
   return {
-    async all(sql, params) { return (await query(sql, params)).rows; },
-    async get(sql, params) { return (await query(sql, params)).rows[0] || null; },
+    async all(sql, params) { return (await client.query(sql, toParams(params))).rows; },
+    async get(sql, params) { return (await client.query(sql, toParams(params))).rows[0] || null; },
     async run(sql, params) {
-      // Postgres has no LAST_INSERT_ID(); every table here has an `id`, so ask for it.
-      const insert = /^\s*INSERT\b/i.test(sql) && !/\bRETURNING\b/i.test(sql);
-      const res = await query(insert ? `${sql} RETURNING id` : sql, params);
-      return { insertId: insert ? res.rows[0].id : undefined, changes: res.rowCount };
+      const r = await client.query(sql, toParams(params));
+      return { rowCount: r.rowCount, rows: r.rows };
     },
-    async close() { await pool.end(); },
   };
 }
 
-async function createSqlite() {
-  // node:sqlite landed in Node 22.5 and is the reason the README asks for 22.13+.
-  // SQLite is the DEFAULT client, so on an older Node a bare `npm start` would
-  // otherwise die with an unexplained "Cannot find module 'node:sqlite'".
-  // Hostinger runs this on MySQL, where any Node >= 20 is fine.
-  let DatabaseSync;
+const SCHEMA_FILE = path.join(__dirname, 'sql', 'schema.sql');
+// Any constant works; it only has to be the same in every process.
+const SCHEMA_LOCK = 4823501;
+
+// BEGIN ... COMMIT on one client, rolled back if anything in `fn` throws.
+async function transaction(client, fn) {
+  await client.query('BEGIN');
   try {
-    ({ DatabaseSync } = require('node:sqlite'));
-  } catch {
-    throw new Error(
-      `The local SQLite client needs Node 22.13+ for node:sqlite (this is ${process.version}). ` +
-      'Either upgrade Node, or set DB_CLIENT=mysql with DB_HOST/DB_NAME/DB_USER/DB_PASSWORD.');
+    const result = await fn(helpers(client));
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
   }
-  const file = path.resolve(__dirname, process.env.SQLITE_PATH || './data/tasks.db');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new DatabaseSync(file);
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
-  db.exec(fs.readFileSync(path.join(__dirname, 'sql', 'sqlite_schema.sql'), 'utf8'));
-  console.log('Database: SQLite file', file);
-
-  return {
-    async all(sql, params) { return db.prepare(sql).all(...toParams(params)); },
-    async get(sql, params) { return db.prepare(sql).get(...toParams(params)) || null; },
-    async run(sql, params) { const r = db.prepare(sql).run(...toParams(params)); return { insertId: Number(r.lastInsertRowid), changes: r.changes }; },
-    async close() { db.close(); },
-  };
 }
 
-module.exports = async function createDb() {
-  // With DATABASE_URL set (Neon) and no DB_CLIENT, Postgres is the obvious
-  // intent; quietly writing to a local SQLite file instead would look like it
-  // worked while every change stayed on this one machine.
-  const fallback = process.env.DATABASE_URL ? 'postgres' : 'sqlite';
-  const client = (process.env.DB_CLIENT || fallback).toLowerCase();
-  if (client === 'mysql') return createMysql();
-  if (client === 'postgres' || client === 'postgresql') return createPostgres();
-  if (client === 'sqlite') return createSqlite();
-  throw new Error(`Unknown DB_CLIENT "${client}" (use mysql, postgres or sqlite)`);
+module.exports = async function createDb(options = {}) {
+  const env = options.env || process.env;
+  const config = { ...connectionConfig(env), ...(options.config || {}) };
+  if (!config.connectionString && !config.database) {
+    throw new Error('No database configured: set DATABASE_URL, or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD (PostgreSQL).');
+  }
+  const direct = schemaConfig(env);
+  const pool = new Pool(config);
+  // An idle client that loses its connection (database restart, network blip,
+  // Neon suspending an idle compute) emits 'error' on the pool; unhandled,
+  // that would take the process down. The pool has already dropped it.
+  pool.on('error', (err) => console.error('PostgreSQL idle client error:', err.message));
+
+  async function tx(fn) {
+    const client = await pool.connect();
+    // While a client is checked out the pool stops listening for its errors,
+    // and an 'error' nobody listens for ends the process. A connection the
+    // server drops between two statements of a transaction does exactly
+    // that, so listen here, and hand a dead client back to be destroyed
+    // rather than reused.
+    let lost;
+    const onError = (err) => { lost = err; };
+    client.on('error', onError);
+    try {
+      return await transaction(client, fn);
+    } finally {
+      client.removeListener('error', onError);
+      client.release(lost);
+    }
+  }
+
+  // Create any missing tables. Serialised with an advisory lock: two app
+  // processes starting at once would otherwise both try to create the same
+  // table, and IF NOT EXISTS does not stop that race in PostgreSQL. The lock
+  // is transaction-scoped, so it is safe even through PgBouncer, but with
+  // DATABASE_URL_UNPOOLED set all of it goes over the direct connection.
+  const schema = fs.readFileSync(SCHEMA_FILE, 'utf8');
+  const applySchema = async (q) => {
+    await q.run('SELECT pg_advisory_xact_lock($1)', [SCHEMA_LOCK]);
+    await q.run(schema);
+  };
+  try {
+    if (direct) {
+      const client = new Client(direct);
+      client.on('error', () => {}); // a lost connection fails the query below instead
+      await client.connect();
+      try {
+        await transaction(client, applySchema);
+      } finally {
+        await client.end().catch(() => {});
+      }
+    } else {
+      await tx(applySchema);
+    }
+  } catch (err) {
+    await pool.end().catch(() => {});
+    throw err;
+  }
+  if (!options.quiet) {
+    console.log(`Database: PostgreSQL ${describe(config)}${direct ? ` (tables set up over ${describe(direct)})` : ''}`);
+  }
+
+  return { ...helpers(pool), tx, end: () => pool.end() };
 };
 
-module.exports.toPgPlaceholders = toPgPlaceholders;
+module.exports.connectionConfig = connectionConfig;
+module.exports.schemaConfig = schemaConfig;

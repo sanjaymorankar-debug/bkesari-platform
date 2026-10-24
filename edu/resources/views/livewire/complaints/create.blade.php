@@ -109,8 +109,7 @@ new #[Layout('layouts.app')] class extends Component
         $category = ComplaintCategory::findOrFail($validated['complaintCategoryId']);
         $anonymousRef = Auth::user()->anonymousRefFor($school, $role);
 
-        $complaint = Complaint::create([
-            'complaint_number' => Complaint::generateComplaintNumber($school->state, $school->district),
+        $complaint = Complaint::createNumbered($school->state, $school->district, [
             'school_id' => $school->id,
             'complaint_category_id' => $category->id,
             'district_id' => $school->district_id,

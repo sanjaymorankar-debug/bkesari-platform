@@ -1,0 +1,9 @@
+{
+  "projects": [
+    {"name": "portal", "agent": "portal-tester", "spec": "TEST_SPEC.md",
+     "paths": [".", ":(exclude)edu", ":(exclude)database/edu"]},
+    {"name": "edu", "agent": "edu-tester", "spec": "edu/TEST_SPEC.md",
+     "paths": ["edu", "database/edu"]}
+  ],
+  "ignore": ["**/*.md", "docs/**", ".claude/**", "**/*.xlsx", "**/*.docx", "**/*.pdf"]
+}

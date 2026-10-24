@@ -5,6 +5,7 @@ namespace Tests\Feature\Platform;
 use App\Models\TwoFactorAuthentication;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Volt\Volt;
 use PragmaRX\Google2FA\Google2FA;
 use Tests\TestCase;
@@ -133,5 +134,103 @@ class TwoFactorAuthTest extends TestCase
 
         $twoFactor = TwoFactorAuthentication::where('user_id', $officer->id)->first();
         $this->assertNotContains('AAAA-BBBB', $twoFactor->recovery_codes);
+    }
+
+    private function officerAtTheChallenge(array $recoveryCodes = ['AAAA-BBBB']): array
+    {
+        $officer = $this->makeOfficer();
+        $secret = (new Google2FA())->generateSecretKey();
+        TwoFactorAuthentication::create([
+            'user_id' => $officer->id, 'secret' => $secret, 'confirmed_at' => now(),
+            'recovery_codes' => $recoveryCodes,
+        ]);
+
+        $this->withSession(['2fa_user_id' => $officer->id, '2fa_remember' => false]);
+
+        return [$officer, $secret];
+    }
+
+    /**
+     * Codes that are certainly wrong right now, so a guess can never be the
+     * real one by chance.
+     */
+    private function wrongCodes(string $secret, int $count): array
+    {
+        $codes = [];
+        for ($candidate = 0; count($codes) < $count; $candidate++) {
+            $code = sprintf('%06d', $candidate);
+            if (! (new Google2FA())->verifyKey($secret, $code)) {
+                $codes[] = $code;
+            }
+        }
+
+        return $codes;
+    }
+
+    public function test_challenge_stops_accepting_codes_after_five_wrong_ones(): void
+    {
+        [$officer, $secret] = $this->officerAtTheChallenge();
+
+        $challenge = Volt::test('pages.auth.two-factor-challenge');
+        foreach ($this->wrongCodes($secret, 5) as $guess) {
+            $challenge->set('code', $guess)->call('verify')->assertHasErrors('code');
+        }
+
+        // Even the right code is refused now, so guessing has stopped paying.
+        $challenge->set('code', (new Google2FA())->getCurrentOtp($secret))
+            ->call('verify')
+            ->assertHasErrors('code')
+            ->assertSee('Too many');
+
+        $this->assertGuest();
+    }
+
+    public function test_recovery_codes_count_towards_the_same_limit_and_are_not_spent_while_locked(): void
+    {
+        [$officer] = $this->officerAtTheChallenge(['AAAA-BBBB']);
+
+        $challenge = Volt::test('pages.auth.two-factor-challenge')->set('useRecoveryCode', true);
+        foreach (range(1, 5) as $guess) {
+            $challenge->set('code', 'WRONG-000'.$guess)->call('verify')->assertHasErrors('code');
+        }
+
+        $challenge->set('code', 'AAAA-BBBB')->call('verify')->assertHasErrors('code');
+
+        $this->assertGuest();
+        $this->assertContains('AAAA-BBBB', TwoFactorAuthentication::where('user_id', $officer->id)->first()->recovery_codes);
+    }
+
+    public function test_a_correct_code_inside_the_limit_signs_in_and_resets_the_count(): void
+    {
+        [$officer, $secret] = $this->officerAtTheChallenge();
+
+        $challenge = Volt::test('pages.auth.two-factor-challenge');
+        foreach ($this->wrongCodes($secret, 4) as $guess) {
+            $challenge->set('code', $guess)->call('verify')->assertHasErrors('code');
+        }
+
+        $challenge->set('code', (new Google2FA())->getCurrentOtp($secret))
+            ->call('verify')
+            ->assertRedirect(route('dashboard', absolute: false));
+
+        $this->assertAuthenticatedAs($officer);
+        $this->assertSame(0, RateLimiter::attempts('two-factor|'.$officer->id));
+    }
+
+    public function test_one_account_being_locked_does_not_lock_another(): void
+    {
+        [$locked] = $this->officerAtTheChallenge();
+        foreach (range(1, 5) as $guess) {
+            RateLimiter::hit('two-factor|'.$locked->id);
+        }
+
+        [$other, $secret] = $this->officerAtTheChallenge();
+
+        Volt::test('pages.auth.two-factor-challenge')
+            ->set('code', (new Google2FA())->getCurrentOtp($secret))
+            ->call('verify')
+            ->assertRedirect(route('dashboard', absolute: false));
+
+        $this->assertAuthenticatedAs($other);
     }
 }

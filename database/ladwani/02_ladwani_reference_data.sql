@@ -12,166 +12,184 @@
 -- SUPERSEDES the Sep 28 version, which was copied from the older single-Next.js app
 -- and does not match this schema (different column names, fewer/different post types,
 -- a `settings` table this schema doesn't have, and no ASSET_OWNER role or fee/config/report
--- permissions). Run after 01_ladwani_schema.sql. Safe to re-run (INSERT IGNORE throughout).
-
-SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- permissions). Run after 01_ladwani_schema.sql. Safe to re-run (every INSERT ends in
+-- ON CONFLICT DO NOTHING, so a row whose code already exists is left alone).
+--
+-- PostgreSQL 13 or newer (gen_random_uuid() is built in from 13). Timestamps are written in
+-- UTC, which is how Prisma stores DateTime in these TIMESTAMP(3) columns.
+--     psql "$LADWANI_DATABASE_URL" -v ON_ERROR_STOP=1 -f 02_ladwani_reference_data.sql
 
 -- ── Community ────────────────────────────────────────────────────
-INSERT IGNORE INTO communities (id, name, slug, created_at, updated_at)
-VALUES (UUID(), 'Ladwani Samaj', 'ladwani-samaj', NOW(3), NOW(3));
+INSERT INTO communities (id, name, slug, created_at, updated_at)
+VALUES (gen_random_uuid()::text, 'Ladwani Samaj', 'ladwani-samaj', now() AT TIME ZONE 'UTC', now() AT TIME ZONE 'UTC')
+ON CONFLICT DO NOTHING;
 
 -- ── Permissions ──────────────────────────────────────────────────
-INSERT IGNORE INTO permissions (id, code, label, module) VALUES
-(UUID(), 'profile:edit:own', 'profile:edit:own', 'profile'),
-(UUID(), 'profile:edit:any', 'profile:edit:any', 'profile'),
-(UUID(), 'family:create', 'family:create', 'family'),
-(UUID(), 'family:edit:own', 'family:edit:own', 'family'),
-(UUID(), 'family:join', 'family:join', 'family'),
-(UUID(), 'family:member:add', 'family:member:add', 'family'),
-(UUID(), 'family:member:remove', 'family:member:remove', 'family'),
-(UUID(), 'family:karta:transfer', 'family:karta:transfer', 'family'),
-(UUID(), 'member:marital_status:edit', 'member:marital_status:edit', 'member'),
-(UUID(), 'member:mark_deceased', 'member:mark_deceased', 'member'),
-(UUID(), 'approval:review', 'approval:review', 'approval'),
-(UUID(), 'matrimony:manage:own', 'matrimony:manage:own', 'matrimony'),
-(UUID(), 'matrimony:manage:family', 'matrimony:manage:family', 'matrimony'),
-(UUID(), 'post:create', 'post:create', 'post'),
-(UUID(), 'moderation:review', 'moderation:review', 'moderation'),
-(UUID(), 'asset:register', 'asset:register', 'asset'),
-(UUID(), 'asset:approve', 'asset:approve', 'asset'),
-(UUID(), 'asset:manage:own', 'asset:manage:own', 'asset'),
-(UUID(), 'booking:create', 'booking:create', 'booking'),
-(UUID(), 'booking:manage:own', 'booking:manage:own', 'booking'),
-(UUID(), 'fee:configure', 'fee:configure', 'fee'),
-(UUID(), 'fee:pay:family', 'fee:pay:family', 'fee'),
-(UUID(), 'payment:verify:offline', 'payment:verify:offline', 'payment'),
-(UUID(), 'refund:approve', 'refund:approve', 'refund'),
-(UUID(), 'role:manage', 'role:manage', 'role'),
-(UUID(), 'audit:view', 'audit:view', 'audit'),
-(UUID(), 'config:manage', 'config:manage', 'config'),
-(UUID(), 'report:view', 'report:view', 'report');
+INSERT INTO permissions (id, code, label, module) VALUES
+(gen_random_uuid()::text, 'profile:edit:own', 'profile:edit:own', 'profile'),
+(gen_random_uuid()::text, 'profile:edit:any', 'profile:edit:any', 'profile'),
+(gen_random_uuid()::text, 'family:create', 'family:create', 'family'),
+(gen_random_uuid()::text, 'family:edit:own', 'family:edit:own', 'family'),
+(gen_random_uuid()::text, 'family:join', 'family:join', 'family'),
+(gen_random_uuid()::text, 'family:member:add', 'family:member:add', 'family'),
+(gen_random_uuid()::text, 'family:member:remove', 'family:member:remove', 'family'),
+(gen_random_uuid()::text, 'family:karta:transfer', 'family:karta:transfer', 'family'),
+(gen_random_uuid()::text, 'member:marital_status:edit', 'member:marital_status:edit', 'member'),
+(gen_random_uuid()::text, 'member:mark_deceased', 'member:mark_deceased', 'member'),
+(gen_random_uuid()::text, 'approval:review', 'approval:review', 'approval'),
+(gen_random_uuid()::text, 'matrimony:manage:own', 'matrimony:manage:own', 'matrimony'),
+(gen_random_uuid()::text, 'matrimony:manage:family', 'matrimony:manage:family', 'matrimony'),
+(gen_random_uuid()::text, 'post:create', 'post:create', 'post'),
+(gen_random_uuid()::text, 'moderation:review', 'moderation:review', 'moderation'),
+(gen_random_uuid()::text, 'asset:register', 'asset:register', 'asset'),
+(gen_random_uuid()::text, 'asset:approve', 'asset:approve', 'asset'),
+(gen_random_uuid()::text, 'asset:manage:own', 'asset:manage:own', 'asset'),
+(gen_random_uuid()::text, 'booking:create', 'booking:create', 'booking'),
+(gen_random_uuid()::text, 'booking:manage:own', 'booking:manage:own', 'booking'),
+(gen_random_uuid()::text, 'fee:configure', 'fee:configure', 'fee'),
+(gen_random_uuid()::text, 'fee:pay:family', 'fee:pay:family', 'fee'),
+(gen_random_uuid()::text, 'payment:verify:offline', 'payment:verify:offline', 'payment'),
+(gen_random_uuid()::text, 'refund:approve', 'refund:approve', 'refund'),
+(gen_random_uuid()::text, 'role:manage', 'role:manage', 'role'),
+(gen_random_uuid()::text, 'audit:view', 'audit:view', 'audit'),
+(gen_random_uuid()::text, 'config:manage', 'config:manage', 'config'),
+(gen_random_uuid()::text, 'report:view', 'report:view', 'report')
+ON CONFLICT DO NOTHING;
 
 -- ── Roles ────────────────────────────────────────────────────────
-INSERT IGNORE INTO roles (id, code, label, is_system) VALUES
-(UUID(), 'MEMBER', 'Member', 1),
-(UUID(), 'KARTA', 'Family Head (Karta)', 1),
-(UUID(), 'OPERATOR', 'Operator', 1),
-(UUID(), 'ASSET_OWNER', 'Asset Owner', 1),
-(UUID(), 'ADMIN', 'Administrator', 1);
+INSERT INTO roles (id, code, label, is_system) VALUES
+(gen_random_uuid()::text, 'MEMBER', 'Member', true),
+(gen_random_uuid()::text, 'KARTA', 'Family Head (Karta)', true),
+(gen_random_uuid()::text, 'OPERATOR', 'Operator', true),
+(gen_random_uuid()::text, 'ASSET_OWNER', 'Asset Owner', true),
+(gen_random_uuid()::text, 'ADMIN', 'Administrator', true)
+ON CONFLICT DO NOTHING;
 
 -- ── Role-permission bundles (docs/03-roles-and-permissions.md defaults) ───
-INSERT IGNORE INTO role_permissions (role_id, permission_id)
+INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p WHERE r.code = 'MEMBER' AND p.code IN (
   'profile:edit:own','family:create','family:join','member:marital_status:edit',
   'matrimony:manage:own','post:create','booking:create'
-);
+)
+ON CONFLICT DO NOTHING;
 
-INSERT IGNORE INTO role_permissions (role_id, permission_id)
+INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p WHERE r.code = 'KARTA' AND p.code IN (
   'profile:edit:own','family:create','family:join','family:edit:own','family:member:add',
   'family:member:remove','family:karta:transfer','member:marital_status:edit','member:mark_deceased',
   'matrimony:manage:own','matrimony:manage:family','post:create','booking:create','fee:pay:family'
-);
+)
+ON CONFLICT DO NOTHING;
 
-INSERT IGNORE INTO role_permissions (role_id, permission_id)
+INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p WHERE r.code = 'OPERATOR' AND p.code IN (
   'profile:edit:own','family:member:add','family:edit:own','member:mark_deceased','approval:review',
   'moderation:review','matrimony:manage:own','asset:approve','payment:verify:offline','post:create',
   'booking:create','audit:view','report:view'
-);
+)
+ON CONFLICT DO NOTHING;
 
-INSERT IGNORE INTO role_permissions (role_id, permission_id)
+INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p WHERE r.code = 'ASSET_OWNER' AND p.code IN (
   'profile:edit:own','matrimony:manage:own','asset:register','asset:manage:own','booking:manage:own',
   'post:create','booking:create','audit:view'
-);
+)
+ON CONFLICT DO NOTHING;
 
 -- ADMIN gets every permission that exists.
-INSERT IGNORE INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM roles r, permissions p WHERE r.code = 'ADMIN';
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p WHERE r.code = 'ADMIN'
+ON CONFLICT DO NOTHING;
 
 -- ── Relationship Types ───────────────────────────────────────────
-INSERT IGNORE INTO relationship_types (id, code, label, inverse_code, gender_applicable, is_spouse, is_active, sort_order) VALUES
-(UUID(), 'father', 'Father', 'son', 'MALE', 0, 1, 0),
-(UUID(), 'mother', 'Mother', 'son', 'FEMALE', 0, 1, 0),
-(UUID(), 'son', 'Son', 'father', 'MALE', 0, 1, 0),
-(UUID(), 'daughter', 'Daughter', 'father', 'FEMALE', 0, 1, 0),
-(UUID(), 'husband', 'Husband', 'wife', 'MALE', 1, 1, 0),
-(UUID(), 'wife', 'Wife', 'husband', 'FEMALE', 1, 1, 0),
-(UUID(), 'brother', 'Brother', 'brother', 'MALE', 0, 1, 0),
-(UUID(), 'sister', 'Sister', 'brother', 'FEMALE', 0, 1, 0),
-(UUID(), 'grandfather_p', 'Grandfather (Paternal)', 'grandson', 'MALE', 0, 1, 0),
-(UUID(), 'grandmother_p', 'Grandmother (Paternal)', 'grandson', 'FEMALE', 0, 1, 0),
-(UUID(), 'grandson', 'Grandson', 'grandfather_p', 'MALE', 0, 1, 0),
-(UUID(), 'granddaughter', 'Granddaughter', 'grandfather_p', 'FEMALE', 0, 1, 0),
-(UUID(), 'son_in_law', 'Son-in-law', 'father_in_law', 'MALE', 0, 1, 0),
-(UUID(), 'daughter_in_law', 'Daughter-in-law', 'father_in_law', 'FEMALE', 0, 1, 0),
-(UUID(), 'father_in_law', 'Father-in-law', 'son_in_law', 'MALE', 0, 1, 0),
-(UUID(), 'mother_in_law', 'Mother-in-law', 'son_in_law', 'FEMALE', 0, 1, 0);
+INSERT INTO relationship_types (id, code, label, inverse_code, gender_applicable, is_spouse, is_active, sort_order) VALUES
+(gen_random_uuid()::text, 'father', 'Father', 'son', 'MALE', false, true, 0),
+(gen_random_uuid()::text, 'mother', 'Mother', 'son', 'FEMALE', false, true, 0),
+(gen_random_uuid()::text, 'son', 'Son', 'father', 'MALE', false, true, 0),
+(gen_random_uuid()::text, 'daughter', 'Daughter', 'father', 'FEMALE', false, true, 0),
+(gen_random_uuid()::text, 'husband', 'Husband', 'wife', 'MALE', true, true, 0),
+(gen_random_uuid()::text, 'wife', 'Wife', 'husband', 'FEMALE', true, true, 0),
+(gen_random_uuid()::text, 'brother', 'Brother', 'brother', 'MALE', false, true, 0),
+(gen_random_uuid()::text, 'sister', 'Sister', 'brother', 'FEMALE', false, true, 0),
+(gen_random_uuid()::text, 'grandfather_p', 'Grandfather (Paternal)', 'grandson', 'MALE', false, true, 0),
+(gen_random_uuid()::text, 'grandmother_p', 'Grandmother (Paternal)', 'grandson', 'FEMALE', false, true, 0),
+(gen_random_uuid()::text, 'grandson', 'Grandson', 'grandfather_p', 'MALE', false, true, 0),
+(gen_random_uuid()::text, 'granddaughter', 'Granddaughter', 'grandfather_p', 'FEMALE', false, true, 0),
+(gen_random_uuid()::text, 'son_in_law', 'Son-in-law', 'father_in_law', 'MALE', false, true, 0),
+(gen_random_uuid()::text, 'daughter_in_law', 'Daughter-in-law', 'father_in_law', 'FEMALE', false, true, 0),
+(gen_random_uuid()::text, 'father_in_law', 'Father-in-law', 'son_in_law', 'MALE', false, true, 0),
+(gen_random_uuid()::text, 'mother_in_law', 'Mother-in-law', 'son_in_law', 'FEMALE', false, true, 0)
+ON CONFLICT DO NOTHING;
 
 -- ── Approval Rules (docs/12-approval-workflow.md §4) ─────────────
-INSERT IGNORE INTO approval_rules (id, action_code, requires_approval, approver_role) VALUES
-(UUID(), 'family.create', 1, 'OPERATOR'),
-(UUID(), 'family.member.add', 1, 'OPERATOR'),
-(UUID(), 'family.karta.transfer', 1, 'ADMIN'),
-(UUID(), 'family.merge', 1, 'ADMIN'),
-(UUID(), 'member.marital_status.change', 1, 'OPERATOR'),
-(UUID(), 'member.mark_deceased', 1, 'OPERATOR'),
-(UUID(), 'member.relationship.change', 1, 'OPERATOR'),
-(UUID(), 'asset.register', 1, 'OPERATOR'),
-(UUID(), 'asset.suspend', 1, 'ADMIN'),
-(UUID(), 'offline_payment.verify', 1, 'OPERATOR'),
-(UUID(), 'data.deletion_request', 1, 'ADMIN'),
-(UUID(), 'member.edit_own', 0, NULL);
+INSERT INTO approval_rules (id, action_code, requires_approval, approver_role) VALUES
+(gen_random_uuid()::text, 'family.create', true, 'OPERATOR'),
+(gen_random_uuid()::text, 'family.member.add', true, 'OPERATOR'),
+(gen_random_uuid()::text, 'family.karta.transfer', true, 'ADMIN'),
+(gen_random_uuid()::text, 'family.merge', true, 'ADMIN'),
+(gen_random_uuid()::text, 'member.marital_status.change', true, 'OPERATOR'),
+(gen_random_uuid()::text, 'member.mark_deceased', true, 'OPERATOR'),
+(gen_random_uuid()::text, 'member.relationship.change', true, 'OPERATOR'),
+(gen_random_uuid()::text, 'asset.register', true, 'OPERATOR'),
+(gen_random_uuid()::text, 'asset.suspend', true, 'ADMIN'),
+(gen_random_uuid()::text, 'offline_payment.verify', true, 'OPERATOR'),
+(gen_random_uuid()::text, 'data.deletion_request', true, 'ADMIN'),
+(gen_random_uuid()::text, 'member.edit_own', false, NULL)
+ON CONFLICT DO NOTHING;
 
 -- ── Post Types (starter catalog — Admin can add more via /admin/config) ───
-INSERT IGNORE INTO post_types (id, code, label, icon, requires_approval, is_active) VALUES
-(UUID(), 'GENERAL', 'General', 'message-circle', 0, 1),
-(UUID(), 'ANNOUNCEMENT', 'Announcement', 'megaphone', 1, 1),
-(UUID(), 'EVENT', 'Event', 'calendar', 0, 1),
-(UUID(), 'HELP_REQUEST', 'Help Request', 'life-buoy', 0, 1),
-(UUID(), 'CONDOLENCE', 'Condolence', 'flower', 0, 1);
+INSERT INTO post_types (id, code, label, icon, requires_approval, is_active) VALUES
+(gen_random_uuid()::text, 'GENERAL', 'General', 'message-circle', false, true),
+(gen_random_uuid()::text, 'ANNOUNCEMENT', 'Announcement', 'megaphone', true, true),
+(gen_random_uuid()::text, 'EVENT', 'Event', 'calendar', false, true),
+(gen_random_uuid()::text, 'HELP_REQUEST', 'Help Request', 'life-buoy', false, true),
+(gen_random_uuid()::text, 'CONDOLENCE', 'Condolence', 'flower', false, true)
+ON CONFLICT DO NOTHING;
 
 -- ── Asset Categories (starter catalog — Admin can add more via /admin/config) ───
-INSERT IGNORE INTO asset_categories (id, code, label, sort_order, is_active) VALUES
-(UUID(), 'MARRIAGE_HALL', 'Marriage Hall', 1, 1),
-(UUID(), 'COMMUNITY_HALL', 'Community Hall', 2, 1),
-(UUID(), 'GUEST_HOUSE', 'Guest House', 3, 1),
-(UUID(), 'GROUND', 'Open Ground', 4, 1);
+INSERT INTO asset_categories (id, code, label, sort_order, is_active) VALUES
+(gen_random_uuid()::text, 'MARRIAGE_HALL', 'Marriage Hall', 1, true),
+(gen_random_uuid()::text, 'COMMUNITY_HALL', 'Community Hall', 2, true),
+(gen_random_uuid()::text, 'GUEST_HOUSE', 'Guest House', 3, true),
+(gen_random_uuid()::text, 'GROUND', 'Open Ground', 4, true)
+ON CONFLICT DO NOTHING;
 
 -- ── Education Levels (M6 starter catalog — Admin can add more via /admin/config) ───
-INSERT IGNORE INTO education_levels (id, code, label, sort_order, is_active) VALUES
-(UUID(), 'BELOW_10TH', 'Below 10th', 1, 1),
-(UUID(), 'SSC', 'SSC / 10th', 2, 1),
-(UUID(), 'HSC', 'HSC / 12th', 3, 1),
-(UUID(), 'DIPLOMA', 'Diploma', 4, 1),
-(UUID(), 'GRADUATE', 'Bachelor''s Degree', 5, 1),
-(UUID(), 'POST_GRADUATE', 'Master''s Degree', 6, 1),
-(UUID(), 'DOCTORATE', 'Doctorate', 7, 1),
-(UUID(), 'OTHER', 'Other', 8, 1);
+INSERT INTO education_levels (id, code, label, sort_order, is_active) VALUES
+(gen_random_uuid()::text, 'BELOW_10TH', 'Below 10th', 1, true),
+(gen_random_uuid()::text, 'SSC', 'SSC / 10th', 2, true),
+(gen_random_uuid()::text, 'HSC', 'HSC / 12th', 3, true),
+(gen_random_uuid()::text, 'DIPLOMA', 'Diploma', 4, true),
+(gen_random_uuid()::text, 'GRADUATE', 'Bachelor''s Degree', 5, true),
+(gen_random_uuid()::text, 'POST_GRADUATE', 'Master''s Degree', 6, true),
+(gen_random_uuid()::text, 'DOCTORATE', 'Doctorate', 7, true),
+(gen_random_uuid()::text, 'OTHER', 'Other', 8, true)
+ON CONFLICT DO NOTHING;
 
 -- ── Occupations (M6 starter catalog — Admin can add more via /admin/config) ───
-INSERT IGNORE INTO occupations (id, code, label, sort_order, is_active) VALUES
-(UUID(), 'STUDENT', 'Student', 1, 1),
-(UUID(), 'SALARIED', 'Salaried Professional', 2, 1),
-(UUID(), 'BUSINESS', 'Business Owner', 3, 1),
-(UUID(), 'GOVERNMENT', 'Government Service', 4, 1),
-(UUID(), 'FARMER', 'Agriculture', 5, 1),
-(UUID(), 'HOMEMAKER', 'Homemaker', 6, 1),
-(UUID(), 'RETIRED', 'Retired', 7, 1),
-(UUID(), 'NOT_WORKING', 'Not Working', 8, 1),
-(UUID(), 'OTHER', 'Other', 9, 1);
+INSERT INTO occupations (id, code, label, sort_order, is_active) VALUES
+(gen_random_uuid()::text, 'STUDENT', 'Student', 1, true),
+(gen_random_uuid()::text, 'SALARIED', 'Salaried Professional', 2, true),
+(gen_random_uuid()::text, 'BUSINESS', 'Business Owner', 3, true),
+(gen_random_uuid()::text, 'GOVERNMENT', 'Government Service', 4, true),
+(gen_random_uuid()::text, 'FARMER', 'Agriculture', 5, true),
+(gen_random_uuid()::text, 'HOMEMAKER', 'Homemaker', 6, true),
+(gen_random_uuid()::text, 'RETIRED', 'Retired', 7, true),
+(gen_random_uuid()::text, 'NOT_WORKING', 'Not Working', 8, true),
+(gen_random_uuid()::text, 'OTHER', 'Other', 9, true)
+ON CONFLICT DO NOTHING;
 
 -- ── Skills (M6 starter catalog — Admin can add more via /admin/config) ───
 -- `skills` has no sort_order in the schema; the app orders by label.
-INSERT IGNORE INTO skills (id, code, label, is_active) VALUES
-(UUID(), 'COOKING', 'Cooking', 1),
-(UUID(), 'MUSIC', 'Music', 1),
-(UUID(), 'TEACHING', 'Teaching', 1),
-(UUID(), 'ACCOUNTING', 'Accounting', 1),
-(UUID(), 'IT_SOFTWARE', 'IT / Software', 1),
-(UUID(), 'HANDICRAFT', 'Handicraft', 1),
-(UUID(), 'PUBLIC_SPEAKING', 'Public Speaking', 1);
+INSERT INTO skills (id, code, label, is_active) VALUES
+(gen_random_uuid()::text, 'COOKING', 'Cooking', true),
+(gen_random_uuid()::text, 'MUSIC', 'Music', true),
+(gen_random_uuid()::text, 'TEACHING', 'Teaching', true),
+(gen_random_uuid()::text, 'ACCOUNTING', 'Accounting', true),
+(gen_random_uuid()::text, 'IT_SOFTWARE', 'IT / Software', true),
+(gen_random_uuid()::text, 'HANDICRAFT', 'Handicraft', true),
+(gen_random_uuid()::text, 'PUBLIC_SPEAKING', 'Public Speaking', true)
+ON CONFLICT DO NOTHING;
 
 -- member_skills is a join table filled by members themselves; it has no seed data.
 

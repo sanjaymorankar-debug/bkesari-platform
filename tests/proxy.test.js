@@ -445,6 +445,22 @@ test('an app that is down gives a 502 that still carries the menu', async () => 
   }
 });
 
+test("a stripping tab's 502 page still marks that tab as current", async () => {
+  // By the time the error handler runs, http-proxy-middleware has rewritten
+  // req.url for /edu/ to the stripped path, so a page built from it lit up no
+  // tab at all. The bar has to be built from the path the visitor asked for.
+  const hub = await hubWith({ EDU_ORIGIN: 'http://127.0.0.1:1' });
+  try {
+    const res = await fetch(hub.origin + '/edu/login?next=%2Fadmin');
+    assert.equal(res.status, 502);
+    const html = await res.text();
+    assert.match(html, /not responding/);
+    assert.match(html, /<a href="\/edu\/" aria-current="page">Education<\/a>/);
+  } finally {
+    await close(hub.server);
+  }
+});
+
 test('a large response body streams through', async () => {
   // A buffering proxy would blow up on a real page with images; this is a
   // cheap guard that the response is piped rather than accumulated.
