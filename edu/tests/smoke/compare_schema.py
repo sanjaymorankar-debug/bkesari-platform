@@ -10,7 +10,8 @@ back as `ARRAY[('a'::character varying)::text, ...]` rather than
 `(ARRAY['a'::character varying, ...])::text[]`. Those are compared by
 constraint name, column and the ordered list of allowed values instead.
 Lines that name the dump's own version are ignored. Exits non-zero on any
-difference and prints the first ones.
+difference and prints the first ones, and on a file with no CREATE TABLE
+(an empty or failed dump).
 """
 import difflib
 import re
@@ -36,6 +37,12 @@ def load(path):
 
 a_lines, a_checks = load(sys.argv[1])
 b_lines, b_checks = load(sys.argv[2])
+# Two empty files are identical: a pg_dump that failed (a wrong password, a
+# missing database) must not read as "schemas match".
+for path, lines in ((sys.argv[1], a_lines), (sys.argv[2], b_lines)):
+    if not any(line.startswith('CREATE TABLE ') for line in lines):
+        print(f'{path}: no CREATE TABLE, not a schema dump (did pg_dump fail?)')
+        sys.exit(1)
 problems = list(difflib.unified_diff(a_lines, b_lines, sys.argv[1], sys.argv[2], lineterm='', n=0))[:40]
 for name in sorted(set(a_checks) | set(b_checks)):
     if a_checks.get(name) != b_checks.get(name):
