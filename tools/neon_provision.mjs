@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Create the bkesari databases on Neon: one branch per tier, one database and
- * one role per project on each branch, and each tier's connection strings.
+ * one login per project on each branch, and each tier's connection strings.
  *
  *   NEON_API_KEY=... node tools/neon_provision.mjs --project <project-id> [--dry-run]
  *
@@ -13,10 +13,16 @@
  * on the new branch. A dev or test URL therefore cannot log in to production
  * even if its host name were swapped.
  *
+ * Project isolation. Each login owns only its own database. PostgreSQL also
+ * lets every login connect to every database unless that is revoked, and the
+ * API cannot revoke it, so the tool writes the SQL that does (see Output).
+ *
  * Output. Connection strings contain passwords, so they are never printed.
- * Each tier's goes into its own file, readable only by you:
- *   ~/.bkesari_neon/<tier>.env   (override the folder with --out DIR)
- * Copy each project's lines into that site's server .env by hand.
+ * Each tier gets two files, readable only by you (folder: --out DIR):
+ *   ~/.bkesari_neon/<tier>.env   each project's lines for its server .env
+ *   ~/.bkesari_neon/<tier>.sql   the SQL to run once per database on that
+ *                                branch, as the login each block names
+ * Nothing here runs SQL itself: the tool talks to Neon's API only.
  *
  * Talks to Neon's public API (https://console.neon.tech/api/v2, or
  * NEON_API_HOST). Uses only Node's standard library (Node 20+).
@@ -33,19 +39,55 @@ export const TIERS = [
   { tier: 'dev', branch: 'dev', site: 'dev.bkesari.com' },
 ];
 
-// One database per project, owned by its own role. The env prefix is what
+// One database per project, owned by its own login. The env prefix is what
 // the project reads; see each repository's .env.example.
 export const PROJECTS = [
-  { project: 'portal', database: 'portal', role: 'portal_app', env: 'DATABASE_URL' },
-  { project: 'milk', database: 'milk', role: 'milk_app', env: 'DATABASE_URL' },
-  { project: 'edu', database: 'edu', role: 'edu_app', env: 'DB_URL' },
-  { project: 'ladwani', database: 'ladwani', role: 'ladwani_app', env: 'DATABASE_URL' },
-  { project: 'atip', database: 'atip', role: 'atip_app', env: 'ATIP_DATABASE_URL' },
-  { project: 'agtci', database: 'agtci', role: 'agtci_app', env: 'DATABASE_URL' },
+  // The hub keeps the project's default database, neondb, because Neon Auth
+  // lives there too. neondb stays with the project owner (neondb_owner); the
+  // hub's login is granted what it needs instead of owning it.
+  { project: 'portal', database: 'neondb', role: 'bk_portal_app', env: 'DATABASE_URL', shared: true },
+  { project: 'milk', database: 'bk_milk', role: 'bk_milk_app', env: 'DATABASE_URL' },
+  { project: 'edu', database: 'bk_edu', role: 'bk_edu_app', env: 'DB_URL' },
+  { project: 'ladwani', database: 'bk_ladwani', role: 'bk_ladwani_app', env: 'DATABASE_URL' },
+  { project: 'atip', database: 'bk_atip', role: 'bk_atip_app', env: 'ATIP_DATABASE_URL' },
+  { project: 'agtci', database: 'bk_agtci', role: 'bk_agtci_app', env: 'DATABASE_URL' },
   // The standalone edu repository, superseded by edu/ here but still behind
   // edutest.agtci.com: a test site, so it exists on the test branch only.
-  { project: 'edu-standalone', database: 'edu_standalone', role: 'edu_standalone_app', env: 'DB_URL', branches: ['test'] },
+  { project: 'edu-standalone', database: 'bk_edu_standalone', role: 'bk_edu_standalone_app', env: 'DB_URL', branches: ['test'] },
 ];
+
+const ident = (name) => `"${String(name).replace(/"/g, '""')}"`;
+
+/**
+ * The SQL one database needs after the API has made it, as [login, statements].
+ *
+ * - A database its project's login owns: take away the default CONNECT every
+ *   other login has, so no other project can even open it.
+ * - The hub's shared neondb: grant the hub's login what it needs to connect
+ *   and create its tables. PUBLIC keeps CONNECT there until Neon Auth's own
+ *   login has been granted it, so that revoke is written commented out.
+ * - A database someone else owns that is not meant to be shared: nothing is
+ *   generated. It is reported, and handing it over is a deliberate step
+ *   (docs/NEON.md).
+ */
+export function databaseSql(proj, owner) {
+  const db = ident(proj.database);
+  const role = ident(proj.role);
+  if (owner === proj.role) {
+    return [proj.role, [`REVOKE CONNECT, TEMPORARY ON DATABASE ${db} FROM PUBLIC;`]];
+  }
+  if (proj.shared) {
+    return [owner, [
+      `GRANT CONNECT, TEMPORARY ON DATABASE ${db} TO ${role};`,
+      `GRANT USAGE, CREATE ON SCHEMA public TO ${role};`,
+      '-- Until the next line runs, every other login can connect here, and Neon\'s',
+      '-- neon_superuser membership lets a login read what it can connect to.',
+      '-- Grant CONNECT to the login Neon Auth connects as, then uncomment:',
+      `-- REVOKE CONNECT, TEMPORARY ON DATABASE ${db} FROM PUBLIC;`,
+    ]];
+  }
+  return null;
+}
 
 export function parseArgs(argv) {
   const args = { dryRun: false, out: path.join(os.homedir(), '.bkesari_neon') };
@@ -134,12 +176,17 @@ export async function provision({ neon, projectId, dryRun = false, log = console
   }
 
   const files = {};
+  const sqlFiles = {};
   for (const t of TIERS) {
     const branch = branches.find((b) => b.name === t.branch);
-    if (!branch) { files[t.tier] = null; continue; } // dry run: not created yet
+    if (!branch) { files[t.tier] = null; sqlFiles[t.tier] = null; continue; } // dry run: not created yet
     const roles = new Set((await neon.roles(projectId, branch.id)).map((r) => r.name));
-    const dbs = new Set((await neon.databases(projectId, branch.id)).map((d) => d.name));
+    const owners = new Map((await neon.databases(projectId, branch.id)).map((d) => [d.name, d.owner_name]));
     const lines = [`# ${t.site} (Neon branch "${t.branch}"), written by tools/neon_provision.mjs`, '# Copy each block into that site\'s server .env. Never commit this file.'];
+    const sql = [`-- ${t.site} (Neon branch "${t.branch}"), written by tools/neon_provision.mjs`,
+      '-- Run each block once, in psql or the Neon SQL Editor, connected to that',
+      '-- database over its DIRECT string as the login the block names.',
+      '-- Re-running any of it is harmless.'];
     for (const proj of PROJECTS) {
       if (proj.branches && !proj.branches.includes(t.branch)) continue;
       if (!roles.has(proj.role)) {
@@ -149,9 +196,17 @@ export async function provision({ neon, projectId, dryRun = false, log = console
         note(`${t.branch}: new password for ${proj.role} (copied from production)`);
         if (!dryRun) await neon.resetPassword(projectId, branch.id, proj.role);
       }
-      if (!dbs.has(proj.database)) {
+      let owner = owners.get(proj.database);
+      if (owner === undefined) {
         note(`${t.branch}: create database ${proj.database} owned by ${proj.role}`);
         if (!dryRun) await neon.createDatabase(projectId, branch.id, proj.database, proj.role);
+        owner = proj.role;
+      }
+      const block = databaseSql(proj, owner);
+      if (block) {
+        sql.push('', `-- ${proj.project}: database ${proj.database}, as ${block[0]}`, ...block[1]);
+      } else {
+        note(`${t.branch}: database ${proj.database} already exists, owned by ${owner}, not ${proj.role}: left as it is (docs/NEON.md, "A database that already exists")`);
       }
       if (!dryRun) {
         const pooled = await neon.connectionUri(projectId, branch.id, proj.database, proj.role, true);
@@ -160,16 +215,18 @@ export async function provision({ neon, projectId, dryRun = false, log = console
       }
     }
     files[t.tier] = dryRun ? null : lines.join('\n') + '\n';
+    sqlFiles[t.tier] = dryRun ? null : sql.join('\n') + '\n';
   }
-  return { plan, files };
+  return { plan, files, sqlFiles };
 }
 
-export function writeTierFiles(files, outDir) {
+export function writeTierFiles(files, outDir, ext = 'env') {
   fs.mkdirSync(outDir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(outDir, 0o700); // an existing folder keeps its old mode otherwise
   const written = [];
   for (const [tier, content] of Object.entries(files)) {
     if (!content) continue;
-    const file = path.join(outDir, `${tier}.env`);
+    const file = path.join(outDir, `${tier}.${ext}`);
     fs.writeFileSync(file, content, { mode: 0o600 });
     fs.chmodSync(file, 0o600);
     written.push(file);
@@ -189,9 +246,10 @@ async function main() {
     process.exit(2);
   }
   const neon = neonClient({ apiKey, host: process.env.NEON_API_HOST || undefined });
-  const { files } = await provision({ neon, projectId: args.project, dryRun: args.dryRun });
+  const { files, sqlFiles } = await provision({ neon, projectId: args.project, dryRun: args.dryRun });
   if (args.dryRun) return console.log('Dry run: nothing was changed.');
   for (const f of writeTierFiles(files, args.out)) console.log(`wrote ${f}`);
+  for (const f of writeTierFiles(sqlFiles, args.out, 'sql')) console.log(`wrote ${f}  (run it: docs/NEON.md)`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

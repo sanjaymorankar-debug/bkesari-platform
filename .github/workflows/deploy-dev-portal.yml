@@ -6,8 +6,8 @@
 #
 # No database credential is stored in GitHub. The server's own .env holds them
 # and rsync never writes or deletes it — see the "Upload" step. On dev that is
-# DATABASE_URL (pooled) and DATABASE_URL_UNPOOLED (direct) for the `portal`
-# database on Neon's `dev` branch, and nothing of any other tier (docs/NEON.md).
+# DATABASE_URL (pooled) and DATABASE_URL_UNPOOLED (direct) for `neondb` as
+# `bk_portal_app` on Neon's `dev` branch, and nothing of any other tier (docs/NEON.md).
 # The checks below never reach Neon; they use their own throwaway PostgreSQL.
 name: Deploy dev (portal)
 

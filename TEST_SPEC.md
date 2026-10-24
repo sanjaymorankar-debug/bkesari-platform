@@ -5,7 +5,7 @@ The hub is the Node.js (Express) app behind **bkesari.com**, `test.bkesari.com` 
 (`portal/public/shared/menu.js`), the static Global Warming and Driving Simulator pages, the
 **Task Tracker** at `/tasks/`, the read-only **ATIP viewer** at `/ATIP/` (and `/atip/`), and the
 proxy that serves `/milk/`, `/edu/` and `/ladwani/` from their own apps (`portal/proxy.js`). Its
-data is in **PostgreSQL on Neon** (database `portal`, role `portal_app`, one Neon branch per
+data is in **PostgreSQL on Neon** (database `neondb`, role `bk_portal_app`, one Neon branch per
 tier; [docs/NEON.md](docs/NEON.md)). This spec covers the hub and everything else in this
 repository outside `edu/` and `database/edu/`: the tests, the smoke and parity scripts, the CI
 and deploy workflows and their guard, the hand-run SQL under `database/`, and `tools/`. What a
@@ -330,7 +330,7 @@ fails on a skip.
 | PORTAL-CR-16 | The menu: seven tabs in the specified order, a checkbox (not `<details>`) disclosure, the `<noscript>` list matching `TABS`, on every static page | `menu.test.js` :: the seven tabs are present…; the mobile disclosure is a checkbox…; the welcome page's <noscript> list matches the tabs; every static hub page includes the shared bar |
 | PORTAL-CR-17 | Nothing private is served: `/.env`, `/.git/config`, the server source, stack traces | `smoke-dev.sh` *Nothing private is served*; `server.test.js` :: a malformed JSON body is a 400 that gives nothing away; S6 malformed-body loop |
 | PORTAL-CR-18 | The dev deploy refuses every target but dev (branch, path, host, smoke URL, empty secrets) | `.github/deploy/guard.test.sh` (32 cases) |
-| PORTAL-CR-19 | Neon provisioning: branches before roles, new passwords on copied roles, re-run creates nothing, dry run writes nothing, passwords only in 0600 files | `neon-provision.test.js` (all 10) |
+| PORTAL-CR-19 | Neon provisioning: branches before roles, new passwords on copied roles, re-run creates nothing, dry run writes nothing, passwords only in 0600 files, each owned database's `REVOKE … FROM PUBLIC` and the hub's `neondb` GRANTs written (its PUBLIC revoke commented), an existing database under another owner never taken over | `neon-provision.test.js` (all 12) |
 | PORTAL-CR-20 | `database/portal/01_portal_schema.sql` stays the schema the app applies | `schema-copy.test.js` (both); S3 #8 |
 
 ### R3 — change-area map
@@ -378,9 +378,10 @@ is after it.
 | 12 | S6 audit | 1 high (body-parser < 1.20.9) | **0 vulnerabilities** | 0.7 s |
 | 13 | S7 Neon parity | 17 passed, 0 failed | **17 passed, 0 failed** | 10.8 s |
 
-The final counts are the baseline. R1 by file: `menu` 19, `proxy` 26, `server` 3, `db-config` 5,
-`tracker.pg` 15 (8 tracker + 7 db.js), `schema-copy` 2, `neon-provision` 10 = **80**, plus
-**32** guard cases.
+The final counts are the baseline, raised since by two `neon-provision` tests (on `4b5eec9` plus
+the `neondb` / `bk_*` naming change: S2 **67** pass, R1 **82**). R1 by file: `menu` 19, `proxy` 26,
+`server` 3, `db-config` 5, `tracker.pg` 15 (8 tracker + 7 db.js), `schema-copy` 2,
+`neon-provision` 12 = **82**, plus **32** guard cases.
 
 Expected, and only these: in S2 the two PostgreSQL suites skip, because S2 runs without
 `TEST_DATABASE_URL` on purpose (node lists them as `# SKIP` lines under `# suites`, not

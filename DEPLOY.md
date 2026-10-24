@@ -80,8 +80,11 @@ For **test.bkesari.com**, do the same with branch `staging`. For **bkesari.com**
 
 ### 2. Database
 
-On Neon, this tier's branch has a database `portal` owned by role `portal_app` (docs/NEON.md
-creates it). Nothing else is needed: the app creates its tables on start from
+On Neon, the hub uses this tier's branch's default database `neondb`, as the login
+`bk_portal_app` (docs/NEON.md creates the login). Before the first start, run the `neondb` block
+of that tier's `.sql` file as `neondb_owner` (docs/NEON.md, step 3): it lets `bk_portal_app`
+connect and create tables there; without it the app stops at once with `Failed to start:
+permission denied for schema public` in the error log. The app then creates its tables on start from
 `portal/sql/schema.sql`, over the direct connection. To create them beforehand, run that file
 (or its copy, `database/portal/01_portal_schema.sql`) with `psql "$DATABASE_URL_UNPOOLED"`; it is
 safe to re-run.
@@ -90,7 +93,7 @@ safe to re-run.
 
 | Variable | Value |
 |---|---|
-| `DATABASE_URL` | Neon console → this tier's branch → **Connect** → database `portal`, role `portal_app`, *Connection pooling* **on**. Paste it whole: the `?sslmode=require&channel_binding=require` on the end is what turns TLS on |
+| `DATABASE_URL` | Neon console → this tier's branch → **Connect** → database `neondb`, role `bk_portal_app`, *Connection pooling* **on**. Paste it whole: the `?sslmode=require&channel_binding=require` on the end is what turns TLS on |
 | `DATABASE_URL_UNPOOLED` | the same, with *Connection pooling* **off**. Used only to create the tables |
 | `TRACKER_USER`, `TRACKER_PASSWORD` | login for `/tasks/` |
 | `ATIP_USER`, `ATIP_PASSWORD` | login for `/ATIP/` |
