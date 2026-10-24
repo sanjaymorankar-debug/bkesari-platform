@@ -37,6 +37,12 @@ export default defineConfig({
       // Default branch: no overrides, uses project defaults
       return {};
     }
+    // The tier branches (docs: one Neon branch per tier) must never expire.
+    // Without this, `neon checkout test --create` would give test.bkesari.com's
+    // database a 7-day TTL.
+    if (branch.name === "dev" || branch.name === "test") {
+      return {};
+    }
     if (!branch.exists) {
       // New non-default branches: auto-expire
       // Run `neon checkout <name>` to create a new branch with these settings
