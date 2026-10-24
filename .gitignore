@@ -2,3 +2,5 @@ node_modules/
 portal/data/
 .env
 .env.test
+.neon
+.env.local
