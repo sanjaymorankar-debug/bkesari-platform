@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in — Task Tracker</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✅</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F3F4F7; --surface:#FFFFFF; --surface-2:#F7F8FA; --ink:#1A1E27; --ink-soft:#666B78; --ink-faint:#9CA0AB;
+    --line:#E2E4EA; --accent:#3552CC; --accent-dark:#2540A6; --danger:#C0392B; --ok:#1E8E5A;
+    --radius:12px; --shadow:0 1px 2px rgba(20,24,33,.05),0 6px 18px rgba(20,24,33,.06);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#121419; --surface:#1B1E25; --surface-2:#22262E; --ink:#E8EAF0; --ink-soft:#A3A8B5; --ink-faint:#6D7280;
+      --line:#2E323C; --accent:#7390FF; --accent-dark:#A9BBFF; --danger:#FF7B6E; --ok:#5BD69A;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#121419; --surface:#1B1E25; --surface-2:#22262E; --ink:#E8EAF0; --ink-soft:#A3A8B5; --ink-faint:#6D7280;
+    --line:#2E323C; --accent:#7390FF; --accent-dark:#A9BBFF; --danger:#FF7B6E; --ok:#5BD69A;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.3);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;font-size:14px}
+  main{max-width:400px;margin:0 auto;padding:48px 16px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--ink-soft);margin:0 0 20px}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px}
+  .tabs{display:flex;gap:6px;margin-bottom:14px}
+  .tabs button{flex:1;padding:8px;border-radius:9px;border:1.5px solid var(--line);background:var(--surface-2);font-weight:600;color:var(--ink-soft)}
+  .tabs button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+  label{display:block;font-size:11.5px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin:12px 0 5px}
+  input{width:100%;padding:10px 11px;border-radius:9px;border:1.5px solid var(--line);background:var(--surface-2);color:var(--ink);font:inherit}
+  input:focus{outline:none;border-color:var(--accent)}
+  .btn{display:inline-block;width:100%;margin-top:16px;padding:10px;border-radius:9px;border:none;background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+  .btn:hover{background:var(--accent-dark)}
+  .btn:disabled{opacity:.6;cursor:default}
+  .link{background:none;border:none;padding:0;color:var(--accent);font:inherit;cursor:pointer;text-decoration:underline}
+  .msg{min-height:20px;margin-top:12px;font-size:13px}
+  .msg.err{color:var(--danger)} .msg.ok{color:var(--ok)}
+  [hidden]{display:none!important}
+</style>
+<script src="/shared/menu.js" defer></script>
+</head>
+<body>
+<main>
+  <h1>Task Tracker</h1>
+  <p class="sub" id="lead">Sign in to continue.</p>
+
+  <!-- Sign in / create an account -->
+  <div class="panel" id="credentials">
+    <div class="tabs" role="group" aria-label="Sign in or create an account">
+      <button type="button" id="tabSignIn" aria-pressed="true">Sign in</button>
+      <button type="button" id="tabSignUp" aria-pressed="false">Create account</button>
+    </div>
+    <form id="credForm">
+      <div id="nameRow" hidden>
+        <label for="name">Name</label>
+        <input id="name" autocomplete="name">
+      </div>
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="email" required>
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" minlength="8" required>
+      <button class="btn" id="credSubmit">Sign in</button>
+    </form>
+    <div class="msg" id="credMsg" role="status"></div>
+  </div>
+
+  <!-- Signed in, email not verified yet -->
+  <div class="panel" id="verify" hidden>
+    <p style="margin:0 0 4px">We need to confirm <b id="verifyEmail"></b> belongs to you.</p>
+    <p class="sub" style="margin:0">Send a code to that address, then enter it here.</p>
+    <button class="btn" type="button" id="sendCode">Email me a code</button>
+    <form id="codeForm">
+      <label for="code">Code</label>
+      <input id="code" inputmode="numeric" autocomplete="one-time-code" required>
+      <button class="btn" id="codeSubmit">Verify</button>
+    </form>
+    <div class="msg" id="verifyMsg" role="status"></div>
+    <p style="margin:14px 0 0"><button class="link" type="button" data-signout>Sign out</button></p>
+  </div>
+
+  <!-- Verified, but not on TRACKER_ALLOWED_EMAILS -->
+  <div class="panel" id="denied" hidden>
+    <p style="margin:0 0 8px"><b id="deniedEmail"></b> is signed in, but is not on this tracker's access list.</p>
+    <p class="sub" style="margin:0">Ask whoever runs the site to add it to TRACKER_ALLOWED_EMAILS.</p>
+    <p style="margin:14px 0 0"><button class="link" type="button" data-signout>Sign out</button></p>
+  </div>
+</main>
+
+<script>
+// Every call goes to /api/auth on this origin, which the portal proxies to
+// Neon Auth, so the session cookies are first-party (portal/neon-auth.js).
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+let mode = 'signin';
+
+async function auth(path, body) {
+  const res = await fetch(`/api/auth/${path}`, body === undefined
+    ? { credentials: 'same-origin' }
+    : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && (data.message || data.error)) || `Request failed (${res.status})`);
+  return data;
+}
+
+function show(panel) {
+  for (const id of ['credentials', 'verify', 'denied']) $(id).hidden = id !== panel;
+}
+
+function setMode(next) {
+  mode = next;
+  $('tabSignIn').setAttribute('aria-pressed', String(mode === 'signin'));
+  $('tabSignUp').setAttribute('aria-pressed', String(mode === 'signup'));
+  $('nameRow').hidden = mode !== 'signup';
+  $('password').autocomplete = mode === 'signup' ? 'new-password' : 'current-password';
+  $('credSubmit').textContent = mode === 'signup' ? 'Create account' : 'Sign in';
+  $('credMsg').textContent = '';
+}
+
+async function refresh() {
+  const session = await auth('get-session').catch(() => null);
+  const user = session && session.user;
+  if (!user) { show('credentials'); return; }
+  if (!user.emailVerified) {
+    $('verifyEmail').textContent = user.email;
+    $('lead').textContent = 'One more step.';
+    show('verify');
+    return;
+  }
+  if (params.has('denied')) {
+    $('deniedEmail').textContent = user.email;
+    $('lead').textContent = 'No access yet.';
+    show('denied');
+    return;
+  }
+  location.replace('/tasks/');
+}
+
+$('tabSignIn').onclick = () => setMode('signin');
+$('tabSignUp').onclick = () => setMode('signup');
+
+$('credForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const msg = $('credMsg'), btn = $('credSubmit');
+  btn.disabled = true; msg.className = 'msg'; msg.textContent = '';
+  const email = $('email').value.trim(), password = $('password').value;
+  try {
+    if (mode === 'signup') {
+      await auth('sign-up/email', { name: $('name').value.trim() || email, email, password });
+    } else {
+      await auth('sign-in/email', { email, password });
+    }
+    // The tracker decides what happens next (verify, no access, or in).
+    location.replace('/tasks/');
+  } catch (err) {
+    msg.className = 'msg err'; msg.textContent = err.message;
+  }
+  btn.disabled = false;
+};
+
+$('sendCode').onclick = async () => {
+  const msg = $('verifyMsg'), btn = $('sendCode');
+  btn.disabled = true; msg.className = 'msg'; msg.textContent = '';
+  try {
+    await auth('email-otp/send-verification-otp', { email: $('verifyEmail').textContent, type: 'email-verification' });
+    msg.className = 'msg ok'; msg.textContent = 'Code sent. Check your inbox (and spam).';
+  } catch (err) {
+    msg.className = 'msg err'; msg.textContent = err.message;
+  }
+  btn.disabled = false;
+};
+
+$('codeForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const msg = $('verifyMsg'), btn = $('codeSubmit');
+  btn.disabled = true; msg.className = 'msg'; msg.textContent = '';
+  try {
+    await auth('email-otp/verify-email', { email: $('verifyEmail').textContent, otp: $('code').value.trim() });
+    location.replace('/tasks/');
+  } catch (err) {
+    msg.className = 'msg err'; msg.textContent = err.message;
+  }
+  btn.disabled = false;
+};
+
+for (const el of document.querySelectorAll('[data-signout]')) {
+  el.onclick = async () => { await auth('sign-out', {}).catch(() => {}); location.replace('/auth/sign-in'); };
+}
+
+refresh();
+</script>
+</body>
+</html>

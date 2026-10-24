@@ -686,3 +686,81 @@ cannot be turned into an open proxy. Each value must be a bare `http://` or
 refused with a message naming the variable, and that tab stays on its
 placeholder rather than the hub failing to start. `tests/proxy.test.js` covers
 those rules along with the forwarding itself.
+
+---
+
+## Part 8: Neon (Postgres, Auth, Realtime, Functions, Object Storage)
+
+The portal can run entirely on Neon project `dawn-block-70728261` (org
+`org-calm-cell-54818057`, region `aws-us-east-2`), declared in **`neon.ts`**.
+Every Neon service is optional: each turns on only when its variables are
+present, so a site configured as in Parts 1–7 behaves exactly as before.
+
+### Databases on the `production` branch
+
+| Database | For | State |
+|---|---|---|
+| `neondb` | Portal: TaskList (`/tasks/`) + ATIP viewer snapshots, and Neon Auth's own `neon_auth` schema | In use. The portal creates its 4 tables on start (`portal/sql/postgres_schema.sql`). |
+| `bk_edu` | Education | Created, empty. The Laravel app still runs on MySQL. |
+| `bk_ladwani` | LadWani | Created, empty. The Prisma schema still targets MySQL. |
+| `bk_env` | Environment Activities | Created, empty. No app exists yet. |
+
+ATIP needs none: it keeps its own database on the Mac and pushes a page into
+`neondb`'s `atip_snapshots`. The Driving Simulator is a static page.
+
+**One branch per tier.** Everything above is on one branch, `production`. The
+rule at the top of this file still applies: dev, test and production must
+never share a database. Give each tier its own branch (`neon checkout dev
+--create`, then `neon deploy --env .env.local`), which copies `neon.ts`'s
+services onto it with its own credentials.
+
+### Set up, or redeploy
+
+```bash
+npm i -g neon
+neon login                      # once; a browser sign-in
+echo "ORIGIN_SECRET=$(openssl rand -hex 32)" >> .env.local
+echo "NEON_AUTH_COOKIE_SECRET=$(openssl rand -base64 32)" >> .env.local
+neon deploy --env .env.local    # provisions neon.ts, pulls its variables into .env.local
+node --env-file=.env.local portal/server.js
+```
+
+On a host, copy the variables from `.env.local` into the host's environment
+(hPanel → Environment variables), plus `TRACKER_ALLOWED_EMAILS`.
+
+### What each service does in the portal
+
+| Service | Where | Variables |
+|---|---|---|
+| Postgres | `portal/db.js`, `DB_CLIENT=postgres` on `pg` (chosen automatically when `DATABASE_URL` is set). Schema over `DATABASE_URL_UNPOOLED`, queries over the pooled `DATABASE_URL`. | `DATABASE_URL`, `DATABASE_URL_UNPOOLED` |
+| Auth | `portal/neon-auth.js`: sign-in at `/auth/sign-in`, `/api/auth/*` proxied to Neon Auth so its cookies are first-party. Replaces the Basic login on `/tasks/`. Lets in only **verified** accounts on `TRACKER_ALLOWED_EMAILS`; anyone can create an account, so a session alone proves nothing. Email + password only. | `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, `TRACKER_ALLOWED_EMAILS` |
+| Realtime | `portal/realtime.js` seals one live query; `portal/client/live.js` (bundled by `npm run build` into `portal/public/tasks/live.js`, committed) subscribes. The dashboard updates when anyone changes a project or task. | `NEON_REALTIME_URL`, `NEON_REALTIME_SECRET` |
+| Functions | `functions/report.ts`, slug `report`: last-seven-days figures, computed next to the data. Called only by the portal (`/tasks/api/report`) with `X-Secret`; answers 401 to anyone else. | `NEON_FUNCTION_REPORT_BASE_URL`, `ORIGIN_SECRET` |
+| Object Storage | `portal/storage.js` (AWS S3 client, path-style): every ATIP snapshot upload is also archived to bucket `assets` (`atip-snapshots/<date>/<time>.html`); `/ATIP/api/archive` lists them with one-hour links. | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION` |
+| AI Gateway | **Not enabled.** Neon refuses to deploy it on the Free plan. Upgrade, uncomment `aiGateway: true` in `neon.ts`, and `neon deploy --env .env.local`. | — |
+
+### Before pointing dev.bkesari.com at it
+
+- **Trusted domain for sign-in:** `neon neon-auth domain add https://dev.bkesari.com`
+  (localhost is trusted by default). Realtime's allowed origins are in `neon.ts`
+  and already include `https://dev.bkesari.com`.
+- **Production email:** sign-up codes go out from Neon's shared sender. Neon
+  asks for your own SMTP before production use (Neon Auth production checklist).
+- **Outbound Postgres from Hostinger:** the portal connects to Neon on port
+  5432. Confirm the Hostinger plan allows outbound connections to it.
+- `scripts/smoke-dev.sh` understands both logins: under Neon Auth a redirect to
+  the sign-in page counts as "login required", and the API must answer 401.
+
+### How it was verified
+
+Against the real branch, through a browser (Playwright), 17 checks: the
+portal creates its tables in Neon; `/tasks/` redirects to sign-in and its API
+answers 401 without a session; sign-up works and an unverified account is
+held at the verify step; sending the verification code is accepted; a
+verified, allowed account reaches the dashboard; rows written through the API
+are in Neon; the dashboard goes "Live" and shows a task created in another
+session without reloading; the report function answers through the portal and
+its count rises after a posted update, also live; an ATIP upload is archived
+to the bucket, listed, and downloads byte-for-byte; a verified account not on
+the list gets 403; sign-out ends the session. The emailed code itself was not
+read (no mailbox access); the test account was marked verified directly.

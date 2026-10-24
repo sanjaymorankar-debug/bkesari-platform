@@ -141,12 +141,28 @@ esac
 # is right for a laptop and catastrophic on a public hostname: a 200 means
 # anyone on the internet can read and edit the task tracker.
 group "Access control"
+# Under Neon Auth (NEON_AUTH_BASE_URL set) /tasks/ redirects to the sign-in
+# page instead, and fetch follows redirects -- so a 200 that IS that page is
+# the login working, not the tracker being open.
 fetch /tasks/
 case "$STATUS" in
   401) ok "the task tracker requires a login (401)" ;;
-  200) bad "THE TASK TRACKER IS OPEN TO THE INTERNET" \
-            "/tasks/ answered 200. Set TRACKER_USER and TRACKER_PASSWORD on the server and redeploy." ;;
+  200)
+    if grep -q 'id="credForm"' "$BODY"; then
+      ok "the task tracker requires a sign-in (Neon Auth sign-in page)"
+    else
+      bad "THE TASK TRACKER IS OPEN TO THE INTERNET" \
+          "/tasks/ answered 200. Set TRACKER_USER and TRACKER_PASSWORD (or Neon Auth) on the server and redeploy."
+    fi ;;
   *)   caution "/tasks/ answered $STATUS" "expected 401; check the site is fully deployed" ;;
+esac
+
+# The API under it, which both logins answer with 401 rather than a page.
+fetch /tasks/api/overview
+case "$STATUS" in
+  401) ok "the task tracker API refuses an anonymous request (401)" ;;
+  200) bad "THE TASK TRACKER API IS OPEN TO THE INTERNET" "/tasks/api/overview answered 200 with no login." ;;
+  *)   caution "/tasks/api/overview answered $STATUS" "expected 401" ;;
 esac
 
 # /atip/ fails CLOSED (failClosed=true): 503 when unconfigured, never open.

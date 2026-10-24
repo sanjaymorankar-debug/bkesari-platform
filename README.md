@@ -98,6 +98,7 @@ real database from a `.env` by accident.
 - **Status updates:** the server stamps the date and time when an update is posted. The latest updates show above the text box, and **View all updates** lists every one, newest first.
 - The dashboard has counts, an overdue flag, search and a status filter.
 
-Deployment steps: **[DEPLOY.md](DEPLOY.md)**.
+Deployment steps: **[DEPLOY.md](DEPLOY.md)**. Running the portal on Neon (Postgres, sign-in,
+live updates, the report function and the snapshot archive, all declared in `neon.ts`): DEPLOY.md Part 8.
 Running all three repos (ATIP-DEV, bkesari, this one) on a Mac, and their feature / merge status: **[docs/MAC_DEPLOYMENT.md](docs/MAC_DEPLOYMENT.md)**.
 Education docs: `edu/README.md`, `edu/ROADMAP.md`. ATIP docs: `atip/README.md`.

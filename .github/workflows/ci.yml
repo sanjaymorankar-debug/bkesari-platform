@@ -30,6 +30,17 @@ jobs:
       - name: Parse the server and the shared menu
         run: npm run check
 
+      # Two built files are committed, because deploys run `npm ci --omit=dev`
+      # on the server and never build: the Neon Realtime browser client
+      # (portal/public/tasks/live.js) and the Neon Auth server toolkit
+      # (portal/vendor/neon-auth-server.js). Rebuild both and fail if either
+      # committed copy is stale.
+      - name: The built files match their sources
+        run: |
+          npm run build
+          git diff --exit-code -- portal/public/tasks/live.js portal/vendor/neon-auth-server.js \
+            || { echo "::error::a built file is out of date: run npm run build and commit it"; exit 1; }
+
       # The menu's unit tests, plus the deploy guard's own tests: the rules
       # that keep a dev deploy off test and production are themselves tested.
       - name: Tests

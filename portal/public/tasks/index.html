@@ -55,6 +55,11 @@
   .crumbs a{text-decoration:none}
 
   .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px}
+  .report{color:var(--ink-soft);font-size:13px;margin:-6px 0 16px}
+  .live{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-faint)}
+  .live::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--ink-faint)}
+  .live.on{color:var(--ok)} .live.on::before{background:var(--ok)}
+  .live.off{color:var(--danger)} .live.off::before{background:var(--danger)}
   .stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px}
   .stat-n{font-size:22px;font-weight:700}
   .stat-l{font-size:12px;color:var(--ink-soft);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
@@ -146,6 +151,8 @@
   }
 </style>
 <script src="/shared/menu.js" defer></script>
+<!-- Neon Realtime client, built by `npm run build` from portal/client/live.js -->
+<script src="live.js" defer></script>
 </head>
 <body>
 <div id="app"><div class="empty">Loading…</div></div>
@@ -155,6 +162,10 @@ const API = 'api';
 const TZ = 'Asia/Kolkata';
 const STATUSES = ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'];
 const ui = { search: '', status: '' };
+// From /tasks/api/me; under Neon Auth it names the signed-in user.
+let me = { auth: 'basic' };
+// The Realtime subscription's status: '' until live updates start.
+let liveStatus = '';
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -200,13 +211,30 @@ function matches(item, name) {
   const hay = [name, item.owner, item.description, item.current_step, item.next_step, item.latest_comment, item.project_name].join(' ').toLowerCase();
   return hay.includes(ui.search.toLowerCase());
 }
+function liveBadge() {
+  if (!liveStatus) return '';
+  const on = liveStatus === 'live', off = liveStatus === 'error' || liveStatus === 'closed';
+  const text = on ? 'Live' : off ? 'Live updates stopped' : 'Connecting…';
+  return `<span id="liveBadge" class="live ${on ? 'on' : off ? 'off' : ''}" title="Changes made by anyone appear here without reloading">${text}</span>`;
+}
 function topbar(actions) {
+  const account = me.email
+    ? `<span class="hint" style="align-self:center" title="Signed in with Neon Auth">${esc(me.email)}</span><button class="btn btn-ghost" id="signOut" type="button">Sign out</button>`
+    : '';
   return `<div class="topbar"><div class="topbar-in">
-    <div class="title"><a href="/" title="Back to bkesari.com">← bkesari</a><a href="#/" style="color:var(--ink);font-size:18px;font-weight:700">Task Tracker</a></div>
-    <div class="top-actions">${actions || ''}</div>
+    <div class="title"><a href="/" title="Back to bkesari.com">← bkesari</a><a href="#/" style="color:var(--ink);font-size:18px;font-weight:700">Task Tracker</a>${liveBadge()}</div>
+    <div class="top-actions">${actions || ''}${account}</div>
   </div></div>`;
 }
-function render(html) { $('app').innerHTML = html; window.scrollTo(0, 0); }
+function render(html) {
+  $('app').innerHTML = html;
+  window.scrollTo(0, 0);
+  const out = $('signOut');
+  if (out) out.onclick = async () => {
+    await fetch('/api/auth/sign-out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+    location.replace('/auth/sign-in');
+  };
+}
 function renderError(err) {
   render(topbar() + `<div class="content"><div class="empty"><b>Something went wrong</b><br>${esc(err.message)}<br><br><a href="#/">Back to dashboard</a></div></div>`);
 }
@@ -233,16 +261,9 @@ let overview = null;
 async function viewDashboard() {
   overview = await api('overview');
   const actions = `<a class="btn btn-ghost" href="#/new/project">+ New Project</a><a class="btn btn-primary" href="#/new/task">+ New Task</a>`;
-  const { projects, tasks } = overview;
-  const open = tasks.filter(t => !['Completed', 'Cancelled'].includes(t.status)).length;
-  const overdue = tasks.filter(isOverdue).length + projects.filter(isOverdue).length;
   render(topbar(actions) + `<div class="content">
-    <div class="stats">
-      <div class="stat"><div class="stat-n">${projects.length}</div><div class="stat-l">Projects</div></div>
-      <div class="stat"><div class="stat-n">${tasks.length}</div><div class="stat-l">Tasks</div></div>
-      <div class="stat"><div class="stat-n">${open}</div><div class="stat-l">Open tasks</div></div>
-      <div class="stat"><div class="stat-n" style="color:${overdue ? 'var(--danger)' : 'inherit'}">${overdue}</div><div class="stat-l">Overdue</div></div>
-    </div>
+    <div class="stats" id="stats"></div>
+    <div class="report" id="report" hidden></div>
     <div class="filters">
       <input id="fSearch" type="search" placeholder="Search name, owner, steps, comments…" value="${esc(ui.search)}">
       <select id="fStatus"><option value="">All statuses</option>${STATUSES.map(s => `<option ${ui.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
@@ -251,7 +272,71 @@ async function viewDashboard() {
   </div>`);
   $('fSearch').oninput = e => { ui.search = e.target.value; renderLists(); };
   $('fStatus').onchange = e => { ui.status = e.target.value; renderLists(); };
+  renderStats();
   renderLists();
+  loadReport();
+}
+
+function renderStats() {
+  const { projects, tasks } = overview;
+  const open = tasks.filter(t => !['Completed', 'Cancelled'].includes(t.status)).length;
+  const overdue = tasks.filter(isOverdue).length + projects.filter(isOverdue).length;
+  $('stats').innerHTML = `
+      <div class="stat"><div class="stat-n">${projects.length}</div><div class="stat-l">Projects</div></div>
+      <div class="stat"><div class="stat-n">${tasks.length}</div><div class="stat-l">Tasks</div></div>
+      <div class="stat"><div class="stat-n">${open}</div><div class="stat-l">Open tasks</div></div>
+      <div class="stat"><div class="stat-n" style="color:${overdue ? 'var(--danger)' : 'inherit'}">${overdue}</div><div class="stat-l">Overdue</div></div>`;
+}
+
+// The last seven days, from the `report` Neon Function (via /tasks/api/report).
+// Absent when the function is not configured; the dashboard works without it.
+async function loadReport() {
+  let r;
+  try { r = await api('report'); } catch { return; }
+  const el = $('report');
+  if (!el) return;
+  el.textContent = `Last 7 days: ${r.updates_7d} update${r.updates_7d === 1 ? '' : 's'} posted · ` +
+    `${r.completed_7d} task${r.completed_7d === 1 ? '' : 's'} completed`;
+  el.hidden = false;
+}
+
+/* ---------- live updates (Neon Realtime) ---------- */
+// On a change, the dashboard redraws its counts and lists in place: the
+// filters are left alone, so a half-typed search keeps its text and focus.
+// Other views are forms the user may be editing; they are not touched, and
+// the dashboard fetches fresh data when it is next opened anyway.
+let liveTimer;
+function onTrackerChange() {
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(async () => {
+    if (!$('stats')) return;
+    try {
+      overview = await api('overview');
+      renderStats();
+      renderLists();
+      loadReport();
+    } catch (err) { console.warn('Live refresh failed:', err.message); }
+  }, 250);
+}
+function setLiveStatus(status) {
+  liveStatus = status;
+  const badge = $('liveBadge'), html = liveBadge();
+  if (badge) badge.outerHTML = html;
+  else if (html) document.querySelector('.topbar .title')?.insertAdjacentHTML('beforeend', html);
+}
+async function startLive() {
+  if (!window.bkLive) return;
+  const fetchLive = async () => {
+    const res = await fetch(`${API}/live`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw Object.assign(new Error(`live ${res.status}`), { status: res.status });
+    return res.json();
+  };
+  try {
+    await window.bkLive.watchTracker({ fetchLive, onChange: onTrackerChange, onStatus: setLiveStatus });
+  } catch (err) {
+    console.warn('Live updates unavailable:', err.message);
+  }
 }
 
 function taskTable(tasks, showProject) {
@@ -498,7 +583,9 @@ async function viewAllComments(kind, id) {
   </div>`);
 }
 
-route();
+api('me').then(m => { me = m; }).catch(() => {}).finally(route);
+// live.js is deferred, so it has run by DOMContentLoaded.
+document.addEventListener('DOMContentLoaded', startLive);
 </script>
 </body>
 </html>

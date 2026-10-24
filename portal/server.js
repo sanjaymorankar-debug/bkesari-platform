@@ -6,6 +6,10 @@ const createDb = require('./db');
 const menu = require('./public/shared/menu.js');
 // Serves the projects that live in their own apps under their own tab paths.
 const proxy = require('./proxy');
+// Neon services, each on only when `neon deploy` has supplied its variables.
+const neonAuth = require('./neon-auth');
+const storage = require('./storage');
+const realtime = require('./realtime');
 
 /* ============================================================
    bkesari.com
@@ -186,6 +190,13 @@ async function main() {
     renderMenu: (pathname, req) => menu.renderHtml({ pathname, env: currentEnv(req) }),
   });
 
+  // Neon Auth's /api/auth/* proxy forwards the raw body too, so it also has to
+  // be mounted before the body parsers. Without NEON_AUTH_BASE_URL, /tasks/
+  // keeps its HTTP Basic login.
+  const trackerLogin = neonAuth.enabled()
+    ? neonAuth.mount(app)
+    : basicAuth('TRACKER_USER', 'TRACKER_PASSWORD', 'bkesari Task Tracker', false);
+
   // The ATIP snapshot is a full HTML page, so its route gets a larger limit.
   // Both spellings are listed on every ATIP route below. Express's routing is
   // case-insensitive by default, so /ATIP/ already resolves -- but that is a
@@ -229,6 +240,36 @@ async function main() {
   }
 
   api.get('/meta', (req, res) => res.json({ statuses: STATUSES }));
+
+  // Who is signed in, so the page can offer "Sign out" under Neon Auth.
+  api.get('/me', (req, res) => res.json(req.trackerUser
+    ? { auth: 'neon', ...req.trackerUser }
+    : { auth: neonAuth.enabled() ? 'neon' : 'basic' }));
+
+  // Neon Realtime: a sealed live query the dashboard subscribes to, so it
+  // refreshes when anyone changes a project or task. 404 when not configured,
+  // which the page takes as "no live updates" and carries on.
+  api.get('/live', wrap(async (req, res) => {
+    if (!realtime.enabled()) throw new HttpError(404, 'Live updates are not configured');
+    res.set('Cache-Control', 'no-store');
+    res.json(await realtime.sealTrackerChanges());
+  }));
+
+  // Neon Function `report` (functions/report.ts): last-seven-days figures
+  // computed next to the database. Server to function only; the browser never
+  // sees the function URL or ORIGIN_SECRET.
+  api.get('/report', wrap(async (req, res) => {
+    const url = process.env.NEON_FUNCTION_REPORT_BASE_URL;
+    const secret = process.env.ORIGIN_SECRET;
+    if (!url || !secret) throw new HttpError(404, 'The report function is not configured');
+    const r = await fetch(url, { headers: { 'x-secret': secret }, redirect: 'manual', signal: AbortSignal.timeout(15000) });
+    const body = await r.json().catch(() => null);
+    if (!r.ok || !body) {
+      console.error(`report function answered ${r.status}`, body);
+      throw new HttpError(502, (body && body.error) || `The report function answered ${r.status}`);
+    }
+    res.json(body);
+  }));
 
   // Everything the dashboard needs in one call.
   api.get('/overview', wrap(async (req, res) => {
@@ -339,7 +380,7 @@ async function main() {
     if (req.path.endsWith('/')) return next();
     res.redirect(302, req.path + '/');
   });
-  app.use('/tasks', basicAuth('TRACKER_USER', 'TRACKER_PASSWORD', 'bkesari Task Tracker', false));
+  app.use('/tasks', trackerLogin);
   app.use('/tasks/api', api);
 
   // Upload from the ATIP machine: bearer token, not the viewer login.
@@ -354,7 +395,26 @@ async function main() {
     await db.run('INSERT INTO atip_snapshots (html, trade_date, generated_at, received_at) VALUES (?,?,?,?)',
       [html, cleanText(trade_date, 20), cleanText(generated_at, 40), now]);
     await db.run('DELETE FROM atip_snapshots WHERE id < (SELECT m FROM (SELECT MAX(id) AS m FROM atip_snapshots) AS latest)');
-    res.json({ ok: true, received_at: now });
+    // Neon Object Storage keeps every snapshot the database just pruned. The
+    // upload has already succeeded, so a storage failure is reported, not fatal.
+    const result = { ok: true, received_at: now };
+    if (storage.enabled()) {
+      try {
+        result.archived = await storage.archiveSnapshot({ html, tradeDate: cleanText(trade_date, 20), receivedAt: now });
+      } catch (err) {
+        console.error('ATIP snapshot archive failed:', err.message);
+        result.archive_error = 'The snapshot was saved, but archiving it to object storage failed';
+      }
+    }
+    res.json(result);
+  }));
+
+  // The archive, newest first, each with a one-hour download link. Same login
+  // as the viewer.
+  app.get(['/atip/api/archive', '/ATIP/api/archive'], basicAuth('ATIP_USER', 'ATIP_PASSWORD', 'bkesari ATIP', true), wrap(async (req, res) => {
+    if (!storage.enabled()) return res.status(404).json({ error: 'Object storage is not configured' });
+    res.set('Cache-Control', 'no-store');
+    res.json({ bucket: storage.BUCKET, snapshots: await storage.listSnapshots() });
   }));
 
   app.get(['/ATIP/', '/atip/'], basicAuth('ATIP_USER', 'ATIP_PASSWORD', 'bkesari ATIP', true), wrap(async (req, res) => {
@@ -409,7 +469,16 @@ ${menu.renderHtml({ pathname: req.path, env: currentEnv(req) })}
   app.listen(port, () => {
     console.log(`bkesari portal running at http://localhost:${port}`);
     console.log(`Task Tracker at http://localhost:${port}/tasks/`);
-    if (!process.env.TRACKER_PASSWORD) console.warn('WARNING: TRACKER_USER/TRACKER_PASSWORD not set - the tracker is open to anyone who can reach it.');
+    if (neonAuth.enabled()) {
+      const n = neonAuth.allowedEmails().size;
+      console.log(`Task Tracker login: Neon Auth, ${n} allowed email${n === 1 ? '' : 's'} (TRACKER_ALLOWED_EMAILS)`);
+      if (!n) console.warn('WARNING: TRACKER_ALLOWED_EMAILS is empty - nobody can open the tracker until it is set.');
+    } else if (!process.env.TRACKER_PASSWORD) {
+      console.warn('WARNING: TRACKER_USER/TRACKER_PASSWORD not set - the tracker is open to anyone who can reach it.');
+    }
+    console.log(`Neon: realtime ${realtime.enabled() ? 'on' : 'off'}, ` +
+      `object storage ${storage.enabled() ? 'on' : 'off'}, ` +
+      `report function ${process.env.NEON_FUNCTION_REPORT_BASE_URL && process.env.ORIGIN_SECRET ? 'on' : 'off'}`);
     for (const route of proxied) console.log(`${route.path} -> ${route.target}`);
     if (!proxied.length) {
       console.log('No project origins set (MILK_ORIGIN, EDU_ORIGIN, LADWANI_ORIGIN);');
