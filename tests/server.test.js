@@ -120,3 +120,16 @@ test('the real server.js mounts the proxy before the body parsers', async () => 
     await new Promise((resolve) => upstream.close(resolve));
   }
 });
+
+test('the report proxy answers 502, not 500, when the function cannot be reached', async () => {
+  // A port that was free a moment ago: nothing is listening on it.
+  const spare = http.createServer();
+  await new Promise((resolve) => spare.listen(0, '127.0.0.1', resolve));
+  const dead = `http://127.0.0.1:${spare.address().port}/`;
+  await new Promise((resolve) => spare.close(resolve));
+  await withHub({ ...ENV, NEON_FUNCTION_REPORT_BASE_URL: dead, ORIGIN_SECRET: 'origin-secret' }, async (base, port) => {
+    const r = await raw(port, 'GET', '/tasks/api/report', { headers: basic('tracker', 'tracker-pw') });
+    assert.equal(r.status, 502);
+    assert.deepEqual(JSON.parse(r.text), { error: 'The report function did not answer' });
+  });
+});

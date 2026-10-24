@@ -284,7 +284,12 @@ function createApp(db) {
     const url = process.env.NEON_FUNCTION_REPORT_BASE_URL;
     const secret = process.env.ORIGIN_SECRET;
     if (!url || !secret) throw new HttpError(404, 'The report function is not configured');
-    const r = await fetch(url, { headers: { 'x-secret': secret }, redirect: 'manual', signal: AbortSignal.timeout(15000) });
+    // Unreachable or too slow is the function's failure too: a 502, like its errors.
+    const r = await fetch(url, { headers: { 'x-secret': secret }, redirect: 'manual', signal: AbortSignal.timeout(15000) })
+      .catch((err) => {
+        console.error('report function did not answer:', err.message);
+        throw new HttpError(502, 'The report function did not answer');
+      });
     const body = await r.json().catch(() => null);
     if (!r.ok || !body) {
       console.error(`report function answered ${r.status}`, body);
