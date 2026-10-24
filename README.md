@@ -49,22 +49,25 @@ npm install
 npm start          # http://localhost:3000  (uses SQLite in portal/data/, needs Node 22.13+)
 ```
 
+With a Neon `DATABASE_URL` in the environment the portal uses Postgres instead
+(`DB_CLIENT=postgres`, chosen automatically when `DATABASE_URL` is set).
+
 ## Tests
 
 ```
 npm run check      # parse the server and the shared menu
-npm test           # 61 tests: menu, proxy, database, and the deploy guard
+npm test           # 70 tests: menu, proxy, database, and the deploy guard
 ```
 
 `npm test` needs no setup. The database tests run on SQLite, which needs no
-server, and the eight MySQL cases skip themselves with a reason.
+server, and the eight MySQL and eight Postgres cases skip themselves with a reason.
 
 Production runs on MySQL, so those eight are the ones that matter most. To run
 them, point them at a throwaway database:
 
 ```
 cp .env.test.example .env.test     # defaults match the local devstack
-npm run test:mysql                 # all 61, nothing skipped
+npm run test:mysql                 # the MySQL cases run; Postgres needs TEST_PG_URL
 ```
 
 They apply the schema, then assert that the adapter and the app's trickier SQL
@@ -72,10 +75,15 @@ behave identically on both clients — auto-increment ids, `null` versus
 `undefined`, date and timestamp formats, the latest-comment subqueries, and the
 snapshot prune, whose derived-table alias MySQL requires and SQLite does not
 care about. A ninth test compares `portal/sql/mysql_schema.sql` against
-`portal/sql/sqlite_schema.sql`, since nothing else keeps the two in step.
+`portal/sql/sqlite_schema.sql` and `portal/sql/postgres_schema.sql`, since
+nothing else keeps the three in step.
 
-CI runs both: the `test` job on SQLite and the `db-mysql` job against a real
-MySQL 8.0 service, which fails if any case skips. Note that Hostinger may serve
+The same eight cases also run on Postgres, which is what Neon serves: set
+`TEST_PG_URL` to a throwaway Postgres database (see `.env.test.example`).
+
+CI runs all three: the `test` job on SQLite, the `db-mysql` job against a real
+MySQL 8.0 service and the `db-postgres` job against Postgres 16, each of which
+fails if any of its own cases skips. Note that Hostinger may serve
 MySQL or MariaDB; these tests prove the SQL works on MySQL 8.0, not that
 MariaDB behaves the same.
 

@@ -30,6 +30,7 @@ const path = require('node:path');
 const createDb = require('../portal/db.js');
 
 const MYSQL_CONFIGURED = Boolean(process.env.TEST_MYSQL_NAME);
+const POSTGRES_CONFIGURED = Boolean(process.env.TEST_PG_URL);
 
 const BACKENDS = [
   {
@@ -54,6 +55,24 @@ const BACKENDS = [
         DB_PASSWORD: process.env.TEST_MYSQL_PASSWORD,
       }, createDb);
       // Child rows first: tasks.project_id has a real foreign key on MySQL.
+      await db.run('DELETE FROM comments');
+      await db.run('DELETE FROM tasks');
+      await db.run('DELETE FROM projects');
+      await db.run('DELETE FROM atip_snapshots');
+      return db;
+    },
+  },
+  {
+    // Neon. TEST_PG_URL, not DATABASE_URL, for the same reason as TEST_MYSQL_*:
+    // `neon deploy` writes the real DATABASE_URL into .env.local.
+    name: 'postgres',
+    skip: POSTGRES_CONFIGURED ? false : 'TEST_PG_URL is not set (see .env.test.example)',
+    async open() {
+      const db = await withEnv({
+        DB_CLIENT: 'postgres',
+        DATABASE_URL: process.env.TEST_PG_URL,
+        DATABASE_URL_UNPOOLED: process.env.TEST_PG_URL,
+      }, createDb);
       await db.run('DELETE FROM comments');
       await db.run('DELETE FROM tasks');
       await db.run('DELETE FROM projects');
@@ -260,7 +279,7 @@ for (const backend of BACKENDS) {
   });
 }
 
-test('the two schema files declare the same tables and columns', async () => {
+test('the three schema files declare the same tables and columns', async () => {
   // Nothing else keeps mysql_schema.sql and sqlite_schema.sql in step, and a
   // column added to one but not the other breaks only the client that is not
   // being tested -- which, before this file, was always the production one.
@@ -283,11 +302,20 @@ test('the two schema files declare the same tables and columns', async () => {
   };
 
   const mysql = tablesIn(read('mysql_schema.sql'));
-  const sqlite = tablesIn(read('sqlite_schema.sql'));
-
   assert.ok(Object.keys(mysql).length >= 4, `expected the four tracker tables, got ${Object.keys(mysql)}`);
-  assert.deepEqual(Object.keys(mysql).sort(), Object.keys(sqlite).sort(), 'table names differ');
-  for (const table of Object.keys(mysql)) {
-    assert.deepEqual(mysql[table], sqlite[table], `columns of ${table} differ between the two schema files`);
+
+  for (const file of ['sqlite_schema.sql', 'postgres_schema.sql']) {
+    const other = tablesIn(read(file));
+    assert.deepEqual(Object.keys(other).sort(), Object.keys(mysql).sort(), `table names differ in ${file}`);
+    for (const table of Object.keys(mysql)) {
+      assert.deepEqual(other[table], mysql[table], `columns of ${table} differ between mysql_schema.sql and ${file}`);
+    }
   }
+});
+
+test('toPgPlaceholders numbers ? in order and leaves quoted ones alone', () => {
+  assert.equal(createDb.toPgPlaceholders('SELECT * FROM t WHERE a = ? AND b = ?'),
+    'SELECT * FROM t WHERE a = $1 AND b = $2');
+  assert.equal(createDb.toPgPlaceholders("SELECT '?' AS q, \"why?\" FROM t WHERE id = ?"),
+    "SELECT '?' AS q, \"why?\" FROM t WHERE id = $1");
 });

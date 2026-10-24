@@ -133,8 +133,52 @@ jobs:
         run: |
           set -euo pipefail
           node --test tests/*.test.js 2>&1 | tee /tmp/db-tests.txt
-          if grep -q '# SKIP' /tmp/db-tests.txt; then
+          # Only the MySQL cases: the Postgres ones skip here by design and run
+          # in db-postgres below.
+          if grep -E '^ok [0-9]+ - mysql: .*# SKIP' /tmp/db-tests.txt; then
             echo "::error::tests skipped on the MySQL job - TEST_MYSQL_* is not reaching them"
+            exit 1
+          fi
+
+  # The same tests on Postgres, which is what Neon runs (neon.ts at the repo
+  # root; `neon deploy` writes DATABASE_URL). Same rule as db-mysql: a skipped
+  # Postgres case is a failure, not a pass.
+  db-postgres:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bkesari_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      TEST_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/bkesari_platform_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Database tests on Postgres
+        run: |
+          set -euo pipefail
+          node --test tests/*.test.js 2>&1 | tee /tmp/db-tests.txt
+          if grep -E '^ok [0-9]+ - postgres: .*# SKIP' /tmp/db-tests.txt; then
+            echo "::error::tests skipped on the Postgres job - TEST_PG_URL is not reaching them"
             exit 1
           fi
 

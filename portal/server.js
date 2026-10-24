@@ -197,6 +197,17 @@ async function main() {
 
   const api = express.Router();
 
+  // An id that cannot be a row id ("abc", "99999999999") never matches a row.
+  // SQLite and MySQL quietly compare it and find nothing; Postgres refuses to
+  // bind it to an INTEGER column and the route would answer 500. Mapping it to
+  // 0, which no row has, keeps every route's "not found" answer the same on
+  // all three clients.
+  api.param('id', (req, res, next, id) => {
+    const n = Number(id);
+    req.params.id = Number.isInteger(n) && n >= 1 && n <= 2147483647 ? n : 0;
+    next();
+  });
+
   async function findProject(id) {
     return db.get(`SELECT p.*, ${LATEST_COMMENT('project', 'p')},
       (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS task_count
