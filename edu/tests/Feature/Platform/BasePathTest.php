@@ -2,10 +2,15 @@
 
 namespace Tests\Feature\Platform;
 
+use App\Models\User;
 use App\Routing\BasePathRedirector;
+use Facades\Livewire\Features\SupportFileUploads\GenerateSignedUploadUrl as SignedUploadUrl;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Redirector;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Str;
 use Livewire\Mechanisms\FrontendAssets\FrontendAssets;
 use Tests\TestCase;
 
@@ -169,6 +174,28 @@ class BasePathTest extends TestCase
     public function test_the_redirector_is_replaced_only_when_there_is_a_prefix(): void
     {
         $this->assertInstanceOf(BasePathRedirector::class, app('redirect'));
+    }
+
+    public function test_livewire_file_uploads_go_to_one_prefix_and_pass_their_signature_check(): void
+    {
+        // Every upload (complaint evidence among them) posts to a URL Livewire
+        // signs. It used to come out as /edu/edu/livewire/upload-file, and its
+        // signature covered a path the app never receives.
+        $url = null;
+        $this->withRequestTo('/login', function () use (&$url) {
+            $url = SignedUploadUrl::forLocal();
+        });
+
+        $this->assertStringStartsWith(self::APP_URL.'/livewire/upload-file?', $url);
+
+        // What reaches the app once the hub has taken /edu off.
+        Storage::fake('tmp-for-tests'); // Livewire's temporary-upload disk under PHPUnit
+        $this->actingAs(User::factory()->create())
+            ->post('http://dev.bkesari.com'.Str::after($url, self::APP_URL), [
+                'files' => [UploadedFile::fake()->image('evidence.png')],
+            ])
+            ->assertOk()
+            ->assertJsonStructure(['paths']);
     }
 
     public function test_no_view_hardcodes_a_root_relative_link(): void

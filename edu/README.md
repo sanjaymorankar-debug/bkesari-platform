@@ -53,5 +53,6 @@ See [`DEPLOYMENT.md`](DEPLOYMENT.md).
 - [`SECURITY_PRIVACY.md`](SECURITY_PRIVACY.md) — identity-separation design, what's hardened vs. not yet
 - [`STUDENT_GROWTH_FRAMEWORK.md`](STUDENT_GROWTH_FRAMEWORK.md) — the growth/career modules' non-negotiable rules (no labeling, no streaming, no bias inputs, consent gating). **Read before extending those modules**
 - [`TESTING.md`](TESTING.md) — how to run the test suite, what's covered
+- [`TEST_SPEC.md`](TEST_SPEC.md) — the full test specification the `edu-tester` agent follows: every check, in order, with measured counts
 - [`TEST_ACCOUNTS.md`](TEST_ACCOUNTS.md) — demo login credentials (synthetic data only)
 - [`ROADMAP.md`](ROADMAP.md) — what's deferred to later phases, and why

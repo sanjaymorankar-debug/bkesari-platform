@@ -60,7 +60,10 @@ Most of the seed time is password hashing for ~275 users at `BCRYPT_ROUNDS=12` (
 php artisan serve
 ```
 
-Visit `http://127.0.0.1:8000`.
+Visit `http://127.0.0.1:8000`. In bkesari-platform on the Mac, port 8000 is ATIP's, so use
+`php artisan serve --port=8001` there (`http://127.0.0.1:8001`, which is the `APP_URL`
+`tools/setup_local_postgres.sh` writes; `docs/MAC_DEPLOYMENT.md` uses the same port). With no
+path in `APP_URL` the port in it does not affect any link, so either works.
 
 ## Run tests
 

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Complaint;
 use App\Models\ComplaintEvidence;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -17,7 +18,9 @@ class ComplaintEvidenceController extends Controller
 {
     public function __invoke(Complaint $complaint, ComplaintEvidence $evidence): StreamedResponse
     {
-        $this->authorize('view', $complaint);
+        // The base Controller has had no authorize() since Laravel 11, so
+        // calling it made every download a 500.
+        Gate::authorize('view', $complaint);
 
         abort_unless($evidence->complaint_id === $complaint->id, 404);
 

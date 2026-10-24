@@ -76,7 +76,8 @@ The schema was originally written for MySQL; these are the places where PostgreS
 - **`json()` columns** are PostgreSQL `json`. `json` has no equality operator, so don't use `DISTINCT`, `GROUP BY`, or `=` on these columns (nothing currently does).
 - **Booleans** are real `boolean`s; every boolean column has a `'boolean'` cast on its model, so PHP sees `true`/`false` on both drivers.
 - **Grouping:** PostgreSQL requires every selected non-aggregate column to be in `GROUP BY` (the queries in `RecalculateAnalyticsSnapshots` already comply).
-- **Transactions:** after any error inside a PostgreSQL transaction, every further statement in it fails until rollback — don't catch-and-continue on a `QueryException` inside `DB::transaction()`.
+- **Transactions:** after any error inside a PostgreSQL transaction, every further statement in it fails until rollback — don't catch-and-continue on a `QueryException` inside `DB::transaction()`. Code that expects a statement may fail and wants to carry on wraps that statement in a `DB::transaction()` of its own, which nests as a savepoint (`Complaint::createNumbered()` does this for a clashing complaint number).
+- **Behind Neon's pooler** (PgBouncer in transaction mode, what `DB_URL` points at on every tier): each transaction may run on a different server connection, so nothing the app relies on may live in the session. `config/database.php` therefore sends no session `SET` on connect and switches off named prepared statements (PHP frees those with an SQL `DEALLOCATE` the pooler cannot follow, which aborted transactions); `migrate` and the other schema commands use the direct `DB_URL_UNPOOLED`. Don't add `search_path`, `timezone` or `isolation_level` to the connection, and use `DB::connection('pgsql_unpooled')` for anything that needs a session of its own (session advisory locks, `LISTEN`); a transaction-scoped `pg_advisory_xact_lock`, as `Complaint::createNumbered()` takes, is safe on the pooler. The standalone `edu` repository gets the same pooled/direct split from Laravel 13.26's built-in `direct` connection key (which also switches the pooled side to emulated prepares); this copy keeps its own `pgsql_unpooled` connection and `DatabaseServiceProvider`, which `SchemaCommandRoutingTest` covers and which holds under `config:cache`.
 
 ## Backups
 
@@ -86,7 +87,7 @@ pg_dump --format=custom --no-owner -h <DB_HOST> -U <DB_USERNAME> -d <DB_DATABASE
 pg_restore --no-owner -h <DB_HOST> -U <DB_USERNAME> -d <DB_DATABASE> backup-....dump
 ```
 
-Use a `pg_dump` client whose major version is the same as or newer than the server's. Most managed PostgreSQL services also take automatic snapshots — check what your provider keeps and for how long.
+Use a `pg_dump` client whose major version is the same as or newer than the server's. On Neon, pass the direct string instead of the `-h`/`-U`/`-d` options, never the pooled one: `pg_dump --format=custom --no-owner "$DB_URL_UNPOOLED" -f backup-....dump`. Most managed PostgreSQL services also take automatic snapshots (on Neon, a branch's restore window) — check what your provider keeps and for how long.
 
 ## Migrating on the live server
 
@@ -94,7 +95,7 @@ Use a `pg_dump` client whose major version is the same as or newer than the serv
 php artisan migrate --force
 ```
 
-`--force` is required in production since `APP_ENV=production` blocks interactive migration prompts. **Never run `migrate:fresh` against the live database** — it drops every table.
+It runs over `DB_URL_UNPOOLED` (Neon's direct endpoint) whenever that is set; see `DEPLOYMENT.md`. `--force` is required in production since `APP_ENV=production` blocks interactive migration prompts. **Never run `migrate:fresh` against the live database** — it drops every table.
 
 ### Applying schema changes by hand instead
 

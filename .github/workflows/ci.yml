@@ -113,9 +113,11 @@ jobs:
 
           kill "$(cat /tmp/hub.pid)"
 
-  # edu/'s PHPUnit suite, twice: on in-memory sqlite (edu/phpunit.xml's
-  # default, so it also runs anywhere with no database) and on PostgreSQL,
-  # which is what every tier actually runs.
+  # edu/'s PHPUnit suite, three times: on in-memory sqlite (edu/phpunit.xml's
+  # default, so it also runs anywhere with no database), on PostgreSQL, which
+  # is what every tier actually runs, and on PostgreSQL through PgBouncer in
+  # transaction mode, which is how every tier reaches it (Neon's pooled
+  # endpoint).
   edu:
     runs-on: ubuntu-latest
     # A throwaway PostgreSQL (the production database engine) for the suite's
@@ -173,6 +175,54 @@ jobs:
           DB_USERNAME: bk_edu
           DB_PASSWORD: ci-only-not-a-real-password
         run: php artisan test
+
+      # And through a pooler, the way DB_URL reaches Neon on every tier:
+      # PgBouncer in transaction mode, prepared-statement tracking on, TLS
+      # required, as a role that is not a superuser and owns its database.
+      # Two things only this run can see: PHP's named prepared statements
+      # aborted every transaction behind a pooler (edu/TEST_SPEC.md, S7.1),
+      # and citext installing without superuser rights, as it must on Neon.
+      - name: Tests through PgBouncer (transaction mode, TLS)
+        env:
+          PGPASSWORD: ci-only-not-a-real-password
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends pgbouncer postgresql-client > /dev/null
+          psql -h 127.0.0.1 -U bk_edu -d bk_edu_test -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE bk_edu_pool LOGIN PASSWORD 'ci-only-pool-password' NOSUPERUSER" \
+            -c "CREATE DATABASE bk_edu_pool OWNER bk_edu_pool"
+          d=$(mktemp -d)
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=127.0.0.1 \
+            -keyout "$d/key.pem" -out "$d/cert.pem" 2> /dev/null
+          printf '"bk_edu_pool" "ci-only-pool-password"\n' > "$d/users.txt"
+          cat > "$d/pgbouncer.ini" <<INI
+          [databases]
+          bk_edu_pool = host=127.0.0.1 port=5432 dbname=bk_edu_pool
+          [pgbouncer]
+          listen_addr = 127.0.0.1
+          listen_port = 6433
+          unix_socket_dir =
+          auth_type = scram-sha-256
+          auth_file = $d/users.txt
+          pool_mode = transaction
+          max_prepared_statements = 1000
+          client_tls_sslmode = require
+          client_tls_key_file = $d/key.pem
+          client_tls_cert_file = $d/cert.pem
+          logfile = $d/pgbouncer.log
+          pidfile = $d/pgbouncer.pid
+          INI
+          pgbouncer -d "$d/pgbouncer.ini"
+          for attempt in $(seq 1 10); do
+            pg_isready -q -h 127.0.0.1 -p 6433 && break
+            [ "$attempt" = 10 ] && { cat "$d/pgbouncer.log"; echo "::error::PgBouncer did not start"; exit 1; }
+            sleep 1
+          done
+          DB_CONNECTION=pgsql \
+          DB_URL='postgresql://bk_edu_pool:ci-only-pool-password@127.0.0.1:6433/bk_edu_pool?sslmode=require' \
+            php artisan test
+          kill "$(cat "$d/pgbouncer.pid")"
 
       # Every migration and seeder, from empty, on PostgreSQL.
       - name: Migrate and seed on PostgreSQL

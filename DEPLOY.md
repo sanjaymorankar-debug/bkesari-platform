@@ -114,19 +114,24 @@ alongside the existing **TEST** one in `portal/` if you want the two visually di
 ## Part 2: Education (Laravel, PHP)
 
 Same pattern as the existing `edu/DEPLOYMENT.md`, except that the app now lives in the `edu/` folder of this repo.
-Schema changes go in with `php artisan migrate --force` (below). The hand-run alternative is
-`database/edu/*.sql` with `psql`, in order — see that folder's own notes; either way leaves the
-`migrations` table populated, so the two can be mixed.
+Its database is `bk_edu`, owned by the login `bk_edu_app`, on the tier's Neon branch ([docs/NEON.md](docs/NEON.md)).
+Laravel takes the two strings under its own names, `DB_URL` (pooled) and `DB_URL_UNPOOLED`
+(direct). Schema changes go in with `php artisan migrate --force` (below), which runs over
+`DB_URL_UNPOOLED` by itself. The hand-run alternative is `database/edu/*.sql`, run in order with
+`psql "$DB_URL_UNPOOLED"` (see that folder's own notes); either way leaves the `migrations` table
+populated, so the two can be mixed. `edu/DEPLOYMENT.md` says what the app does with each string.
 
-The site's PHP needs the **`pdo_pgsql`** extension. Check over SSH with `php -m | grep -i pgsql`;
-if it is not listed, it has to be enabled for the site before anything below will connect (this
-was not verified against Hostinger here).
+The site's PHP needs the **`pdo_pgsql`** extension, built against **libpq 14 or newer** (Neon
+needs SNI, and the strings carry `channel_binding=require`). Check over SSH with
+`php -m | grep -i pgsql` and `php -i | grep -i libpq`; if either falls short, it has to be fixed
+for the site before anything below will connect (this was not verified against Hostinger here).
 
-Do this for **devedu.bkesari.com** / branch `dev` first. Once it checks out, repeat verbatim for
-**testedu.bkesari.com** / branch `staging`, then **edu.bkesari.com** / branch `main`.
+Do this for **devedu.bkesari.com** / branch `dev` first. Once it checks out, repeat for
+**testedu.bkesari.com** / branch `staging`, then **edu.bkesari.com** / branch `main`, with the
+differences the steps call out.
 
-1. hPanel → create the website/subdomain (e.g. **devedu.bkesari.com**) (PHP 8.3). Create its PostgreSQL
-   database and owner on your PostgreSQL service (see *Databases* at the top).
+1. hPanel → create the website/subdomain (e.g. **devedu.bkesari.com**) (PHP 8.3). The database
+   and its role already exist on the tier's Neon branch once `tools/neon_provision.mjs` has run.
 2. SSH in and clone:
 
 ```bash
@@ -135,13 +140,37 @@ git clone -b dev https://github.com/sanjaymorankar-debug/bkesari-platform.git pl
 cd platform/edu
 composer install --no-dev --optimize-autoloader
 cp .env.example .env
-nano .env        # APP_URL=https://devedu.bkesari.com, APP_DEBUG=false,
-                 # DB_CONNECTION=pgsql and DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD
-                 # from step 1, DB_SSLMODE=require
+nano .env        # APP_URL=https://dev.bkesari.com/edu, APP_DEBUG=false, and from the Neon
+                 # console (this tier's branch -> Connect -> database bk_edu, role bk_edu_app):
+                 #   DB_CONNECTION=pgsql
+                 #   DB_URL=<Connection pooling ON>
+                 #   DB_URL_UNPOOLED=<Connection pooling OFF>
 php artisan key:generate --force
 php artisan migrate --force
-php artisan db:seed --force      # first time only
 ```
+
+   `APP_URL` is the address visitors use, the Education tab on the hub (Part 7), not this
+   site's own hostname: `https://dev.bkesari.com/edu`, `https://test.bkesari.com/edu`,
+   `https://bkesari.com/edu`. Its path is what makes every link, asset and sign-in post come
+   back under `/edu/`. Only a site that is used directly, not through the hub, takes its own
+   hostname here.
+
+   `bk_edu` already exists on Neon with the migrations applied and no data, so `migrate`
+   reports nothing to do there; the starting data is still needed. It differs by tier:
+
+```bash
+# dev and test: the demo dataset (edu/TEST_ACCOUNTS.md; every account shares ONE known password)
+php artisan db:seed --force
+# production: reference data only, then your own first administrator; NEVER db:seed here,
+# it would create the demo System Admin with the published password
+psql "$(grep '^DB_URL_UNPOOLED=' .env | cut -d= -f2-)" -v ON_ERROR_STOP=1 -1 -f ../database/edu/02_edu_reference_data.sql
+#   first edit the name, email and password hash in ../database/edu/04_edu_first_admin.sql (its header says where)
+psql "$(grep '^DB_URL_UNPOOLED=' .env | cut -d= -f2-)" -v ON_ERROR_STOP=1 -f ../database/edu/04_edu_first_admin.sql
+php artisan permission:cache-reset
+```
+
+   No `psql` on the server? Paste the two files into the Neon console's **SQL Editor** instead,
+   on the tier's branch and database `bk_edu`.
 
 3. Wire up the web root:
 
@@ -155,6 +184,9 @@ nano ~/domains/devedu.bkesari.com/public_html/index.php
 php artisan config:cache && php artisan route:cache && php artisan view:cache
 ```
 
+   The cached configuration is what the app reads from then on, `DB_URL` and `DB_URL_UNPOOLED`
+   included: after any change to `.env`, run `php artisan config:cache` again before anything else.
+
 4. Cron (hourly analytics), via `crontab -e`:
 
 ```
@@ -162,10 +194,12 @@ php artisan config:cache && php artisan route:cache && php artisan view:cache
 ```
 
 **Redeploy later:** `cd ~/domains/devedu.bkesari.com/platform && git pull`, then in `edu/` run
-`composer install --no-dev --optimize-autoloader && php artisan migrate --force`. Copy `public/.` again and re-run the three `cache` commands.
+`composer install --no-dev --optimize-autoloader && php artisan migrate --force` (over
+`DB_URL_UNPOOLED`, as above). Copy `public/.` again and re-run the three `cache` commands.
 
-Repeat all of the above for **testedu.bkesari.com** (branch `staging`) and **edu.bkesari.com**
-(branch `main`), substituting the domain/branch throughout.
+Repeat all of the above for **testedu.bkesari.com** (branch `staging`, Neon branch `test`) and
+**edu.bkesari.com** (branch `main`, Neon branch `production`), substituting the domain, branch and
+`APP_URL` throughout. Each site's `.env` holds only its own branch's strings.
 The existing site at edutest.agtci.com is unaffected and keeps using the old `edu` repo until you retire it.
 
 ---
@@ -695,13 +729,15 @@ driving the live site in a browser rather than by reading the code:
 | The remembered page after signing in | `redirect()->guest()` stores `UrlGenerator::full()`, which reads the URL straight off the request — prefix already stripped. Signing in landed the visitor on `Cannot GET /admin/rating-weights` at the hub | `App\Routing\BasePathRedirector` |
 | A literal path in a view | the generator never sees it. Three did this: `href="/"` in the guest layout and `redirect('/')` in logout, delete-account and verify-email — all three left the tab for the hub | `url('/')` / `route('home')`, and a test that greps every Blade file so a new one fails the suite |
 
-Two more things to know, neither currently a bug:
+Two more things to know:
 
-- **Signed URLs would not survive the trip.** `hasValidSignature()` rebuilds the
-  URL from the request, which arrives without the prefix, so a signature made
-  with it can never match. Nothing signs a URL today — `MustVerifyEmail` is
-  switched off on the `User` model — but whatever turns it on will need the
-  prefix restored before the check.
+- **Signed URLs do not survive the trip by themselves.** `hasValidSignature()`
+  rebuilds the URL from the request, which arrives without the prefix, so a
+  signature made with it can never match. Livewire signs every file upload, so
+  until `App\Routing\BasePathSignedUploadUrl` no upload worked under `/edu/`
+  (complaint evidence included); it signs the stripped path and prefixes the
+  URL once. The app signs nothing else today (`MustVerifyEmail` is off on the
+  `User` model), but email verification links will need the same treatment.
 - **Outside a request the rule inverts.** In a queued job or scheduled command
   Laravel invents a stand-in request from `APP_URL`, so its base path *is*
   `/edu` and `route(..., absolute: false)` comes back **without** the prefix —

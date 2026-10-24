@@ -4,6 +4,62 @@
 > repository. The steps still read correctly — substitute the domain and remember
 > that the app lives in this repo's `edu/` folder.
 
+## The database on Neon (every bkesari.com tier)
+
+Each tier's database is PostgreSQL on Neon ([`../docs/NEON.md`](../docs/NEON.md) has the whole
+layout and the script that creates it). On every Neon branch this app has a database **`bk_edu`**,
+owned by the login **`bk_edu_app`**:
+
+| Tier | Neon branch |
+|---|---|
+| dev (`/edu/` on dev.bkesari.com, devedu.bkesari.com) | `dev` |
+| test (`/edu/` on test.bkesari.com, testedu.bkesari.com) | `test` |
+| production (`/edu/` on bkesari.com, edu.bkesari.com) | `production` |
+
+The server's `.env` takes **that tier's** two connection strings and no other database lines.
+Neon console → the tier's branch → **Connect** → database `bk_edu`, role `bk_edu_app`; copy each string
+whole, `?sslmode=require&channel_binding=require` included:
+
+```
+DB_CONNECTION=pgsql
+DB_URL=<the string with "Connection pooling" ON  (host has -pooler in it)>
+DB_URL_UNPOOLED=<the same with "Connection pooling" OFF>
+```
+
+What the app does with them (`config/database.php`, `App\Providers\DatabaseServiceProvider`):
+
+- **Web requests use `DB_URL`**, the pooled endpoint (PgBouncer in transaction mode). Two
+  settings make that safe, and `tests/Feature/Platform/NeonReadinessTest.php` holds both in
+  place: queries are sent as unnamed statements, because PHP's way of freeing a named one
+  aborted every transaction behind the pooler (and a transaction of one statement was rolled
+  back while PHP reported it committed); and no session `SET` is sent on connect,
+  because a pooler does not carry one over to the next query.
+- **`php artisan migrate`, `db:seed`, `db:wipe` and the other `migrate:*` commands use
+  `DB_URL_UNPOOLED`** on their own; `--database=pgsql` overrides that, and the connection is
+  also there by name (`pgsql_unpooled`) for anything else that needs a session of its own.
+- **`config:cache` holds both strings.** The deploy runs `php artisan optimize`, which caches
+  them, so after editing `.env` on a server run `php artisan optimize` again before anything else.
+- **`channel_binding=require` is honoured**, which needs the site's PHP to be built against
+  libpq 13 or newer; Neon itself needs 14 or newer (for SNI). Check with
+  `php -i | grep -i 'libpq'` over SSH.
+- **An idle Neon compute is suspended.** The first request after that is slower while it
+  wakes. PHP's PostgreSQL driver waits up to 30 seconds for a connection (measured; the app
+  does not shorten it), which is well past a cold start. PHP opens a new connection for every
+  request, so a connection Neon drops while idle needs no handling either.
+- **`citext`** is created by a migration as `bk_edu_app`. Neon makes every role it creates a
+  member of `neon_superuser`, which is enough; no superuser is needed.
+
+Order on a fresh tier (`../DEPLOY.md` Part 2 has the commands): `composer install --no-dev
+--optimize-autoloader`, fill in `.env`, `php artisan key:generate --force`,
+`php artisan migrate --force`, then the starting data: `php artisan db:seed --force` on **dev and
+test only** (it creates the demo accounts in `TEST_ACCOUNTS.md`, which all share one published
+password, a System Admin among them), and on production `../database/edu/02_edu_reference_data.sql`
+and `04_edu_first_admin.sql` instead. The hand-run alternative to `migrate` is
+`../database/edu/*.sql`, run with `psql "$DB_URL_UNPOOLED"` in order.
+
+Never point a test run at any of these databases: `php artisan test` drops every table in the
+database it is given.
+
 # Deployment (Hostinger)
 
 **Live target:** `https://edutest.agtci.com` (domain root — not a subpath)
@@ -37,7 +93,7 @@ DB_PASSWORD=<password>
 DB_SSLMODE=require
 ```
 
-Use `DB_SSLMODE=require` (or `verify-full` if you install the provider's CA certificate) whenever the database is reached over the network. Some providers hand out a single connection URL instead; it can go in `DB_URL` (`postgresql://user:pass@host:5432/db?sslmode=require`), which overrides the individual `DB_*` values. If the provider offers a connection pooler (e.g. PgBouncer in transaction mode), prefer the direct/session connection for `php artisan migrate`.
+Use `DB_SSLMODE=require` (or `verify-full` if you install the provider's CA certificate) whenever the database is reached over the network. Some providers hand out a single connection URL instead; it can go in `DB_URL` (`postgresql://user:pass@host:5432/db?sslmode=require`), which overrides the individual `DB_*` values. If the provider offers a connection pooler (e.g. PgBouncer in transaction mode), put the pooled URL in `DB_URL` and the direct one in `DB_URL_UNPOOLED`, as on Neon above: the schema commands then use the direct one by themselves.
 
 **Moving off the old MySQL database:** there is no automated data migration in this repo. If the existing `edutest` database holds only seeded synthetic data (check before discarding it), the simplest path is to run the migrations + seeders fresh on the new PostgreSQL database (step 5 below). If real data ever needs to be carried over, take a `mysqldump` of the old database first and plan the copy separately (e.g. evaluate a MySQL→PostgreSQL tool such as pgloader against a staging copy, then reset each table's id sequence) — test that on staging, never directly on production.
 

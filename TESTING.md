@@ -25,7 +25,7 @@ is already established and your time is better spent on sections 2 and 4.
 | `bkesari-platform` | `ci.yml` | the server, proxy and shared menu parse; **19 menu unit tests**; **26 proxy tests**, including a real proxy against a real upstream; **3 tests of the assembled server** (the Task Tracker's login however a path is spelled, no stack trace for a malformed body, the proxy mounted before the body parsers); **15 Task Tracker / ATIP-snapshot / database tests against a real PostgreSQL 16** (every DB-backed route, the app creating its own tables, over `DATABASE_URL_UNPOOLED` when set, bad input answered 400/404 rather than 500, connections dropped by the server survived); **5 tests of the connection settings** a Neon URL produces; **12 tests of the Neon provisioning tool** against a stand-in for Neon's API (including the SQL that shuts other logins out of each database, and never taking over a database someone else owns); 2 checks that the portal schema and its `database/` copy agree; **32 deploy-guard cases**; a skipped test fails the job; the hub boots on PostgreSQL with `DATABASE_URL` and `DATABASE_URL_UNPOOLED` and passes the full smoke test; correct logins are accepted and wrong ones rejected. What CI cannot show (PgBouncer, TLS, dropped connections end to end) is `TEST_SPEC.md`'s Neon parity level |
 | `bkesari` (Milk & Dairy) | `ci.yml` | migrations apply to a real database server; typecheck; eslint; **281 unit and integration tests**; a production build; the deploy-guard cases. *That repository is moving from MySQL 8 to PostgreSQL on its own branch; its `ci.yml` says which it runs.* |
 | `Ladwani` | `ci.yml` | migrations apply to a real database server; reference and UAT data seed; typecheck; `prisma validate`; the test suite; a production build; the deploy-guard cases. *Moving from MySQL 8 to PostgreSQL on its own branch, as above.* |
-| `bkesari-platform/edu` | `ci.yml` (`edu` job) | **392 PHPUnit tests** (1,094 assertions) **twice**: on in-memory sqlite (389 pass; the 3 that need PostgreSQL's `citext` email column skip) and on a real **PostgreSQL 16** (all 392), including 12 covering the app served under the hub's `/edu/` path; every migration and seeder from empty on PostgreSQL; `composer validate`; the Vite manifest matches the files on disk |
+| `bkesari-platform/edu` | `ci.yml` (`edu` job) | **423 PHPUnit tests** **three times**: on in-memory sqlite (418 pass; the 5 that need a PostgreSQL server skip), on a real **PostgreSQL 16** (all 423, 1,241 assertions), and through **PgBouncer in transaction mode with TLS**, as a role that is not a superuser (all 423): the way `DB_URL` reaches Neon on every tier. They include 13 covering the app served under the hub's `/edu/` path (Livewire's signed upload URL among them) and 18 covering the Neon settings (`DB_URL` for the app, `DB_URL_UNPOOLED` for `migrate` and the other schema commands, `channel_binding` passed on, no named prepared statements, no session `SET`, and a suite that refuses to run against a hosted database); every migration and seeder from empty on PostgreSQL; `composer validate`; the Vite manifest matches the files on disk. What CI cannot show (dropped connections, concurrent complaint numbers, the app behind the hub in a browser) is `edu/TEST_SPEC.md`'s S5 and S7 |
 
 Each project's **deploy** workflow re-runs its own suite before it publishes, so
 a build that reaches dev is one that passed. Nothing is deployed on a red build.
@@ -65,6 +65,12 @@ php artisan test
 # sqlite defaults). Use a database the suite may wipe, e.g. bk_edu_test:
 DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=bk_edu_test \
 DB_USERNAME=bk_edu DB_PASSWORD=pw php artisan test
+# ... or through a PgBouncer in transaction mode, the way Neon's pooled endpoint
+# serves every tier (DB_URL wins over the DB_* lines):
+DB_CONNECTION=pgsql DB_URL='postgresql://bk_edu:pw@127.0.0.1:6432/bk_edu_test?sslmode=require' \
+php artisan test
+# The full standard and regression suites, the smoke run and the Neon parity
+# checks are edu/TEST_SPEC.md.
 ```
 
 > **Never point a test suite at a dev, test or production database.** Several of
@@ -283,13 +289,15 @@ promoting dev to test later — nothing is promoted on a warning you have not re
 
 Honest list, so nothing here is mistaken for covered:
 
-- **Signed URLs would break under a tab path.** Laravel validates a signature
-  by rebuilding the URL from the request, which reaches the Education app with
-  the `/edu` prefix already stripped, so a signature generated with the prefix
-  can never match. Nothing signs a URL today (`MustVerifyEmail` is switched off
-  on the `User` model), so this is a trap rather than a fault — but password
-  reset links or email verification will need the prefix restored before the
-  check. `DEPLOY.md` Part 7 says where.
+- **Signed URLs break under a tab path unless handled.** Laravel validates a
+  signature by rebuilding the URL from the request, which reaches the Education
+  app with the `/edu` prefix already stripped, so a signature generated with
+  the prefix can never match. Livewire signs every file upload, which is why
+  complaint evidence could not be uploaded through `/edu/` until
+  `App\Routing\BasePathSignedUploadUrl` (covered by `BasePathTest` and
+  `edu/tests/smoke/browser.cjs`). The app signs nothing else today
+  (`MustVerifyEmail` is off on the `User` model), but email verification links,
+  which are signed, will need the same treatment.
 - **The three tab paths are wired but unproven against Hostinger.** `/milk/`,
   `/edu/` and `/ladwani/` have each been driven end to end against their real
   app behind the real hub locally, including a browser sign-in through
