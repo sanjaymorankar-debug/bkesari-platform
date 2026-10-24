@@ -355,6 +355,12 @@ afford.
 | `bkesari` | `deploy-dev.yml` | Milk & Dairy (Next.js) | `devmilk.bkesari.com` |
 | `Ladwani` | `deploy-dev.yml` | LadWani (Next.js) | `devladwani.bkesari.com` |
 
+**LadWani: that workflow deploys the wrong app.** It lives on the Ladwani
+repository's `main` branch, which is the older single Next.js app. LadWani is
+the **`rebuild`** branch (Part 5), which has no deploy workflow yet. It needs one
+for its two processes (web and API, two Hostinger sites), plus a `dev` branch
+cut from `rebuild`. Until then, do not push `main` to Ladwani's `dev`.
+
 Each one: runs the repo's checks → builds → `rsync` over SSH → installs runtime
 dependencies and restarts on the server → fetches the URL to confirm it answers.
 The two `bkesari-platform` workflows are filtered by path, so a change under
@@ -702,7 +708,7 @@ present, so a site configured as in Parts 1–7 behaves exactly as before.
 |---|---|---|
 | `neondb` | Portal: TaskList (`/tasks/`) + ATIP viewer snapshots, and Neon Auth's own `neon_auth` schema | In use. The portal creates its 4 tables on start (`portal/sql/postgres_schema.sql`). |
 | `bk_edu` | Education | Created, empty. The Laravel app still runs on MySQL. |
-| `bk_ladwani` | LadWani | Created, empty. The Prisma schema still targets MySQL. |
+| `bk_ladwani` | LadWani (`rebuild` branch) | Schema and reference data loaded: 73 tables, 108 foreign keys (`database/ladwani/postgres/`). The app itself still targets MySQL; that folder's README lists what moving it needs. |
 | `bk_env` | Environment Activities | Created, empty. No app exists yet. |
 
 ATIP needs none: it keeps its own database on the Mac and pushes a page into
