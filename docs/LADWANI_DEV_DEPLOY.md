@@ -73,12 +73,13 @@ and `npm run db:generate`, answers `/api/v1/health` with
    sign-up, sign-in (email in another case), a directory search and log-out
    work through `https://devladwani.bkesari.com/ladwani/`.
 
-## dev.bkesari.com (owner's decision pending)
+## dev.bkesari.com
 
-`dev.bkesari.com` is a subdomain whose root is **production's**
-`~/domains/bkesari.com/public_html`. Anything deployed "to dev" there lands on
-the live site. To serve the hub on dev (and LadWani at
-`dev.bkesari.com/ladwani/` with `LADWANI_ORIGIN=https://devladwani.bkesari.com`),
-remove the subdomain in hPanel **without deleting its files** (they are
-production's) and add `dev.bkesari.com` as its own website. Until then, LadWani
-is checked directly at `https://devladwani.bkesari.com/ladwani/`.
+Until 2026-10-24 `dev.bkesari.com` was a subdomain whose root was
+**production's** `~/domains/bkesari.com/public_html`. The owner removed it, and
+it is now its own website (addon, `~/domains/dev.bkesari.com/public_html`,
+created 21:43 UTC), empty. To serve LadWani at `dev.bkesari.com/ladwani/`,
+deploy the hub (bkesari-platform `portal/`) there as a Node.js app with
+`LADWANI_ORIGIN=https://devladwani.bkesari.com` and its own Neon strings
+(project `bkesari-hub`, branch `dev`); DEPLOY.md Part 1 has the rest. Until
+then, LadWani is checked directly at `https://devladwani.bkesari.com/ladwani/`.
