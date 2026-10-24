@@ -6,13 +6,16 @@ import { defineConfig } from "@neon/config/v1";
 // (`openssl rand -hex 32`) and set the same value on the portal's host.
 
 export default defineConfig({
-  preview: {
-    // The origins the browser may open the Realtime WebSocket from: the
-    // portal on a laptop and the dev tier. Add test/production when they move.
-    realtime: {
-      allowedOrigins: ["http://localhost:3000", "https://dev.bkesari.com"],
-    },
-  },
+  // Realtime (the Task Tracker's live refresh, portal/realtime.js) needs
+  // PostgreSQL 18, and the hub's project (bkesari-hub, aws-ap-southeast-1) runs
+  // 16, so `neon deploy` refuses it there. Without it the tracker works as
+  // before and simply does not refresh itself. Put this back on a PostgreSQL
+  // 18 project:
+  // preview: {
+  //   realtime: {
+  //     allowedOrigins: ["http://localhost:3000", "https://dev.bkesari.com"],
+  //   },
+  // },
   auth: true,
   // AI Gateway does not serve model requests on Neon's Free plan, and
   // `neon deploy` refuses a neon.ts that declares it there. Put this back

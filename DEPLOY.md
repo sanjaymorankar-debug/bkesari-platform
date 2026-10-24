@@ -781,11 +781,13 @@ those rules along with the forwarding itself.
 
 ## Part 8: Neon (Postgres, Auth, Realtime, Functions, Object Storage)
 
-The portal can run entirely on Neon, declared in **`neon.ts`**: today project
-`dawn-block-70728261` (org `org-calm-cell-54818057`, region `aws-us-east-2`).
-That project is moving to a new one in `aws-ap-southeast-1` (Singapore, the
-closest region with every service) to sit nearer Hostinger and the users;
-`neon deploy` recreates these services there.
+The portal runs on Neon project **`bkesari-hub`** (`aged-snow-54676890`, org
+`org-calm-cell-54818057`, region `aws-ap-southeast-1`, Singapore, near
+Hostinger and the users), with the services declared in **`neon.ts`**.
+Neon Auth, the `assets` bucket and the `report` function are deployed on its
+`dev` branch (2026-10-24). Deploy them to `test` and `production` the same way:
+`neon deploy --project-id aged-snow-54676890 --branch <tier> --env .env.local`.
+Neon Auth reaches `neondb` as its own `neon_auth` role.
 Every Neon service is optional: each turns on only when its variables are
 present, so a site configured as in Parts 1–7 behaves exactly as before.
 
@@ -826,7 +828,7 @@ On a host, copy the variables from `.env.local` into the host's environment
 |---|---|---|
 | Postgres | `portal/db.js` on `pg`. Tables created over `DATABASE_URL_UNPOOLED`, queries over the pooled `DATABASE_URL` (docs/NEON.md). | `DATABASE_URL`, `DATABASE_URL_UNPOOLED` |
 | Auth | `portal/neon-auth.js`: sign-in at `/auth/sign-in`, `/api/auth/*` proxied to Neon Auth so its cookies are first-party. Replaces the Basic login on `/tasks/`. Lets in only **verified** accounts on `TRACKER_ALLOWED_EMAILS`; anyone can create an account, so a session alone proves nothing. Email + password only. | `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, `TRACKER_ALLOWED_EMAILS` |
-| Realtime | `portal/realtime.js` seals one live query; `portal/client/live.js` (bundled by `npm run build` into `portal/public/tasks/live.js`, committed) subscribes. The dashboard updates when anyone changes a project or task. | `NEON_REALTIME_URL`, `NEON_REALTIME_SECRET` |
+| Realtime | **Off on `bkesari-hub`**: it needs PostgreSQL 18, and the project runs 16 (see `neon.ts`). The tracker works without it. When on, `portal/realtime.js` seals one live query; `portal/client/live.js` (bundled by `npm run build` into `portal/public/tasks/live.js`, committed) subscribes. The dashboard updates when anyone changes a project or task. | `NEON_REALTIME_URL`, `NEON_REALTIME_SECRET` |
 | Functions | `functions/report.ts`, slug `report`: last-seven-days figures, computed next to the data. Called only by the portal (`/tasks/api/report`) with `X-Secret`; answers 401 to anyone else. | `NEON_FUNCTION_REPORT_BASE_URL`, `ORIGIN_SECRET` |
 | Object Storage | `portal/storage.js` (AWS S3 client, path-style): every ATIP snapshot upload is also archived to bucket `assets` (`atip-snapshots/<date>/<time>.html`); `/ATIP/api/archive` lists them with one-hour links. | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION` |
 | AI Gateway | **Not enabled.** Neon refuses to deploy it on the Free plan. Upgrade, uncomment `aiGateway: true` in `neon.ts`, and `neon deploy --env .env.local`. | — |
