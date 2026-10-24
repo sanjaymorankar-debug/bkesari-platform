@@ -836,8 +836,9 @@ On a host, copy the variables from `.env.local` into the host's environment
 ### Before pointing dev.bkesari.com at it
 
 - **Trusted domain for sign-in:** `neon neon-auth domain add https://dev.bkesari.com`
-  (localhost is trusted by default). Realtime's allowed origins are in `neon.ts`
-  and already include `https://dev.bkesari.com`.
+  (localhost is trusted by default). Realtime is off on `bkesari-hub`; its
+  allowed origins, commented out in `neon.ts`, include `https://dev.bkesari.com`
+  for when it is turned back on.
 - **Production email:** sign-up codes go out from Neon's shared sender. Neon
   asks for your own SMTP before production use (Neon Auth production checklist).
 - **Outbound Postgres from Hostinger:** the portal connects to Neon on port

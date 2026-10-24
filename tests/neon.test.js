@@ -12,6 +12,9 @@ const assert = require('node:assert/strict');
 
 const neonAuth = require('../portal/neon-auth.js');
 const storage = require('../portal/storage.js');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 
 const allowed = new Set(['asha@example.com']);
 
@@ -158,4 +161,26 @@ test('newestSnapshots: an old undated snapshot does not jump ahead of newer date
     'atip-snapshots/2026-10-24/20261024100000.html',
     'atip-snapshots/2026-10-23/20261023100000.html',
   ]);
+});
+
+test('live.js: with Realtime off (a 404 from /live) it opens no WebSocket and reports nothing', async () => {
+  // The built bundle the page loads, not the source: what the browser runs.
+  let sockets = 0;
+  const listeners = [];
+  const ctx = {
+    TextEncoder, TextDecoder, setTimeout, clearTimeout, console, queueMicrotask, crypto: globalThis.crypto,
+    WebSocket: class { constructor() { sockets++; throw new Error('no WebSocket expected'); } },
+  };
+  ctx.window = ctx; ctx.self = ctx; ctx.globalThis = ctx;
+  ctx.addEventListener = (...a) => listeners.push(a);
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../portal/public/tasks/live.js'), 'utf8'), ctx);
+  const watcher = await ctx.bkLive.watchTracker({
+    fetchLive: async () => null, // what tasks/index.html returns for a 404
+    onChange: () => assert.fail('onChange called'),
+    onStatus: (s) => assert.fail(`onStatus(${s}) called`),
+  });
+  assert.equal(watcher, null);
+  assert.equal(sockets, 0);
+  assert.equal(listeners.length, 0);
 });

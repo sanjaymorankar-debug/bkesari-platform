@@ -134,6 +134,26 @@ test('the report proxy answers 502, not 500, when the function cannot be reached
   });
 });
 
+test('with Realtime off the live endpoint is a 404 the page can read, behind the login', async () => {
+  // bkesari-hub runs PostgreSQL 16, which Neon Realtime does not serve, so this
+  // is the production configuration: tasks/index.html takes the 404 as "no
+  // live updates". Half a configuration is still off.
+  const secret = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  for (const rt of [
+    { NEON_REALTIME_URL: '', NEON_REALTIME_SECRET: '' },
+    { NEON_REALTIME_URL: 'wss://127.0.0.1:1/realtime', NEON_REALTIME_SECRET: '' },
+    { NEON_REALTIME_URL: '', NEON_REALTIME_SECRET: secret },
+  ]) {
+    await withHub({ ...ENV, ...rt }, async (base, port) => {
+      const r = await raw(port, 'GET', '/tasks/api/live', { headers: basic('tracker', 'tracker-pw') });
+      assert.equal(r.status, 404, JSON.stringify(rt));
+      assert.match(r.type, /application\/json/);
+      assert.deepEqual(JSON.parse(r.text), { error: 'Live updates are not configured' });
+      assert.equal((await raw(port, 'GET', '/tasks/api/live')).status, 401);
+    });
+  }
+});
+
 test('under Neon Auth the Task Tracker still needs its login however the path is spelled', async () => {
   // A stand-in Neon Auth: get-session answers for whoever the test cookie
   // names. The toolkit forwards only its own (__Secure-neon-auth.*) cookies.
