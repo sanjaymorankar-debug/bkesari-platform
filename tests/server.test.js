@@ -133,3 +133,46 @@ test('the report proxy answers 502, not 500, when the function cannot be reached
     assert.deepEqual(JSON.parse(r.text), { error: 'The report function did not answer' });
   });
 });
+
+test('under Neon Auth the Task Tracker still needs its login however the path is spelled', async () => {
+  // A stand-in Neon Auth: get-session answers for whoever the test cookie
+  // names. The toolkit forwards only its own (__Secure-neon-auth.*) cookies.
+  const auth = http.createServer((req, res) => {
+    const who = (/__Secure-neon-auth\.test=(\w+)/.exec(req.headers.cookie || '') || [])[1];
+    const user = who === 'allowed' ? { email: 'asha@example.com', emailVerified: true }
+      : who === 'stranger' ? { email: 'ravi@example.com', emailVerified: true } : null;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(req.url.endsWith('/get-session') && user ? { user, session: { id: 's' } } : null));
+  });
+  await new Promise((resolve) => auth.listen(0, '127.0.0.1', resolve));
+  const env = {
+    ...ENV,
+    NEON_AUTH_BASE_URL: `http://127.0.0.1:${auth.address().port}/neondb/auth`,
+    NEON_AUTH_COOKIE_SECRET: 'test-only-cookie-secret-0123456789abcdef',
+    TRACKER_ALLOWED_EMAILS: 'asha@example.com',
+  };
+  const as = (who) => ({ cookie: `__Secure-neon-auth.test=${who}` });
+  try {
+    await withHub(env, async (base, port) => {
+      const spellings = [
+        '/tasks/', '/tasks/index.html', '/tasks/live.js', '/tasks/api/overview',
+        '/%74asks/', '/%74asks/index.html', '/tasks%2findex.html', '/%74asks/api/overview',
+        '//tasks/', '//tasks/api/overview', '/./tasks/', '/shared/../tasks/',
+        '/shared/%2e%2e/tasks/index.html', '/%54ASKS/', '/TASKS/',
+      ];
+      for (const headers of [{}, as('stranger'), basic('tracker', 'tracker-pw')]) {
+        for (const p of spellings) {
+          const r = await raw(port, 'GET', p, { headers });
+          assert.ok([302, 401, 403].includes(r.status), `${p} (${JSON.stringify(headers)}) answered ${r.status}`);
+          assert.doesNotMatch(r.text, /Task Tracker|"projects"/, `${p} served the tracker`);
+        }
+      }
+      const page = await raw(port, 'GET', '/tasks/', { headers: as('allowed') });
+      assert.equal(page.status, 200);
+      assert.match(page.text, /<title>Task Tracker<\/title>/);
+      assert.equal((await raw(port, 'GET', '/tasks/api/me', { headers: as('allowed') })).status, 200);
+    });
+  } finally {
+    await new Promise((resolve) => auth.close(resolve));
+  }
+});
