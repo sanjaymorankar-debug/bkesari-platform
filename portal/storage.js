@@ -46,12 +46,53 @@ async function archiveSnapshot({ html, tradeDate, receivedAt }) {
   return key;
 }
 
+/** Every object and sub-folder a listing returns, following S3's 1000-key pages. */
+async function listAll(send, input) {
+  const { ListObjectsV2Command } = require('@aws-sdk/client-s3');
+  const out = { contents: [], prefixes: [] };
+  let token;
+  do {
+    const page = await send(new ListObjectsV2Command({ ...input, ContinuationToken: token }));
+    out.contents.push(...(page.Contents || []));
+    out.prefixes.push(...(page.CommonPrefixes || []).map((p) => p.Prefix));
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (token);
+  return out;
+}
+
+/**
+ * The `limit` most recently received snapshots, newest first.
+ *
+ * One listing of the whole prefix is not enough: S3 returns at most 1000 keys
+ * per call, in ascending key order, and the uploader runs every 5 minutes, so
+ * after about three and a half days a single call returned only the OLDEST
+ * snapshots and the list stopped changing. Instead this lists the trade-date
+ * folders, reads the newest ones until it has enough, adds the undated folder,
+ * and orders by the received-at stamp in the file name (an "undated" key sorts
+ * after every date, so ordering by the key put those first whatever their age).
+ */
+async function newestSnapshots(send, limit) {
+  const undated = `${PREFIX}undated/`;
+  const { prefixes } = await listAll(send, { Bucket: BUCKET, Prefix: PREFIX, Delimiter: '/' });
+  const found = prefixes.includes(undated) ? (await listAll(send, { Bucket: BUCKET, Prefix: undated })).contents : [];
+  let dated = 0;
+  for (const day of prefixes.filter((p) => p !== undated).sort().reverse()) {
+    if (dated >= limit) break;
+    const { contents } = await listAll(send, { Bucket: BUCKET, Prefix: day });
+    found.push(...contents);
+    dated += contents.length;
+  }
+  const stamp = (key) => key.slice(key.lastIndexOf('/') + 1);
+  return found
+    .sort((a, b) => (stamp(b.Key) > stamp(a.Key) ? 1 : stamp(b.Key) < stamp(a.Key) ? -1 : (b.Key > a.Key ? 1 : -1)))
+    .slice(0, limit);
+}
+
 /** Newest first, each with a link that works for an hour without credentials. */
 async function listSnapshots(limit = 30) {
-  const { ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
+  const { GetObjectCommand } = require('@aws-sdk/client-s3');
   const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
-  const { Contents = [] } = await client().send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: PREFIX }));
-  const newest = Contents.sort((a, b) => (a.Key < b.Key ? 1 : -1)).slice(0, limit);
+  const newest = await newestSnapshots((command) => client().send(command), limit);
   return Promise.all(newest.map(async (item) => ({
     key: item.Key,
     size: item.Size,
@@ -59,4 +100,4 @@ async function listSnapshots(limit = 30) {
   })));
 }
 
-module.exports = { enabled, archiveSnapshot, listSnapshots, snapshotKey, BUCKET };
+module.exports = { enabled, archiveSnapshot, listSnapshots, newestSnapshots, snapshotKey, BUCKET };

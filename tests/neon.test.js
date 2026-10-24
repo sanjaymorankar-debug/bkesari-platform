@@ -93,3 +93,69 @@ test('snapshotKey: dated folder, digits-only file name, nothing else from the in
   // trade_date comes from the uploader: a path in it must not reach the key.
   assert.equal(storage.snapshotKey('../../etc', '2026-10-24 15:23:34'), 'atip-snapshots/undated/20261024152334.html');
 });
+
+// A stand-in for S3's ListObjectsV2: keys in ascending order, at most 1000 per
+// page, CommonPrefixes when a Delimiter is given -- the behaviour the archive
+// listing has to cope with.
+function fakeS3(keys) {
+  const sorted = [...keys].sort();
+  const calls = [];
+  const send = async (command) => {
+    const { Prefix = '', Delimiter, ContinuationToken } = command.input;
+    calls.push(command.input);
+    const entries = [];
+    for (const key of sorted) {
+      if (!key.startsWith(Prefix)) continue;
+      const rest = key.slice(Prefix.length);
+      const cut = Delimiter ? rest.indexOf(Delimiter) : -1;
+      const entry = cut >= 0 ? { prefix: Prefix + rest.slice(0, cut + 1) } : { key };
+      const last = entries[entries.length - 1];
+      if (entry.prefix && last && last.prefix === entry.prefix) continue;
+      entries.push(entry);
+    }
+    const start = ContinuationToken ? Number(ContinuationToken) : 0;
+    const page = entries.slice(start, start + 1000);
+    const truncated = start + 1000 < entries.length;
+    return {
+      Contents: page.filter((e) => e.key).map((e) => ({ Key: e.key, Size: 1 })),
+      CommonPrefixes: page.filter((e) => e.prefix).map((e) => ({ Prefix: e.prefix })),
+      IsTruncated: truncated,
+      NextContinuationToken: truncated ? String(start + 1000) : undefined,
+    };
+  };
+  return { send, calls };
+}
+
+test('newestSnapshots: the newest uploads, even past S3\'s 1000-key page', async () => {
+  // Ten days of uploads every 5 minutes: 2880 keys. A single listing returns
+  // the oldest 1000, which is what the archive page showed after 3.5 days.
+  const keys = [];
+  for (let day = 1; day <= 10; day++) {
+    const d = `2026-10-${String(day).padStart(2, '0')}`;
+    for (let m = 0; m < 24 * 60; m += 5) {
+      const hh = String(Math.floor(m / 60)).padStart(2, '0');
+      const mm = String(m % 60).padStart(2, '0');
+      keys.push(storage.snapshotKey(d, `${d} ${hh}:${mm}:00`));
+    }
+  }
+  const { send } = fakeS3(keys);
+  const newest = await storage.newestSnapshots(send, 30);
+  assert.equal(newest.length, 30);
+  assert.equal(newest[0].Key, 'atip-snapshots/2026-10-10/20261010235500.html');
+  assert.equal(newest[29].Key, 'atip-snapshots/2026-10-10/20261010213000.html');
+});
+
+test('newestSnapshots: an old undated snapshot does not jump ahead of newer dated ones', async () => {
+  const keys = [
+    storage.snapshotKey(null, '2026-10-01 09:00:00'),
+    storage.snapshotKey('2026-10-23', '2026-10-23 10:00:00'),
+    storage.snapshotKey('2026-10-24', '2026-10-24 10:00:00'),
+    storage.snapshotKey(null, '2026-10-24 11:00:00'),
+  ];
+  const newest = await storage.newestSnapshots(fakeS3(keys).send, 3);
+  assert.deepEqual(newest.map((o) => o.Key), [
+    'atip-snapshots/undated/20261024110000.html',
+    'atip-snapshots/2026-10-24/20261024100000.html',
+    'atip-snapshots/2026-10-23/20261023100000.html',
+  ]);
+});
