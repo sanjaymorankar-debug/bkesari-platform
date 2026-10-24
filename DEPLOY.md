@@ -80,11 +80,8 @@ For **test.bkesari.com**, do the same with branch `staging`. For **bkesari.com**
 
 ### 2. Database
 
-On Neon, the hub uses this tier's branch's default database `neondb`, as the login
-`bk_portal_app` (docs/NEON.md creates the login). Before the first start, run the `neondb` block
-of that tier's `.sql` file as `neondb_owner` (docs/NEON.md, step 3): it lets `bk_portal_app`
-connect and create tables there; without it the app stops at once with `Failed to start:
-permission denied for schema public` in the error log. The app then creates its tables on start from
+On Neon, the hub uses the database `neondb` on this tier's branch of the `bkesari-hub` project,
+as the login `bk_portal_app`, which owns it (docs/NEON.md). The app creates its tables on start from
 `portal/sql/schema.sql`, over the direct connection. To create them beforehand, run that file
 (or its copy, `database/portal/01_portal_schema.sql`) with `psql "$DATABASE_URL_UNPOOLED"`; it is
 safe to re-run.
@@ -131,7 +128,7 @@ Do this for **devedu.bkesari.com** / branch `dev` first. Once it checks out, rep
 differences the steps call out.
 
 1. hPanel → create the website/subdomain (e.g. **devedu.bkesari.com**) (PHP 8.3). The database
-   and its role already exist on the tier's Neon branch once `tools/neon_provision.mjs` has run.
+   and its role already exist on the tier's branch of the `bkesari-edu` Neon project (docs/NEON.md).
 2. SSH in and clone:
 
 ```bash

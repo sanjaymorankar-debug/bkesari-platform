@@ -1,43 +1,52 @@
 # Databases on Neon
 
-Every project behind bkesari.com keeps its data in **PostgreSQL on Neon**. This
-is the layout, how to create it, and what each site's `.env` needs.
+Every app behind bkesari.com (and agtci.com) keeps its data in **PostgreSQL
+16 on Neon**. This is the layout, how it was created, and what each site's
+`.env` needs.
 
 ## Layout
 
-One Neon project for the whole estate, **in an Asia region**, close to the
-Hostinger servers and the people using the sites: every query a page makes
-travels to Neon and back, several times per page. Inside the project, one
-**branch per tier**, and on every branch one **database per project, owned by
-that project's own login**:
+**One Neon project per app**, named after it, all in **Singapore**
+(`aws-ap-southeast-1`), Neon's closest region to India with every service.
+Every query a page makes travels to Neon and back, several times per page,
+so the region matters. Inside each project, **one branch per tier**, and on
+each branch the app's one database, owned by the app's own login:
 
-| Neon branch | Serves |
+| App | Neon project (id) | Database | Login | Repository |
+|---|---|---|---|---|
+| Hub: Task Tracker, ATIP viewer | `bkesari-hub` (`aged-snow-54676890`) | `neondb` | `bk_portal_app` | bkesari-platform (`portal/`) |
+| Milk & Dairy | `bkesari-milk` (`wispy-glade-42617868`) | `bk_milk` | `bk_milk_app` | bkesari |
+| Education | `bkesari-edu` (`falling-unit-35354402`) | `bk_edu` | `bk_edu_app` | bkesari-platform (`edu/`) |
+| LadWani | `bkesari-ladwani` (`shy-water-73883631`) | `bk_ladwani` | `bk_ladwani_app` | Ladwani |
+| ATIP | `bkesari-atip` (`green-butterfly-70738779`) | `bk_atip` | `bk_atip_app` | ATIP-DEV |
+| agtci.com | `bkesari-agtci` (`odd-smoke-66262026`) | `bk_agtci` | `bk_agtci_app` | agtci |
+| Education, standalone copy (edutest.agtci.com) | `bkesari-edu-standalone` (`mute-block-56314761`) | `bk_edu_standalone` | `bk_edu_standalone_app` | edu |
+
+| Branch (in every project) | Serves |
 |---|---|
-| `production` (the default branch) | bkesari.com |
-| `test` | test.bkesari.com |
-| `dev` | dev.bkesari.com |
+| `production` (the default branch) | bkesari.com (agtci.com for agtci) |
+| `test` | test.bkesari.com (agtci's staging tier; edutest.agtci.com for the standalone copy, which has only this branch) |
+| `dev` | dev.bkesari.com (agtci's dev tier) |
 
-| Project | Database | Login | Repository |
-|---|---|---|---|
-| Hub: Task Tracker, ATIP viewer, Neon Auth | `neondb` | `bk_portal_app` | bkesari-platform (`portal/`) |
-| Milk & Dairy | `bk_milk` | `bk_milk_app` | bkesari |
-| Education | `bk_edu` | `bk_edu_app` | bkesari-platform (`edu/`) |
-| LadWani | `bk_ladwani` | `bk_ladwani_app` | Ladwani |
-| ATIP | `bk_atip` | `bk_atip_app` | ATIP-DEV |
-| agtci.com (a separate site, same Neon project) | `bk_agtci` | `bk_agtci_app` | agtci |
-| Education, standalone copy (edutest.agtci.com), `test` branch only | `bk_edu_standalone` | `bk_edu_standalone_app` | edu |
+Why a project per app: Neon's Free plan allows 10 branches and 1 GB per
+project, and up to 100 projects. One project per app fits that with room to
+spare, and gives each app its own 1 GB.
 
-`neondb` is the project's default database. The hub keeps it because Neon Auth
-lives there too, so it stays owned by the project's `neondb_owner`, and the
-hub's login is granted what it needs instead.
+The isolation rules:
 
-The two rules from DEPLOY.md hold here too:
+- **An app never sees another app's data.** No two apps share a Neon project,
+  so no app's login exists where another app's data is. (Inside one project,
+  every login Neon makes belongs to `neon_superuser`, which can read any
+  database it can connect to. That is why apps do not share projects.)
+- **A tier never uses another tier's database.** Each branch has its own
+  hosts. Each login got its own password on `test` and `dev` when those
+  branches were made, so a dev or test URL cannot log in to production.
 
-- **A tier never uses another tier's database.** Each branch is a separate
-  copy with its own hosts, and each login has a different password on each
-  branch, so a dev URL cannot log in to production.
-- **A project only uses its own database.** Each login owns one database, and
-  every other login is refused at the door (see *Shutting other logins out*).
+The bkesari projects created before this layout (`Social_Activities`, in
+US East, with a `production` and a `dev` branch) are no longer used. Delete
+them in the console when you are sure nothing points at them. The GoKesari
+projects in the same account belong to a separate site and are never
+touched by anything here.
 
 Tests never use Neon. Every suite runs against a throwaway local PostgreSQL;
 each repository's `TEST_SPEC.md` says how, and each suite refuses a host that
@@ -45,7 +54,7 @@ is not local.
 
 ## Two connection strings per database
 
-Neon gives every database two endpoints, and every app uses both:
+Neon gives every branch two endpoints, and every app uses both:
 
 | Variable | Endpoint | Used for |
 |---|---|---|
@@ -58,105 +67,62 @@ but it does not keep session state between transactions, so migrations go
 over the direct endpoint. Each app falls back to `DATABASE_URL` when
 `DATABASE_URL_UNPOOLED` is unset, so a local setup needs only one variable.
 
-Two projects use other names:
+Two apps use other names:
 
 - **Education** (Laravel) reads `DB_URL` and `DB_URL_UNPOOLED`, with
   `DB_CONNECTION=pgsql`.
 - **ATIP** reads `ATIP_DATABASE_URL`, set to the **direct** endpoint. It is one
   long-running process on the Mac, so it has nothing to gain from a pooler.
 
-Both strings end in `?sslmode=require&channel_binding=require`. Every app now
+Both strings end in `?sslmode=require&channel_binding=require`. Every app
 passes both parameters on to its driver; see *What each app does about Neon*.
 
-## Creating it
+## How it was created, and how to re-create it
 
-### 1. The project
-
-Create the Neon project in the Asia region nearest the Hostinger servers.
-Rename its default branch to `production` (Branches → the default branch →
-Rename) if it is called `main`. Neon Auth, if the hub uses it, is set up on
-this project's `neondb` as before.
-
-### 2. Branches, databases and logins: the script
+The projects, branches, logins and databases above were created on
+2026-10-24 through Neon's API. `tools/neon_provision.mjs` does the same and
+checks an existing layout:
 
 ```bash
 # Neon console -> Account settings -> API keys -> Create
 export NEON_API_KEY=...
-node tools/neon_provision.mjs --project <project-id> --dry-run   # what it would do
-node tools/neon_provision.mjs --project <project-id>
+node tools/neon_provision.mjs --dry-run   # what it would do
+node tools/neon_provision.mjs
 ```
 
-The project id is in the console under Settings, and in the console's URL.
+It finds each `bkesari-<app>` project by name and creates whatever is missing:
+the project (in Singapore, PostgreSQL 16, its default branch holding the
+app's database owned by the app's login), then the other tier branches, made
+from the default branch **before** anything holds data. A login copied into a
+branch this run made gets a new password there; if a run fails before that,
+it names each branch whose login still has the copied password, which you
+then reset in the console (a re-run cannot tell). It never changes or deletes
+anything that exists, refuses two projects with the same name, and can be
+re-run at any time. It touches no project outside the seven names above.
 
-It creates whatever is missing, never changes or deletes anything that
-exists, and can be re-run at any time. It creates the `test` and `dev`
-branches from `production` **before** creating any login, so no tier inherits
-another tier's password. If a branch is created later, from a `production`
-that already has the logins, the copied logins get new passwords on the new
-branch.
-
-It writes two files per tier to `~/.bkesari_neon/`, readable only by you, and
-never prints a password:
-
-- `<tier>.env`: one block per project. Copy each block into that site's
-  server `.env` (hPanel's file manager or SSH), then delete the file or keep it
-  somewhere safe.
-- `<tier>.sql`: the SQL in the next step.
+It writes one file per tier to `~/.bkesari_neon/`, readable only by you, and
+never prints a password: `<tier>.env`, one block per app. Copy each block
+into that site's server `.env` (hPanel's file manager or SSH), then delete
+the file or keep it somewhere safe.
 
 `tests/neon-provision.test.js` exercises the script against a stand-in for
 Neon's API.
 
-### 3. Shutting other logins out
-
-PostgreSQL lets every login connect to every database unless that is revoked,
-and on Neon every login made through the console or API is a member of
-`neon_superuser`, which can read and write all the data in any database it can
-connect to. So "a project only uses its own database" holds only once each
-database refuses other logins. The API cannot do that; SQL can.
-
-Run each block of `<tier>.sql` once, connected to that database over its
-**direct** string as the login the block names (psql, or the SQL Editor in
-the console). For example, for Milk & Dairy on production:
-
-```sql
--- as bk_milk_app, on bk_milk
-REVOKE CONNECT, TEMPORARY ON DATABASE "bk_milk" FROM PUBLIC;
-```
-
-and for the hub's `neondb`, as `neondb_owner`:
-
-```sql
-GRANT CONNECT, TEMPORARY ON DATABASE "neondb" TO "bk_portal_app";
-GRANT USAGE, CREATE ON SCHEMA public TO "bk_portal_app";
-```
-
-The file also carries, commented out, the matching `REVOKE … FROM PUBLIC` for
-`neondb`. Run it once the login Neon Auth connects as has its own `GRANT
-CONNECT`. Until then, other logins can still reach `neondb`.
-
-Checked on a stand-in with the same privilege model: before the SQL, the hub's
-login could read Milk & Dairy's tables; afterwards it is refused at
-connection, while each project still uses its own database and the hub creates
-and owns its tables in `neondb`.
-
-### 4. A database that already exists
+### A database that already exists
 
 The script leaves an existing database alone. If one exists under another
-owner (for example `bk_edu` made by `neondb_owner` while the project was set up
-by hand), the script says so and writes no SQL for it. If it holds nothing
-worth keeping, drop it in the console and re-run the script, which recreates
-it with the right owner. If it holds data, hand it over deliberately, as
-`neondb_owner` on that database: `GRANT <login> TO neondb_owner`, then
-`ALTER DATABASE … OWNER TO <login>` and `ALTER … OWNER TO <login>` for each
-object in its public schema. Do not use `REASSIGN OWNED`: it would also move
-every other database that `neondb_owner` owns.
+owner, the script says so. If it holds nothing worth keeping, drop it in the
+console and re-run the script, which recreates it with the right owner. If it
+holds data, hand it over deliberately, as its current owner on that database:
+`ALTER DATABASE … OWNER TO <login>`, and `ALTER … OWNER TO <login>` for each
+object in its public schema.
 
-### 5. The schema, per project
+### The schema, per app
 
 With each site's `.env` in place, apply the schema over the direct endpoint,
-using each project's own command:
+using each app's own command:
 
-| Project | Command, on the server or the Mac |
+| App | Command, on the server or the Mac |
 |---|---|
 | Hub | none: the app creates its tables on start, over `DATABASE_URL_UNPOOLED` |
 | Milk & Dairy | `npm run db:migrate` (reads `DATABASE_URL_UNPOOLED`) |
@@ -166,12 +132,12 @@ using each project's own command:
 | agtci | `npm run db:migrate` (reads `DATABASE_URL_UNPOOLED`) |
 
 Extensions some schemas use (`citext`, `btree_gist`, `pgcrypto`) are created
-by those migrations. A database's owner login can create them on Neon; no
-superuser is needed.
+by those migrations. Each app's login owns its database and belongs to
+`neon_superuser`, so it can create them; no superuser is needed.
 
 ## What each app does about Neon
 
-Each project's testing agent ran its whole suite through a TLS PgBouncer in
+Each app's testing agent ran its whole suite through a TLS PgBouncer in
 transaction mode, ran migrations over a direct TLS connection, and cut its
 connections from the server side, as a Neon suspend does. What that found and
 fixed:
@@ -202,13 +168,13 @@ fixed:
   and the first request afterwards takes a moment longer while it wakes. The
   apps' connect timeouts allow for it, and they recover from the connections
   a suspend drops.
-- **Neon's plan sets the limits**: storage, compute hours, the number of
-  branches and of projects. Dev and test can be scaled down (or allowed to
-  suspend sooner) in the console without touching production.
+- **The Free plan's limits are per project:** 1 GB of storage (writes stop
+  beyond it) and compute hours (the compute suspends until the next month).
+  The console shows each project's usage.
 
 ## Moving existing data
 
-| Project | Existing data | How |
+| App | Existing data | How |
 |---|---|---|
 | LadWani | the live Hostinger MySQL `u879099820_miladwani` | `MIGRATION.md` in the Ladwani repo — back it up first |
 | Milk & Dairy | the MySQL dev database, if it holds anything worth keeping | `DEPLOYMENT.md` §7a in the bkesari repo |
@@ -219,6 +185,6 @@ fixed:
 ## Backups and restores
 
 Neon keeps a history of each branch and can restore it to any point in that
-window (console → Restore). For a copy you hold yourself, use
-`pg_dump "$DATABASE_URL_UNPOOLED" > <project>-<date>.sql` per database: always
+window (console → the project → Restore). For a copy you hold yourself, use
+`pg_dump "$DATABASE_URL_UNPOOLED" > <app>-<date>.sql` per database: always
 the direct string, never the pooled one.
