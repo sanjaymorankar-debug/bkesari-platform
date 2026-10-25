@@ -23,7 +23,9 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   if (PRIVATE.test(url.pathname)) return;
+  // Network first: the copy cached at install is only for when the network is
+  // gone, so a deploy's new menu reaches installed phones straight away.
   if (SHELL.includes(url.pathname)) {
-    e.respondWith(caches.match(req).then((hit) => hit || fetch(req)));
+    e.respondWith(fetch(req).catch(() => caches.match(req).then((hit) => hit || Response.error())));
   }
 });
