@@ -121,6 +121,38 @@ test('one bad origin disables its own tab and leaves the others alone', () => {
   assert.match(problems[0].problem, /^EDU_ORIGIN /);
 });
 
+test('APP_ENV fills in the tier origins the environment leaves unset', () => {
+  const prod = proxy.readRoutes({ APP_ENV: 'production' });
+  assert.deepEqual(prod.routes.map((r) => [r.path, r.target]), [['/edu/', 'https://edu.bkesari.com']]);
+  assert.deepEqual(prod.problems, []);
+
+  const test = proxy.readRoutes({ APP_ENV: 'test' });
+  assert.deepEqual(test.routes.map((r) => r.target), ['https://testedu.bkesari.com', 'https://testladwani.bkesari.com']);
+
+  const dev = proxy.readRoutes({ APP_ENV: 'dev', EDU_ORIGIN: '  ' });
+  assert.deepEqual(dev.routes.map((r) => r.target), ['https://devedu.bkesari.com', 'https://devladwani.bkesari.com']);
+});
+
+test('an origin set in the environment wins over the tier default', () => {
+  const { routes } = proxy.readRoutes({ APP_ENV: 'production', EDU_ORIGIN: 'http://127.0.0.1:8000' });
+  assert.deepEqual(routes.map((r) => r.target), ['http://127.0.0.1:8000']);
+});
+
+test('an unknown APP_ENV gets no defaults', () => {
+  assert.deepEqual(proxy.readRoutes({ APP_ENV: 'local' }).routes, []);
+});
+
+test('the proxy reads APP_ENV as the same tier the hub reports, never another', () => {
+  // A spelling the proxy took for a tier while the hub fell back to the
+  // hostname could put production behind dev.bkesari.com, or the reverse.
+  for (const v of ['dev', 'Development', ' test ', 'STAGING', 'prod', 'Production', 'local', 'qa', 'live', '', undefined]) {
+    const edu = proxy.readRoutes({ APP_ENV: v }).routes.find((r) => r.key === 'edu');
+    const tiers = new Set(['dev.bkesari.com', 'test.bkesari.com', 'bkesari.com'].map((h) => menu.resolveEnv(h, v)));
+    assert.equal(Boolean(edu), tiers.size === 1, `APP_ENV=${JSON.stringify(v)}: proxy ${edu ? edu.target : 'none'}, hub ${[...tiers]}`);
+    if (edu) assert.equal(edu.target, proxy.TIER_ORIGINS[[...tiers][0]].edu);
+  }
+});
+
 test('a tab matches with and without its trailing slash', () => {
   const [route] = proxy.readRoutes({ LADWANI_ORIGIN: 'http://x' }).routes;
   // A Next.js app with basePath /ladwani serves its home page at /ladwani, so a
@@ -511,6 +543,46 @@ test('a path spelled with dot segments cannot reach an app past its gate', async
     assert.equal(await raw('/ladwani/'), 403);
     assert.equal(await raw('/edu/login'), 403);
     assert.deepEqual(gated.slice(-2), ['ladwani', 'edu']);
+  } finally {
+    await close(hub.server);
+    await close(upstream.server);
+  }
+});
+
+test('a tier default meets its gate like any other origin, and a forged token never reaches the app', async () => {
+  // TIER_ORIGINS points at live sites; for this test only, dev's point here.
+  const reached = [];
+  const upstream = await listen((req, res) => { reached.push([req.url, req.headers['x-bkesari-token'] || null]); res.end('app'); });
+  const saved = proxy.TIER_ORIGINS.dev;
+  proxy.TIER_ORIGINS.dev = { edu: upstream.origin, ladwani: upstream.origin };
+  const app = express();
+  let routes;
+  try {
+    routes = proxy.mount(app, {
+      env: { APP_ENV: 'dev' },
+      gates: {
+        // Lets a request through without a token of its own, as a gate never does.
+        edu: (req, res, next) => next(),
+        ladwani: (req, res) => res.status(403).end('gate'),
+      },
+      log: { error: () => {} },
+    });
+  } finally {
+    proxy.TIER_ORIGINS.dev = saved;
+  }
+  app.use((req, res) => res.status(404).end('hub'));
+  const hub = await listen(app);
+  const get = (path) => new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port: hub.server.address().port, path, headers: { 'x-bkesari-token': 'forged' } }, (res) => {
+      res.resume(); res.on('end', () => resolve(res.statusCode));
+    }).on('error', reject);
+  });
+  try {
+    assert.deepEqual(routes.map((r) => r.target), [upstream.origin, upstream.origin]);
+    assert.equal(await get('/ladwani/orders'), 403);
+    assert.equal(await get('/x/../ladwani/'), 404);
+    assert.equal(await get('/edu/login?x=1'), 200);
+    assert.deepEqual(reached, [['/login?x=1', null]]);
   } finally {
     await close(hub.server);
     await close(upstream.server);

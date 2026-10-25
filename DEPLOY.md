@@ -608,6 +608,11 @@ started without it serves unstyled markup with a 200 status, which
 The settings are `EDU_ORIGIN` and `LADWANI_ORIGIN`. Each tab is independent: an origin that is not set leaves
 that tab on its placeholder, so you can bring them up one at a time.
 
+When `APP_ENV` names a tier, an unset origin falls back to that tier's Hostinger
+site (`TIER_ORIGINS` in `portal/proxy.js`): dev → `devedu` / `devladwani`,
+test → `testedu` / `testladwani`, production → `edu.bkesari.com` only, since
+LadWani production is not deployed yet. A variable that is set always wins.
+
 ### Two ways to live under a prefix
 
 There are two arrangements, and which one a tab uses is a fact about the
