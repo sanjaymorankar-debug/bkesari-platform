@@ -1,0 +1,253 @@
+:root {
+  --bg: #f7f5f0;
+  --surface: #ffffff;
+  --ink: #1b1f2e;
+  --ink-muted: #5c6070;
+  --border: #e4e0d6;
+  --primary: #1e2a5a;
+  --accent: #e0902c;
+  --success: #2f8f5b;
+  --warning: #c97a22;
+  --danger: #b23a3a;
+  --matrimony: #b85c72;
+  --shadow: 0 1px 3px rgba(20, 20, 30, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body), -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: 34px;
+}
+h2 {
+  font-size: 26px;
+}
+h3 {
+  font-size: 20px;
+}
+
+p {
+  margin: 0 0 0.75rem;
+}
+
+a {
+  color: var(--primary);
+}
+
+.mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--ink-muted);
+}
+
+.shell {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 32px 20px 80px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-weight: 600;
+  font-size: 14px;
+  transition: opacity 0.15s ease;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: #fff;
+}
+
+.btn-accent {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-outline {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--ink);
+}
+
+.btn-danger {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.pill-success {
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  color: var(--success);
+}
+.pill-warning {
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
+  color: var(--warning);
+}
+.pill-danger {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
+}
+.pill-neutral {
+  background: color-mix(in srgb, var(--ink-muted) 12%, transparent);
+  color: var(--ink-muted);
+}
+
+.error-banner {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  color: var(--danger);
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.topbar nav {
+  display: flex;
+  gap: 20px;
+  font-size: 14px;
+}
+
+.topbar nav a {
+  color: var(--ink-muted);
+  text-decoration: none;
+}
+
+.topbar nav a:hover {
+  color: var(--primary);
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.avatar.deceased {
+  filter: saturate(0.4);
+  border: 2px dashed var(--border);
+}

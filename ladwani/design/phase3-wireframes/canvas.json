@@ -1,0 +1,35 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 2200 },
+    { "file": "Login.dc.html", "x": 1540, "y": 0, "w": 1440, "h": 900 },
+    { "file": "Register.dc.html", "x": 3080, "y": 0, "w": 1440, "h": 950 },
+
+    { "file": "Dashboard.dc.html", "x": 0, "y": 2300, "w": 1440, "h": 960 },
+    { "file": "DashboardMobile.dc.html", "x": 1540, "y": 2300, "w": 390, "h": 844 },
+    { "file": "FamilyProfile.dc.html", "x": 2030, "y": 2300, "w": 1440, "h": 1000 },
+
+    { "file": "FamilyTree.dc.html", "x": 0, "y": 3400, "w": 1440, "h": 960 },
+    { "file": "FamilyTreeMobile.dc.html", "x": 1540, "y": 3400, "w": 390, "h": 844 },
+    { "file": "MemberProfile.dc.html", "x": 2030, "y": 3400, "w": 1440, "h": 960 },
+
+    { "file": "MemberSearch.dc.html", "x": 0, "y": 4460, "w": 1440, "h": 960 },
+    { "file": "MatrimonyHub.dc.html", "x": 1540, "y": 4460, "w": 1440, "h": 1040 },
+    { "file": "MatrimonyProfile.dc.html", "x": 3080, "y": 4460, "w": 1440, "h": 1000 },
+
+    { "file": "CommunityFeed.dc.html", "x": 0, "y": 5600, "w": 1440, "h": 1040 },
+    { "file": "AssetDetail.dc.html", "x": 1540, "y": 5600, "w": 1440, "h": 1080 },
+    { "file": "Booking.dc.html", "x": 3080, "y": 5600, "w": 1440, "h": 960 },
+
+    { "file": "CommunityFees.dc.html", "x": 0, "y": 6780, "w": 1440, "h": 1000 },
+    { "file": "AdminDashboard.dc.html", "x": 1540, "y": 6780, "w": 1440, "h": 1040 }
+  ],
+  "annotations": [
+    { "id": "row-onboarding", "x": 0, "y": -60, "w": 400, "text": "Onboarding — Landing, Login, Register" },
+    { "id": "row-dashboard", "x": 0, "y": 2240, "w": 400, "text": "Dashboard & Family Registry (+ mobile)" },
+    { "id": "row-tree", "x": 0, "y": 3340, "w": 400, "text": "Family Tree (+ mobile) & Member Profile" },
+    { "id": "row-search", "x": 0, "y": 4400, "w": 400, "text": "Directory Search & Matrimony" },
+    { "id": "row-services", "x": 0, "y": 5540, "w": 400, "text": "Community Feed, Services & Booking" },
+    { "id": "row-admin", "x": 0, "y": 6720, "w": 400, "text": "Fees & Admin" }
+  ],
+  "launch": { "view": "canvas" }
+}

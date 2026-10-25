@@ -9,7 +9,7 @@ everything again, and writes a report.
 |---|---|---|---|
 | bkesari.com hub (welcome page, menu, Task Tracker, ATIP viewer, tab proxy) | `bkesari-platform` | `portal-tester` | `TEST_SPEC.md` |
 | Education (`/edu/`) | `bkesari-platform` | `edu-tester` | `edu/TEST_SPEC.md` |
-| LadWani (`/ladwani/`) | `Ladwani` | `ladwani-tester` | `TEST_SPEC.md` |
+| LadWani (`/ladwani/`, served by the hub; code in `ladwani/`) | `bkesari-platform` | `portal-tester` (hub side) + LadWani's own suites: `npm test`, `npm run typecheck`, the static export build | `TEST_SPEC.md` |
 | ATIP (`/ATIP/` snapshot; the platform itself runs on the Mac) | `ATIP-DEV` | `atip-tester` | `TEST_SPEC.md` |
 | Education, standalone copy (edutest.agtci.com, superseded) | `edu` | `edu-standalone-tester` | `TEST_SPEC.md` |
 | agtci.com | `agtci` | `agtci-tester` | `TEST_SPEC.md` |

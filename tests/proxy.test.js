@@ -127,10 +127,15 @@ test('APP_ENV fills in the tier origins the environment leaves unset', () => {
   assert.deepEqual(prod.problems, []);
 
   const test = proxy.readRoutes({ APP_ENV: 'test' });
-  assert.deepEqual(test.routes.map((r) => r.target), ['https://testedu.bkesari.com', 'https://testladwani.bkesari.com']);
+  assert.deepEqual(test.routes.map((r) => r.target), ['https://testedu.bkesari.com']);
 
   const dev = proxy.readRoutes({ APP_ENV: 'dev', EDU_ORIGIN: '  ' });
-  assert.deepEqual(dev.routes.map((r) => r.target), ['https://devedu.bkesari.com', 'https://devladwani.bkesari.com']);
+  assert.deepEqual(dev.routes.map((r) => r.target), ['https://devedu.bkesari.com']);
+
+  // LadWani has no tier default: the hub serves it itself (portal/ladwani.js).
+  for (const tier of ['dev', 'test', 'production']) {
+    assert.ok(!proxy.readRoutes({ APP_ENV: tier }).routes.some((r) => r.key === 'ladwani'), tier);
+  }
 });
 
 test('an origin set in the environment wins over the tier default', () => {

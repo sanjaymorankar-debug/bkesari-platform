@@ -1,0 +1,1333 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// PostgreSQL (Neon). DATABASE_URL is the pooled endpoint the running API uses;
+// DATABASE_URL_UNPOOLED is the direct one, which Prisma Migrate needs because
+// the pooler (PgBouncer, transaction mode) keeps no session state. Locally the
+// two can be the same URL.
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// A. IDENTITY & ACCESS
+// ─────────────────────────────────────────────────────────────────
+
+model Community {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logoUrl   String?  @map("logo_url")
+  settings  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  families Family[]
+  areas    Area[]
+
+  @@map("communities")
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String?   @unique
+  mobile         String?   @unique
+  hubUserId      String?   @unique @map("hub_user_id") // the bkesari ID, from the hub token
+  passwordHash   String    @map("password_hash")
+  status         String    @default("PENDING") // UserStatus
+  emailVerified  Boolean   @default(false) @map("email_verified")
+  mobileVerified Boolean   @default(false) @map("mobile_verified")
+  lastLoginAt    DateTime? @map("last_login_at")
+  failedAttempts Int       @default(0) @map("failed_attempts")
+  lockedUntil    DateTime? @map("locked_until")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  member                Member?
+  userRoles             UserRole[]
+  refreshTokens         RefreshToken[]
+  verificationTokens    VerificationToken[]
+  consentRecords        ConsentRecord[]
+  notificationsReceived Notification[]      @relation("NotificationRecipient")
+  notificationsSent     Notification[]      @relation("NotificationSender")
+
+  assetOwner AssetOwner?
+  bookings   Booking[]
+  reviews    Review[]
+
+  paymentTransactions PaymentTransaction[]
+  donations           Donation[]
+  uploadedFiles       UploadedFile[]
+
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model Role {
+  id       String  @id @default(cuid())
+  code     String  @unique
+  label    String
+  isSystem Boolean @default(false) @map("is_system")
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id     String @id @default(cuid())
+  code   String @unique
+  label  String
+  module String
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  roleId    String   @map("role_id")
+  familyId  String?  @map("family_id") // scoped Karta role
+  areaId    String?  @map("area_id") // scoped Operator role
+  grantedAt DateTime @default(now()) @map("granted_at")
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role    @relation(fields: [roleId], references: [id])
+  family Family? @relation(fields: [familyId], references: [id])
+  area   Area?   @relation(fields: [areaId], references: [id])
+
+  @@index([userId, familyId])
+  @@map("user_roles")
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id")
+  tokenHash  String    @unique @map("token_hash")
+  deviceInfo Json?     @map("device_info")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model VerificationToken {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  type      String // EMAIL_VERIFY, MOBILE_VERIFY, PASSWORD_RESET
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, usedAt])
+  @@map("verification_tokens")
+}
+
+model ConsentRecord {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  consentType String    @map("consent_type") // PROFILE_STORAGE, FAMILY_INFO, PHOTO_UPLOAD, MATRIMONIAL_VISIBILITY, COMMUNITY_DIRECTORY, NOTIFICATIONS
+  granted     Boolean
+  version     String?
+  grantedAt   DateTime  @default(now()) @map("granted_at")
+  revokedAt   DateTime? @map("revoked_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("consent_records")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// B. FAMILY REGISTRY & TREE
+// ─────────────────────────────────────────────────────────────────
+
+model Family {
+  id                 String    @id @default(cuid())
+  communityId        String    @map("community_id")
+  registrationNumber String    @unique @map("registration_number")
+  name               String
+  surname            String?
+  kartaMemberId      String?   @map("karta_member_id")
+  kuladevata         String?
+  gotra              String?
+  nativeVillage      String?   @map("native_village")
+  nativeDistrict     String?   @map("native_district")
+  nativeState        String?   @map("native_state")
+  nativeCountry      String    @default("India") @map("native_country")
+  verificationStatus String    @default("UNVERIFIED") @map("verification_status")
+  status             String    @default("PENDING")
+  createdBy          String?   @map("created_by")
+  updatedBy          String?   @map("updated_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+
+  community    Community           @relation(fields: [communityId], references: [id])
+  karta        Member?             @relation("FamilyKarta", fields: [kartaMemberId], references: [id])
+  members      FamilyMember[]
+  joinRequests FamilyJoinRequest[]
+  addresses    Address[]
+  familyAreas  FamilyArea[]
+  userRoles    UserRole[]
+
+  feeAssignments FamilyFeeAssignment[]
+  feeInvoices    FeeInvoice[]
+  ledgerEntries  FinancialLedgerEntry[]
+
+  @@index([deletedAt])
+  @@map("families")
+}
+
+model Member {
+  id                 String    @id @default(cuid())
+  userId             String?   @unique @map("user_id")
+  firstName          String    @map("first_name")
+  middleName         String?   @map("middle_name")
+  lastName           String?   @map("last_name")
+  gender             String    @default("NOT_STATED")
+  dateOfBirth        DateTime? @map("date_of_birth")
+  maritalStatus      String    @default("UNMARRIED") @map("marital_status")
+  status             String    @default("ACTIVE")
+  deceasedAt         DateTime? @map("deceased_at")
+  deceasedPlace      String?   @map("deceased_place")
+  currentCity        String?   @map("current_city")
+  currentState       String?   @map("current_state")
+  nativeVillage      String?   @map("native_village")
+  nativeDistrict     String?   @map("native_district")
+  nativeState        String?   @map("native_state")
+  educationLevelId   String?   @map("education_level_id")
+  occupationId       String?   @map("occupation_id")
+  employerOrBusiness String?   @map("employer_or_business")
+  incomeRange        String?   @map("income_range")
+  bio                String?   @db.Text
+  profilePhotoId     String?   @unique @map("profile_photo_id")
+  createdBy          String?   @map("created_by")
+  updatedBy          String?   @map("updated_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+
+  user                User?                  @relation(fields: [userId], references: [id])
+  educationLevel      EducationLevel?        @relation(fields: [educationLevelId], references: [id])
+  occupation          Occupation?            @relation(fields: [occupationId], references: [id])
+  skills              MemberSkill[]
+  families            FamilyMember[]
+  familiesAsKarta     Family[]               @relation("FamilyKarta")
+  joinRequests        FamilyJoinRequest[]
+  relationshipsFrom   MemberRelationship[]   @relation("RelationshipFrom")
+  relationshipsTo     MemberRelationship[]   @relation("RelationshipTo")
+  maritalHistory      MaritalStatusHistory[]
+  marriagesAsPartnerA MarriageRecord[]       @relation("MarriagePartnerA")
+  marriagesAsPartnerB MarriageRecord[]       @relation("MarriagePartnerB")
+  addresses           Address[]
+  memberAreas         MemberArea[]
+
+  matrimonyProfile           MatrimonyProfile?
+  matrimonyInterestsSent     MatrimonyInterest[] @relation("MatrimonyInterestFrom")
+  matrimonyInterestsReceived MatrimonyInterest[] @relation("MatrimonyInterestTo")
+  matrimonySavesMade         MatrimonySave[]     @relation("MatrimonySaveOwner")
+  matrimonySavedBy           MatrimonySave[]     @relation("MatrimonySaveTarget")
+
+  posts          Post[]
+  comments       Comment[]
+  reactions      Reaction[]
+  reportsFiled   Report[]   @relation("ReporterMember")
+  reportsAgainst Report[]   @relation("ReportedMember")
+
+  assetReportsFiled AssetReport[]
+
+  ledgerEntries FinancialLedgerEntry[]
+
+  @@index([deletedAt, gender])
+  @@index([deletedAt, maritalStatus])
+  @@index([deletedAt, status])
+  @@index([deletedAt, currentCity])
+  @@index([deletedAt, educationLevelId])
+  @@index([deletedAt, occupationId])
+  @@map("members")
+}
+
+model EducationLevel {
+  id        String  @id @default(cuid())
+  code      String  @unique
+  label     String
+  sortOrder Int     @default(0) @map("sort_order")
+  isActive  Boolean @default(true) @map("is_active")
+
+  members           Member[]
+  matrimonyProfiles MatrimonyProfile[]
+
+  @@map("education_levels")
+}
+
+model Occupation {
+  id        String  @id @default(cuid())
+  code      String  @unique
+  label     String
+  sortOrder Int     @default(0) @map("sort_order")
+  isActive  Boolean @default(true) @map("is_active")
+
+  members           Member[]
+  matrimonyProfiles MatrimonyProfile[]
+
+  @@map("occupations")
+}
+
+model Skill {
+  id       String  @id @default(cuid())
+  code     String  @unique
+  label    String
+  isActive Boolean @default(true) @map("is_active")
+
+  memberSkills MemberSkill[]
+
+  @@map("skills")
+}
+
+model MemberSkill {
+  memberId String @map("member_id")
+  skillId  String @map("skill_id")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  skill  Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@id([memberId, skillId])
+  @@index([skillId])
+  @@map("member_skills")
+}
+
+model FamilyMember {
+  id         String    @id @default(cuid())
+  familyId   String    @map("family_id")
+  memberId   String    @map("member_id")
+  isKarta    Boolean   @default(false) @map("is_karta")
+  joinedAt   DateTime  @default(now()) @map("joined_at")
+  joinedBy   String?   @map("joined_by")
+  leftAt     DateTime? @map("left_at")
+  leftReason String?   @map("left_reason") // MARRIED_OUT, DECEASED, SEPARATED, ERROR, MERGED
+
+  family Family @relation(fields: [familyId], references: [id])
+  member Member @relation(fields: [memberId], references: [id])
+
+  @@unique([familyId, memberId])
+  @@index([memberId, leftAt])
+  @@index([familyId, leftAt])
+  @@map("family_members")
+}
+
+model FamilyJoinRequest {
+  id                   String    @id @default(cuid())
+  familyId             String    @map("family_id")
+  memberId             String    @map("member_id")
+  relatedToMemberId    String?   @map("related_to_member_id")
+  relationshipTypeCode String    @map("relationship_type_code")
+  requestedBy          String    @map("requested_by") // userId
+  status               String    @default("PENDING")
+  respondedAt          DateTime? @map("responded_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, memberId, status])
+  @@index([familyId, status])
+  @@map("family_join_requests")
+}
+
+model RelationshipType {
+  id               String  @id @default(cuid())
+  code             String  @unique
+  label            String
+  inverseCode      String? @map("inverse_code")
+  genderApplicable String? @map("gender_applicable")
+  isSpouse         Boolean @default(false) @map("is_spouse")
+  isActive         Boolean @default(true) @map("is_active")
+  sortOrder        Int     @default(0) @map("sort_order")
+
+  relationships MemberRelationship[]
+
+  @@map("relationship_types")
+}
+
+model MemberRelationship {
+  id                 String   @id @default(cuid())
+  fromMemberId       String   @map("from_member_id")
+  toMemberId         String   @map("to_member_id")
+  relationshipTypeId String   @map("relationship_type_id")
+  familyId           String?  @map("family_id")
+  isActive           Boolean  @default(true) @map("is_active")
+  createdBy          String?  @map("created_by")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  fromMember       Member           @relation("RelationshipFrom", fields: [fromMemberId], references: [id])
+  toMember         Member           @relation("RelationshipTo", fields: [toMemberId], references: [id])
+  relationshipType RelationshipType @relation(fields: [relationshipTypeId], references: [id])
+
+  @@unique([fromMemberId, toMemberId, relationshipTypeId])
+  @@index([isActive, fromMemberId])
+  @@map("member_relationships")
+}
+
+model MaritalStatusHistory {
+  id            String    @id @default(cuid())
+  memberId      String    @map("member_id")
+  status        String
+  effectiveDate DateTime? @map("effective_date")
+  changedBy     String?   @map("changed_by")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id])
+
+  @@map("marital_status_history")
+}
+
+model MarriageRecord {
+  id                 String    @id @default(cuid())
+  memberId1          String    @map("member_id_1")
+  memberId2          String?   @map("member_id_2")
+  externalSpouseName String?   @map("external_spouse_name")
+  marriageDate       DateTime? @map("marriage_date")
+  status             String    @default("MARRIED")
+  createdBy          String?   @map("created_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  partnerA Member  @relation("MarriagePartnerA", fields: [memberId1], references: [id])
+  partnerB Member? @relation("MarriagePartnerB", fields: [memberId2], references: [id])
+
+  @@map("marriage_records")
+}
+
+model Address {
+  id              String   @id @default(cuid())
+  addressableType String   @map("addressable_type") // family | member — disambiguation only, not a discriminator for the FK below
+  familyId        String?  @map("family_id")
+  memberId        String?  @map("member_id")
+  addressType     String   @map("address_type") // CURRENT, NATIVE, WORK, OTHER
+  line1           String?
+  city            String?
+  state           String?
+  country         String   @default("India")
+  pincode         String?
+  isPrimary       Boolean  @default(false) @map("is_primary")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  family Family? @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  member Member? @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@map("addresses")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AREAS (minimal, needed for UserRole/Family scoping in this milestone)
+// ─────────────────────────────────────────────────────────────────
+
+model Area {
+  id          String  @id @default(cuid())
+  communityId String  @map("community_id")
+  parentId    String? @map("parent_id")
+  name        String
+  type        String // COUNTRY, STATE, DISTRICT, CITY, AREA, GROUP
+  isActive    Boolean @default(true) @map("is_active")
+
+  community   Community    @relation(fields: [communityId], references: [id])
+  parent      Area?        @relation("AreaHierarchy", fields: [parentId], references: [id])
+  children    Area[]       @relation("AreaHierarchy")
+  userRoles   UserRole[]
+  memberAreas MemberArea[]
+  familyAreas FamilyArea[]
+  posts       Post[]
+  assets      Asset[]
+  feeRules    FeeRule[]
+
+  @@map("areas")
+}
+
+model MemberArea {
+  memberId  String  @map("member_id")
+  areaId    String  @map("area_id")
+  isPrimary Boolean @default(false) @map("is_primary")
+
+  member Member @relation(fields: [memberId], references: [id])
+  area   Area   @relation(fields: [areaId], references: [id])
+
+  @@id([memberId, areaId])
+  @@map("member_areas")
+}
+
+model FamilyArea {
+  familyId  String  @map("family_id")
+  areaId    String  @map("area_id")
+  isPrimary Boolean @default(false) @map("is_primary")
+
+  family Family @relation(fields: [familyId], references: [id])
+  area   Area   @relation(fields: [areaId], references: [id])
+
+  @@id([familyId, areaId])
+  @@index([areaId])
+  @@map("family_areas")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AUDIT (needed by the audit interceptor from M0)
+// ─────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String   @map("actor_id")
+  actorRole  String?  @map("actor_role")
+  action     String
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id")
+  oldValue   Json?    @map("old_value")
+  newValue   Json?    @map("new_value")
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([actorId, createdAt])
+  @@index([entityType, createdAt])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// UPLOADS (docs/18-file-storage-design.md — dev-mode gateway pending
+// real Cloudflare R2 + malware-scan credentials, same pattern as M4's
+// payment gateway)
+// ─────────────────────────────────────────────────────────────────
+
+model UploadedFile {
+  id              String    @id @default(cuid())
+  uploaderId      String    @map("uploader_id")
+  purpose         String // PROFILE_PHOTO | ASSET_PHOTO | DOCUMENT
+  storageProvider String    @map("storage_provider")
+  storageKey      String    @unique @map("storage_key")
+  mimeType        String?   @map("mime_type")
+  sizeBytes       Int?      @map("size_bytes")
+  status          String    @default("PENDING") // PENDING | ACTIVE | REJECTED
+  rejectionReason String?   @map("rejection_reason")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  activatedAt     DateTime? @map("activated_at")
+
+  uploader User @relation(fields: [uploaderId], references: [id])
+
+  @@map("uploaded_files")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// APPROVALS (generic engine scaffold from M0)
+// ─────────────────────────────────────────────────────────────────
+
+model ApprovalRule {
+  id               String  @id @default(cuid())
+  actionCode       String  @unique @map("action_code")
+  requiresApproval Boolean @default(true) @map("requires_approval")
+  approverRole     String? @map("approver_role")
+
+  @@map("approval_rules")
+}
+
+model Approval {
+  id          String    @id @default(cuid())
+  actionCode  String    @map("action_code")
+  entityType  String?   @map("entity_type")
+  entityId    String?   @map("entity_id")
+  oldValue    Json?     @map("old_value")
+  newValue    Json?     @map("new_value")
+  status      String    @default("SUBMITTED")
+  submittedBy String    @map("submitted_by")
+  submittedAt DateTime  @default(now()) @map("submitted_at")
+  reviewedBy  String?   @map("reviewed_by")
+  reviewedAt  DateTime? @map("reviewed_at")
+  reviewNote  String?   @map("review_note") @db.Text
+
+  @@index([status, submittedAt])
+  @@map("approvals")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// D. MATRIMONY
+// ─────────────────────────────────────────────────────────────────
+
+model MatrimonyProfile {
+  id                   String   @id @default(cuid())
+  memberId             String   @unique @map("member_id")
+  isVisible            Boolean  @default(false) @map("is_visible")
+  about                String?  @db.Text
+  heightCm             Int?     @map("height_cm")
+  languages            Json?
+  allowContactRequests Boolean  @default(true) @map("allow_contact_requests")
+  educationLevelId     String?  @map("education_level_id")
+  occupationId         String?  @map("occupation_id")
+  familyBackground     String?  @db.Text
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  member         Member               @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  educationLevel EducationLevel?      @relation(fields: [educationLevelId], references: [id])
+  occupation     Occupation?          @relation(fields: [occupationId], references: [id])
+  preference     MatrimonyPreference?
+
+  @@index([isVisible])
+  @@map("matrimonial_profiles")
+}
+
+model MatrimonyPreference {
+  id                   String  @id @default(cuid())
+  matrimonyProfileId   String  @unique @map("matrimonial_profile_id")
+  minAge               Int?    @map("min_age")
+  maxAge               Int?    @map("max_age")
+  preferredGender      String? @map("preferred_gender")
+  preferredLocations   Json?   @map("preferred_locations")
+  educationPreference  String? @map("education_preference")
+  occupationPreference String? @map("occupation_preference")
+
+  profile MatrimonyProfile @relation(fields: [matrimonyProfileId], references: [id], onDelete: Cascade)
+
+  @@map("matrimonial_preferences")
+}
+
+model MatrimonyInterest {
+  id           String    @id @default(cuid())
+  fromMemberId String    @map("from_member_id")
+  toMemberId   String    @map("to_member_id")
+  kind         String    @default("INTEREST")
+  message      String?   @db.Text
+  status       String    @default("PENDING")
+  respondedAt  DateTime? @map("responded_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  fromMember Member @relation("MatrimonyInterestFrom", fields: [fromMemberId], references: [id], onDelete: Cascade)
+  toMember   Member @relation("MatrimonyInterestTo", fields: [toMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([fromMemberId, toMemberId, kind])
+  @@index([toMemberId, createdAt])
+  @@index([fromMemberId, createdAt])
+  @@index([status])
+  @@map("matrimonial_interests")
+}
+
+model MatrimonySave {
+  id            String   @id @default(cuid())
+  memberId      String   @map("member_id")
+  savedMemberId String   @map("saved_member_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  member      Member @relation("MatrimonySaveOwner", fields: [memberId], references: [id], onDelete: Cascade)
+  savedMember Member @relation("MatrimonySaveTarget", fields: [savedMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, savedMemberId])
+  @@map("matrimonial_saves")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// E. COMMUNITY SOCIAL NETWORK
+// ─────────────────────────────────────────────────────────────────
+
+model PostType {
+  id               String  @id @default(cuid())
+  code             String  @unique
+  label            String
+  icon             String?
+  requiresApproval Boolean @default(false) @map("requires_approval")
+  isActive         Boolean @default(true) @map("is_active")
+
+  posts Post[]
+
+  @@map("post_types")
+}
+
+model Post {
+  id           String    @id @default(cuid())
+  authorId     String    @map("author_id")
+  postTypeId   String    @map("post_type_id")
+  title        String?
+  content      String    @db.Text
+  targetAreaId String?   @map("target_area_id")
+  status       String    @default("PUBLISHED")
+  isPinned     Boolean   @default(false) @map("is_pinned")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  author     Member     @relation(fields: [authorId], references: [id])
+  postType   PostType   @relation(fields: [postTypeId], references: [id])
+  targetArea Area?      @relation(fields: [targetAreaId], references: [id])
+  comments   Comment[]
+  reactions  Reaction[]
+  reports    Report[]
+
+  @@index([deletedAt, status, isPinned, createdAt])
+  @@map("posts")
+}
+
+model Comment {
+  id        String    @id @default(cuid())
+  postId    String    @map("post_id")
+  authorId  String    @map("author_id")
+  parentId  String?   @map("parent_id")
+  content   String    @db.Text
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  post      Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    Member     @relation(fields: [authorId], references: [id])
+  parent    Comment?   @relation("CommentReplies", fields: [parentId], references: [id])
+  replies   Comment[]  @relation("CommentReplies")
+  reactions Reaction[]
+  reports   Report[]
+
+  @@map("comments")
+}
+
+model Reaction {
+  id        String   @id @default(cuid())
+  postId    String?  @map("post_id")
+  commentId String?  @map("comment_id")
+  memberId  String   @map("member_id")
+  type      String   @default("LIKE")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  post    Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  member  Member   @relation(fields: [memberId], references: [id])
+
+  @@unique([postId, memberId])
+  @@unique([commentId, memberId])
+  @@map("reactions")
+}
+
+model Report {
+  id         String    @id @default(cuid())
+  postId     String?   @map("post_id")
+  commentId  String?   @map("comment_id")
+  memberId   String?   @map("member_id")
+  reporterId String    @map("reporter_id")
+  reason     String    @db.Text
+  status     String    @default("PENDING")
+  resolvedBy String?   @map("resolved_by")
+  resolvedAt DateTime? @map("resolved_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  post           Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment        Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  reportedMember Member?  @relation("ReportedMember", fields: [memberId], references: [id])
+  reporter       Member   @relation("ReporterMember", fields: [reporterId], references: [id])
+
+  @@index([status, createdAt])
+  @@map("reports")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// I. NOTIFICATIONS
+// ─────────────────────────────────────────────────────────────────
+
+model Notification {
+  id          String   @id @default(cuid())
+  recipientId String   @map("recipient_id")
+  senderId    String?  @map("sender_id")
+  type        String
+  title       String
+  body        String   @db.Text
+  data        Json?
+  isRead      Boolean  @default(false) @map("is_read")
+  emailSent   Boolean  @default(false) @map("email_sent")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  recipient User  @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  sender    User? @relation("NotificationSender", fields: [senderId], references: [id])
+
+  @@index([recipientId, isRead, createdAt])
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// F. COMMUNITY SERVICES, ASSETS & BOOKING
+// ─────────────────────────────────────────────────────────────────
+
+model AssetCategory {
+  id        String  @id @default(cuid())
+  code      String  @unique
+  label     String
+  parentId  String? @map("parent_id")
+  sortOrder Int     @default(0) @map("sort_order")
+  isActive  Boolean @default(true) @map("is_active")
+
+  parent   AssetCategory?  @relation("AssetCategoryTree", fields: [parentId], references: [id])
+  children AssetCategory[] @relation("AssetCategoryTree")
+  assets   Asset[]
+
+  @@map("asset_categories")
+}
+
+model AssetOwner {
+  id           String    @id @default(cuid())
+  userId       String    @unique @map("user_id")
+  businessName String?   @map("business_name")
+  verifiedAt   DateTime? @map("verified_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assets Asset[]
+
+  @@map("asset_owners")
+}
+
+// Cancellation policy lives directly on the asset (deadline/refund tiers/flat charge) — docs/11-booking-architecture.md §5.
+model Asset {
+  id                        String    @id @default(cuid())
+  assetOwnerId              String    @map("asset_owner_id")
+  categoryId                String    @map("category_id")
+  name                      String
+  description               String?   @db.Text
+  addressLine               String?   @map("address_line")
+  city                      String?
+  district                  String?
+  state                     String?
+  pincode                   String?
+  areaId                    String?   @map("area_id")
+  capacity                  Int?
+  status                    String    @default("PENDING_VERIFICATION")
+  bookingApprovalRequired   Boolean   @default(false) @map("booking_approval_required")
+  cancellationDeadlineDays  Int       @default(7) @map("cancellation_deadline_days")
+  cancellationRefundPercent Int       @default(50) @map("cancellation_refund_percent")
+  flatCancellationCharge    Decimal   @default(0) @map("flat_cancellation_charge") @db.Decimal(10, 2)
+  taxPercent                Decimal   @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  communityDiscountPercent  Decimal   @default(0) @map("community_discount_percent") @db.Decimal(5, 2)
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+  deletedAt                 DateTime? @map("deleted_at")
+
+  assetOwner   AssetOwner          @relation(fields: [assetOwnerId], references: [id])
+  category     AssetCategory       @relation(fields: [categoryId], references: [id])
+  area         Area?               @relation(fields: [areaId], references: [id])
+  photos       AssetPhoto[]
+  facilities   AssetFacility[]
+  pricing      AssetPricing[]
+  availability AssetAvailability[]
+  blockedDates AssetBlockedDate[]
+  services     AssetService[]
+  bookings     Booking[]
+  reviews      Review[]
+  reports      AssetReport[]
+
+  @@index([deletedAt, status])
+  @@index([deletedAt, categoryId])
+  @@map("assets")
+}
+
+model AssetPhoto {
+  id        String   @id @default(cuid())
+  assetId   String   @map("asset_id")
+  url       String
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@map("asset_photos")
+}
+
+model AssetFacility {
+  id           String @id @default(cuid())
+  assetId      String @map("asset_id")
+  facilityCode String @map("facility_code")
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, facilityCode])
+  @@map("asset_facilities")
+}
+
+model AssetPricing {
+  id        String    @id @default(cuid())
+  assetId   String    @map("asset_id")
+  priceType String    @map("price_type")
+  amount    Decimal   @db.Decimal(10, 2)
+  validFrom DateTime? @map("valid_from")
+  validTo   DateTime? @map("valid_to")
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@map("asset_pricing")
+}
+
+// The row docs/11-booking-architecture.md §2's SELECT ... FOR UPDATE transaction locks — the single writable source of truth for whether a slot can be booked.
+model AssetAvailability {
+  id      String   @id @default(cuid())
+  assetId String   @map("asset_id")
+  date    DateTime @db.Date
+  slot    String   @default("FULL_DAY")
+  status  String   @default("AVAILABLE")
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, date, slot])
+  @@map("asset_availability")
+}
+
+model AssetBlockedDate {
+  id       String   @id @default(cuid())
+  assetId  String   @map("asset_id")
+  dateFrom DateTime @map("date_from") @db.Date
+  dateTo   DateTime @map("date_to") @db.Date
+  reason   String?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@map("asset_blocked_dates")
+}
+
+model AssetService {
+  id      String @id @default(cuid())
+  assetId String @map("asset_id")
+  code    String
+  label   String
+
+  asset   Asset                @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  pricing AssetServicePricing?
+
+  @@unique([assetId, code])
+  @@map("asset_services")
+}
+
+model AssetServicePricing {
+  id             String  @id @default(cuid())
+  assetServiceId String  @unique @map("asset_service_id")
+  amount         Decimal @db.Decimal(10, 2)
+  unit           String  @default("FLAT")
+
+  assetService AssetService @relation(fields: [assetServiceId], references: [id], onDelete: Cascade)
+
+  @@map("asset_service_pricing")
+}
+
+model AssetReport {
+  id         String    @id @default(cuid())
+  assetId    String    @map("asset_id")
+  reporterId String    @map("reporter_id")
+  reason     String    @db.Text
+  status     String    @default("PENDING")
+  resolvedBy String?   @map("resolved_by")
+  resolvedAt DateTime? @map("resolved_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  asset    Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  reporter Member @relation(fields: [reporterId], references: [id])
+
+  @@map("asset_reports")
+}
+
+model Booking {
+  id              String   @id @default(cuid())
+  assetId         String   @map("asset_id")
+  userId          String   @map("user_id")
+  status          String   @default("REQUESTED")
+  bookingType     String   @map("booking_type")
+  date            DateTime @db.Date
+  slot            String   @default("FULL_DAY")
+  totalAmount     Decimal  @default(0) @map("total_amount") @db.Decimal(10, 2)
+  securityDeposit Decimal  @default(0) @map("security_deposit") @db.Decimal(10, 2)
+  qrTokenHash     String?  @map("qr_token_hash")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  asset         Asset                  @relation(fields: [assetId], references: [id])
+  user          User                   @relation(fields: [userId], references: [id])
+  items         BookingItem[]
+  guests        BookingGuest[]
+  statusHistory BookingStatusHistory[]
+  review        Review?
+  invoice       BookingInvoice?
+  ledgerEntries FinancialLedgerEntry[]
+
+  @@index([userId, createdAt])
+  @@index([status, assetId])
+  @@map("bookings")
+}
+
+model BookingItem {
+  id          String  @id @default(cuid())
+  bookingId   String  @map("booking_id")
+  itemType    String  @map("item_type")
+  description String
+  quantity    Int     @default(1)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(10, 2)
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("booking_items")
+}
+
+model BookingGuest {
+  id        String  @id @default(cuid())
+  bookingId String  @map("booking_id")
+  name      String
+  contact   String?
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("booking_guests")
+}
+
+model BookingStatusHistory {
+  id         String   @id @default(cuid())
+  bookingId  String   @map("booking_id")
+  fromStatus String?  @map("from_status")
+  toStatus   String   @map("to_status")
+  changedBy  String?  @map("changed_by")
+  reason     String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("booking_status_history")
+}
+
+// Gated on booking.status = COMPLETED and booking.userId = reviewer at write time — docs/11 §7 — not just a UI affordance.
+model Review {
+  id               String   @id @default(cuid())
+  bookingId        String   @unique @map("booking_id")
+  assetId          String   @map("asset_id")
+  reviewerId       String   @map("reviewer_id")
+  overallScore     Int      @map("overall_score")
+  cleanlinessScore Int?     @map("cleanliness_score")
+  facilitiesScore  Int?     @map("facilities_score")
+  serviceScore     Int?     @map("service_score")
+  valueScore       Int?     @map("value_score")
+  locationScore    Int?     @map("location_score")
+  comment          String?  @db.Text
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  booking  Booking @relation(fields: [bookingId], references: [id])
+  asset    Asset   @relation(fields: [assetId], references: [id])
+  reviewer User    @relation(fields: [reviewerId], references: [id])
+
+  @@index([assetId, createdAt])
+  @@map("reviews")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// G. PAYMENTS
+// ─────────────────────────────────────────────────────────────────
+
+// The single row every payment flow (fee, booking, donation) creates one of — docs/10 §1.
+model PaymentTransaction {
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  purposeType    String   @map("purpose_type") // FEE | BOOKING | DONATION
+  purposeId      String   @map("purpose_id")
+  gatewayCode    String   @map("gateway_code") // DEV | RAZORPAY
+  amount         Decimal  @db.Decimal(10, 2)
+  currency       String   @default("INR")
+  status         String   @default("CREATED")
+  idempotencyKey String?  @unique @map("idempotency_key")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user               User                       @relation(fields: [userId], references: [id])
+  gatewayTransaction PaymentGatewayTransaction?
+  webhooks           PaymentWebhook[]
+  refunds            Refund[]
+  receipt            PaymentReceipt?
+  donation           Donation?
+  ledgerEntries      FinancialLedgerEntry[]
+
+  @@index([gatewayCode, status, updatedAt])
+  @@map("payment_transactions")
+}
+
+model PaymentGatewayTransaction {
+  id                   String  @id @default(cuid())
+  paymentTransactionId String  @unique @map("payment_transaction_id")
+  gatewayOrderId       String? @map("gateway_order_id")
+  gatewayPaymentId     String? @map("gateway_payment_id")
+  gatewaySignature     String? @map("gateway_signature")
+  rawResponse          Json?   @map("raw_response")
+
+  paymentTransaction PaymentTransaction @relation(fields: [paymentTransactionId], references: [id], onDelete: Cascade)
+
+  @@index([gatewayOrderId])
+  @@map("payment_gateway_transactions")
+}
+
+// Every inbound webhook, verified or not, persisted before any business logic runs — docs/19 §3.
+model PaymentWebhook {
+  id                   String   @id @default(cuid())
+  paymentTransactionId String?  @map("payment_transaction_id")
+  gatewayCode          String   @map("gateway_code")
+  gatewayEventId       String   @map("gateway_event_id")
+  eventType            String   @map("event_type")
+  signatureValid       Boolean  @map("signature_valid")
+  payload              Json
+  receivedAt           DateTime @default(now()) @map("received_at")
+
+  paymentTransaction PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id])
+
+  @@unique([gatewayCode, gatewayEventId])
+  @@map("payment_webhooks")
+}
+
+model PaymentReceipt {
+  id                   String   @id @default(cuid())
+  paymentTransactionId String   @unique @map("payment_transaction_id")
+  receiptNumber        String   @unique @map("receipt_number")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  paymentTransaction PaymentTransaction @relation(fields: [paymentTransactionId], references: [id])
+
+  @@map("payment_receipts")
+}
+
+model Refund {
+  id                   String   @id @default(cuid())
+  paymentTransactionId String   @map("payment_transaction_id")
+  amount               Decimal  @db.Decimal(10, 2)
+  reason               String?  @db.Text
+  status               String   @default("PENDING")
+  gatewayRefundId      String?  @map("gateway_refund_id")
+  cancellationCharge   Decimal? @map("cancellation_charge") @db.Decimal(10, 2)
+  approvedBy           String?  @map("approved_by")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  paymentTransaction PaymentTransaction     @relation(fields: [paymentTransactionId], references: [id])
+  ledgerEntries      FinancialLedgerEntry[]
+
+  @@map("refunds")
+}
+
+model BookingInvoice {
+  id            String   @id @default(cuid())
+  bookingId     String   @unique @map("booking_id")
+  invoiceNumber String   @unique @map("invoice_number")
+  taxAmount     Decimal  @map("tax_amount") @db.Decimal(10, 2)
+  totalAmount   Decimal  @map("total_amount") @db.Decimal(10, 2)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+
+  @@map("booking_invoices")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// H. COMMUNITY FEES & DONATIONS
+// ─────────────────────────────────────────────────────────────────
+
+model FinancialYear {
+  id        String   @id @default(cuid())
+  label     String   @unique
+  startDate DateTime @map("start_date") @db.Date
+  endDate   DateTime @map("end_date") @db.Date
+
+  feeRules      FeeRule[]
+  invoices      FeeInvoice[]
+  ledgerEntries FinancialLedgerEntry[]
+
+  @@map("financial_years")
+}
+
+model CommunityFeeType {
+  id            String  @id @default(cuid())
+  code          String  @unique
+  label         String
+  defaultAmount Decimal @map("default_amount") @db.Decimal(10, 2)
+  frequency     String // ANNUAL | MONTHLY | ONE_TIME | EVENT
+
+  rules FeeRule[]
+
+  @@map("community_fee_types")
+}
+
+model FeeRule {
+  id              String  @id @default(cuid())
+  feeTypeId       String  @map("fee_type_id")
+  financialYearId String  @map("financial_year_id")
+  amount          Decimal @db.Decimal(10, 2)
+  areaId          String? @map("area_id")
+  lateFeeAmount   Decimal @default(0) @map("late_fee_amount") @db.Decimal(10, 2)
+  gracePeriodDays Int     @default(0) @map("grace_period_days")
+
+  feeType       CommunityFeeType      @relation(fields: [feeTypeId], references: [id])
+  financialYear FinancialYear         @relation(fields: [financialYearId], references: [id])
+  area          Area?                 @relation(fields: [areaId], references: [id])
+  assignments   FamilyFeeAssignment[]
+  invoices      FeeInvoice[]
+
+  @@map("fee_rules")
+}
+
+model FamilyFeeAssignment {
+  id            String   @id @default(cuid())
+  familyId      String   @map("family_id")
+  feeRuleId     String   @map("fee_rule_id")
+  effectiveDate DateTime @map("effective_date") @db.Date
+
+  family  Family  @relation(fields: [familyId], references: [id])
+  feeRule FeeRule @relation(fields: [feeRuleId], references: [id])
+
+  @@unique([familyId, feeRuleId])
+  @@map("family_fee_assignments")
+}
+
+// Late fees are computed at read time from the rule's grace period + amount, not accrued by a cron
+// (no job scheduler exists yet, same limitation noted in M3 for booking expiry).
+model FeeInvoice {
+  id              String   @id @default(cuid())
+  familyId        String   @map("family_id")
+  feeRuleId       String   @map("fee_rule_id")
+  financialYearId String   @map("financial_year_id")
+  amountBilled    Decimal  @map("amount_billed") @db.Decimal(10, 2)
+  amountPaid      Decimal  @default(0) @map("amount_paid") @db.Decimal(10, 2)
+  status          String   @default("UNPAID")
+  dueDate         DateTime @map("due_date") @db.Date
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  family          Family                 @relation(fields: [familyId], references: [id])
+  feeRule         FeeRule                @relation(fields: [feeRuleId], references: [id])
+  financialYear   FinancialYear          @relation(fields: [financialYearId], references: [id])
+  items           FeeInvoiceItem[]
+  waivers         FeeWaiver[]
+  offlinePayments OfflinePayment[]
+  ledgerEntries   FinancialLedgerEntry[]
+
+  @@index([familyId, createdAt])
+  @@map("fee_invoices")
+}
+
+model FeeInvoiceItem {
+  id           String  @id @default(cuid())
+  feeInvoiceId String  @map("fee_invoice_id")
+  description  String
+  amount       Decimal @db.Decimal(10, 2)
+
+  feeInvoice FeeInvoice @relation(fields: [feeInvoiceId], references: [id], onDelete: Cascade)
+
+  @@map("fee_invoice_items")
+}
+
+model FeeWaiver {
+  id              String   @id @default(cuid())
+  feeInvoiceId    String   @map("fee_invoice_id")
+  type            String // DISCOUNT | WAIVER
+  originalAmount  Decimal  @map("original_amount") @db.Decimal(10, 2)
+  reductionAmount Decimal  @map("reduction_amount") @db.Decimal(10, 2)
+  reason          String   @db.Text
+  approvedBy      String   @map("approved_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  feeInvoice FeeInvoice @relation(fields: [feeInvoiceId], references: [id])
+
+  @@map("fee_waivers")
+}
+
+model OfflinePayment {
+  id           String    @id @default(cuid())
+  feeInvoiceId String    @map("fee_invoice_id")
+  amount       Decimal   @db.Decimal(10, 2)
+  method       String // CASH | BANK_TRANSFER | CHEQUE
+  reference    String?
+  status       String    @default("PENDING_VERIFICATION")
+  recordedBy   String    @map("recorded_by")
+  verifiedBy   String?   @map("verified_by")
+  verifiedAt   DateTime? @map("verified_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  feeInvoice FeeInvoice @relation(fields: [feeInvoiceId], references: [id])
+
+  @@map("offline_payments")
+}
+
+model DonationCause {
+  id       String  @id @default(cuid())
+  code     String  @unique
+  label    String
+  isActive Boolean @default(true) @map("is_active")
+
+  donations Donation[]
+
+  @@map("donation_causes")
+}
+
+model Donation {
+  id                   String   @id @default(cuid())
+  donorUserId          String   @map("donor_user_id")
+  causeId              String   @map("cause_id")
+  amount               Decimal  @db.Decimal(10, 2)
+  paymentTransactionId String?  @unique @map("payment_transaction_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  donor              User                   @relation(fields: [donorUserId], references: [id])
+  cause              DonationCause          @relation(fields: [causeId], references: [id])
+  paymentTransaction PaymentTransaction?    @relation(fields: [paymentTransactionId], references: [id])
+  ledgerEntries      FinancialLedgerEntry[]
+
+  @@index([donorUserId, createdAt])
+  @@map("donations")
+}
+
+// The append-only source of truth for every rupee — docs/06 §H.
+model FinancialLedgerEntry {
+  id                   String   @id @default(cuid())
+  entryType            String   @map("entry_type") // FEE | BOOKING | DONATION | REFUND | ADJUSTMENT | GATEWAY_FEE
+  familyId             String?  @map("family_id")
+  memberId             String?  @map("member_id")
+  bookingId            String?  @map("booking_id")
+  feeInvoiceId         String?  @map("fee_invoice_id")
+  donationId           String?  @map("donation_id")
+  paymentTransactionId String?  @map("payment_transaction_id")
+  refundId             String?  @map("refund_id")
+  amount               Decimal  @db.Decimal(10, 2)
+  tax                  Decimal  @default(0) @db.Decimal(10, 2)
+  discount             Decimal  @default(0) @db.Decimal(10, 2)
+  netAmount            Decimal  @map("net_amount") @db.Decimal(10, 2)
+  financialYearId      String?  @map("financial_year_id")
+  createdBy            String?  @map("created_by")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  family             Family?             @relation(fields: [familyId], references: [id])
+  member             Member?             @relation(fields: [memberId], references: [id])
+  booking            Booking?            @relation(fields: [bookingId], references: [id])
+  feeInvoice         FeeInvoice?         @relation(fields: [feeInvoiceId], references: [id])
+  donation           Donation?           @relation(fields: [donationId], references: [id])
+  paymentTransaction PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id])
+  refund             Refund?             @relation(fields: [refundId], references: [id])
+  financialYear      FinancialYear?      @relation(fields: [financialYearId], references: [id])
+
+  @@index([entryType])
+  @@map("financial_ledger")
+}
+
+model PaymentReconciliation {
+  id          String    @id @default(cuid())
+  runDate     DateTime  @default(now()) @map("run_date")
+  gatewayCode String    @map("gateway_code")
+  mismatches  Json
+  resolvedBy  String?   @map("resolved_by")
+  resolvedAt  DateTime? @map("resolved_at")
+
+  @@map("payment_reconciliation")
+}
