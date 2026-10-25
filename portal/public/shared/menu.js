@@ -45,13 +45,12 @@
    * works on dev, test and production without substitution.
    */
   const TABS = [
-    { name: 'Milk & Dairy Products', path: '/milk/',              icon: '🥛', tagline: 'Dairy and bakery ordering' },
-    { name: 'Education',             path: '/edu/',               icon: '🎓', tagline: 'School and student governance' },
-    { name: 'Global Warming',        path: '/global-warming/',    icon: '🌍', tagline: 'Climate facts and local impact' },
-    { name: 'LadWani',               path: '/ladwani/',           icon: '👪', tagline: 'Family and community portal' },
-    { name: 'TaskList',              path: '/tasks/',             icon: '✅', tagline: 'Projects, tasks and status updates' },
-    { name: 'ATIP',                  path: '/atip/',              icon: '📈', tagline: 'Trading intelligence, view only' },
-    { name: 'Driving Simulator',     path: '/driving-simulator/', icon: '🚗', tagline: 'Driver training simulator' },
+    { name: 'LadWani',                  path: '/ladwani/',           icon: '👪', tagline: 'Family and community portal' },
+    { name: 'ATIP',                     path: '/ATIP/',              icon: '📈', tagline: 'Trading intelligence, view only', ownerOnly: true },
+    { name: 'Education',                path: '/edu/',               icon: '🎓', tagline: 'School and student governance' },
+    { name: 'TaskList',                 path: '/tasks/',             icon: '✅', tagline: 'Projects, tasks and status updates' },
+    { name: 'Driving Simulator',        path: '/driving-simulator/', icon: '🚗', tagline: 'Driver training simulator' },
+    { name: 'Environmental Activities', path: '/environment/',       icon: '🌍', tagline: 'Climate facts and local impact' },
   ];
 
   function escapeHtml(value) {
@@ -82,15 +81,15 @@
   /**
    * The tab a path belongs to, by longest matching prefix, or '/' for home.
    *
-   * Prefix rather than equality so a page deep inside a project — /milk/cart,
+   * Prefix rather than equality so a page deep inside a project — /ladwani/members,
    * /tasks/42 — still lights up its own tab.
    */
   function activeTabPath(pathname) {
-    const path = String(pathname || '/');
+    const path = String(pathname || '/').toLowerCase();
     let match = '/';
     for (const tab of TABS) {
-      // Compare without the trailing slash so /milk and /milk/ both match.
-      const base = tab.path.replace(/\/$/, '');
+      // Compare without the trailing slash so /ladwani and /ladwani/ both match.
+      const base = tab.path.replace(/\/$/, '').toLowerCase();
       if ((path === base || path.startsWith(base + '/')) && base.length > match.length) {
         match = tab.path;
       }
@@ -160,7 +159,8 @@
     const isHome = active === '/';
     const envPill = env === 'prod' ? '' : ` <span class="bk-env">${escapeHtml(env)}</span>`;
 
-    const items = TABS.map((tab) => {
+    // ATIP is the owner's alone: left out of everyone else's bar entirely.
+    const items = TABS.filter((tab) => !tab.ownerOnly || opts.isOwner).map((tab) => {
       const current = tab.path === active ? ' aria-current="page"' : '';
       return `<li><a href="${escapeHtml(tab.path)}"${current}>${escapeHtml(tab.name)}</a></li>`;
     }).join('');
@@ -203,10 +203,26 @@
       ),
     });
     const slot = d.querySelector('[data-bkesari-menu]');
-    if (slot) { slot.innerHTML = html; return; }
-    const holder = d.createElement('div');
-    holder.innerHTML = html;
-    while (holder.firstChild) d.body.insertBefore(holder.firstChild, d.body.firstChild);
+    if (slot) { slot.innerHTML = html; } else {
+      const holder = d.createElement('div');
+      holder.innerHTML = html;
+      while (holder.firstChild) d.body.insertBefore(holder.firstChild, d.body.firstChild);
+    }
+    // The bar above leaves ATIP out. Only the owner's session adds it back, and
+    // only the server knows that, so ask it once.
+    if (typeof fetch === 'function') {
+      fetch('/hub/api/me', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)).then((me) => {
+        if (!me || !me.owner) return;
+        const ul = d.querySelector('.bk-menu .bk-tabs');
+        if (!ul || ul.querySelector('[data-bk-atip]')) return;
+        const tab = TABS.find((t) => t.ownerOnly);
+        const li = d.createElement('li');
+        li.setAttribute('data-bk-atip', '');
+        li.innerHTML = `<a href="${escapeHtml(tab.path)}"${activeTabPath(d.location.pathname) === tab.path ? ' aria-current="page"' : ''}>${escapeHtml(tab.name)}</a>`;
+        const ladwani = ul.children[0];
+        ul.insertBefore(li, ladwani ? ladwani.nextSibling : null);
+      }).catch(() => {});
+    }
   }
 
   function autoMount() {

@@ -5,7 +5,10 @@
 # mis-aimed deploy to production is the one mistake this stage cannot afford.
 #
 # No database credential is stored in GitHub. The server's own .env holds them
-# and rsync never writes or deletes it — see the "Upload" step.
+# and rsync never writes or deletes it — see the "Upload" step. On dev that is
+# DATABASE_URL (pooled) and DATABASE_URL_UNPOOLED (direct) for `neondb` as
+# `bk_portal_app` on Neon's `dev` branch, and nothing of any other tier (docs/NEON.md).
+# The checks below never reach Neon; they use their own throwaway PostgreSQL.
 name: Deploy dev (portal)
 
 on:
@@ -38,6 +41,18 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # A throwaway PostgreSQL for the tracker tests, as in ci.yml.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bk_portal
+          POSTGRES_PASSWORD: ci-only-not-a-real-password
+          POSTGRES_DB: bk_portal_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U bk_portal -d bk_portal_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -50,7 +65,17 @@ jobs:
 
       # The same checks CI runs. The deploy is gated on them so that the thing
       # which publishes is the thing that verified.
-      - run: npm test
+      # A skip would mean the database tests proved nothing; ci.yml says why.
+      - name: Tests
+        env:
+          TEST_DATABASE_URL: postgresql://bk_portal:ci-only-not-a-real-password@127.0.0.1:5432/bk_portal_test
+        run: |
+          set -euo pipefail
+          npm test 2>&1 | tee /tmp/tests.txt
+          if grep -q '# SKIP' /tmp/tests.txt; then
+            echo "::error::tests skipped - TEST_DATABASE_URL is not reaching them"
+            exit 1
+          fi
 
   deploy:
     needs: check
@@ -106,7 +131,8 @@ jobs:
           #
           #   .env          the credentials, filled in by hand on the server
           #   node_modules  installed on the server by the next step
-          #   data/         portal/data, the sqlite file when DB_CLIENT=sqlite
+          #   data/         portal/data, which older releases used for a local
+          #                 SQLite file; kept excluded so nothing there is deleted
           RSYNC_FLAGS=(
             --archive --compress --human-readable
             --delete

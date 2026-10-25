@@ -15,6 +15,21 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # The portal's database. Disposable: the tracker tests wipe their tables.
+    # CI never reaches Neon: everything here runs against this container.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bk_portal
+          POSTGRES_PASSWORD: ci-only-not-a-real-password
+          POSTGRES_DB: bk_portal_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U bk_portal -d bk_portal_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -30,21 +45,49 @@ jobs:
       - name: Parse the server and the shared menu
         run: npm run check
 
-      # The menu's unit tests, plus the deploy guard's own tests: the rules
+      # Two built files are committed, because deploys run `npm ci --omit=dev`
+      # on the server and never build: the Neon Realtime browser client
+      # (portal/public/tasks/live.js) and the Neon Auth server toolkit
+      # (portal/vendor/neon-auth-server.js). Rebuild both and fail if either
+      # committed copy is stale.
+      - name: The built files match their sources
+        run: |
+          npm run build
+          git diff --exit-code -- portal/public/tasks/live.js portal/vendor/neon-auth-server.js \
+            || { echo "::error::a built file is out of date: run npm run build and commit it"; exit 1; }
+
+      # The menu's unit tests, the Task Tracker and ATIP snapshot routes against
+      # the real PostgreSQL above, plus the deploy guard's own tests: the rules
       # that keep a dev deploy off test and production are themselves tested.
+      #
+      # The PostgreSQL tests skip themselves when TEST_DATABASE_URL is unset, so
+      # if the env below were ever dropped this step would still go green while
+      # proving nothing about the database. A skip here is a failure.
       - name: Tests
-        run: npm test
+        env:
+          TEST_DATABASE_URL: postgresql://bk_portal:ci-only-not-a-real-password@127.0.0.1:5432/bk_portal_test
+        run: |
+          set -euo pipefail
+          npm test 2>&1 | tee /tmp/tests.txt
+          if grep -q '# SKIP' /tmp/tests.txt; then
+            echo "::error::tests skipped - TEST_DATABASE_URL is not reaching them"
+            exit 1
+          fi
 
       # The app has to survive being started, not just parsed — and the smoke
       # script that gates every deploy should itself be exercised somewhere.
-      # sqlite needs no server, so this runs without touching any real
-      # database. The logins are set so the access-control checks have
-      # something to assert; unset, the tracker would be open and the smoke
-      # test would (correctly) fail.
+      # It runs against the CI PostgreSQL service, never a real database. The
+      # logins are set so the access-control checks have something to assert;
+      # unset, the tracker would be open and the smoke test would (correctly)
+      # fail.
+      #
+      # The two names a Neon tier's .env uses (docs/NEON.md), both pointing at
+      # the one container here: CI has no pooler, so this proves the settings
+      # are read, not how PgBouncer behaves (TEST_SPEC.md, Neon parity).
       - name: Start the hub and run the smoke test against it
         env:
-          DB_CLIENT: sqlite
-          SQLITE_PATH: ./data/ci.db
+          DATABASE_URL: postgresql://bk_portal:ci-only-not-a-real-password@127.0.0.1:5432/bk_portal_test
+          DATABASE_URL_UNPOOLED: postgresql://bk_portal:ci-only-not-a-real-password@127.0.0.1:5432/bk_portal_test
           PORT: 3100
           APP_ENV: dev
           TRACKER_USER: ci
@@ -81,68 +124,27 @@ jobs:
 
           kill "$(cat /tmp/hub.pid)"
 
-  # The `test` job above runs the database tests on SQLite, because that is what
-  # needs no server. Production runs on MySQL, so the MySQL half of
-  # tests/db-dialects.test.js skips there and would never run anywhere. This job
-  # is where it runs: same tests, same assertions, real MySQL.
-  db-mysql:
-    runs-on: ubuntu-latest
-
-    services:
-      mysql:
-        # Matches the local devstack, so a failure here reproduces with
-        # `npm run test:mysql` rather than only in CI.
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: bkesari_platform_test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -proot"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=10
-
-    env:
-      TEST_MYSQL_HOST: 127.0.0.1
-      TEST_MYSQL_PORT: 3306
-      TEST_MYSQL_NAME: bkesari_platform_test
-      TEST_MYSQL_USER: root
-      TEST_MYSQL_PASSWORD: root
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - run: npm ci
-
-      # No --env-file here: the service's coordinates are in `env` above, and
-      # .env.test is gitignored so it does not exist in a checkout. Reaching
-      # for `npm run test:mysql` would fail on the missing file.
-      #
-      # The skip check is the point of the job as much as the tests are: the
-      # MySQL cases skip themselves when TEST_MYSQL_NAME is unset, so if the
-      # env block above were ever dropped this job would still go green while
-      # proving nothing. A skip here is a failure.
-      - name: Database tests on MySQL
-        run: |
-          set -euo pipefail
-          node --test tests/*.test.js 2>&1 | tee /tmp/db-tests.txt
-          if grep -q '# SKIP' /tmp/db-tests.txt; then
-            echo "::error::tests skipped on the MySQL job - TEST_MYSQL_* is not reaching them"
-            exit 1
-          fi
-
-  # edu/ has 375 PHPUnit tests that nothing was running. They use in-memory
-  # sqlite (see edu/phpunit.xml), so they need no database service and finish
-  # in about twelve seconds — there was no good reason for them to sit unrun.
+  # edu/'s PHPUnit suite, three times: on in-memory sqlite (edu/phpunit.xml's
+  # default, so it also runs anywhere with no database), on PostgreSQL, which
+  # is what every tier actually runs, and on PostgreSQL through PgBouncer in
+  # transaction mode, which is how every tier reaches it (Neon's pooled
+  # endpoint).
   edu:
     runs-on: ubuntu-latest
+    # A throwaway PostgreSQL (the production database engine) for the suite's
+    # second run below.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bk_edu
+          POSTGRES_PASSWORD: ci-only-not-a-real-password
+          POSTGRES_DB: bk_edu_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U bk_edu -d bk_edu_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
     defaults:
       run:
         working-directory: edu
@@ -154,7 +156,7 @@ jobs:
         with:
           # Matches composer.json's "php": "^8.3" and Hostinger's PHP version.
           php-version: '8.3'
-          extensions: mbstring, bcmath, pdo_sqlite, sqlite3, zip, intl, gd
+          extensions: mbstring, bcmath, pdo_sqlite, sqlite3, pdo_pgsql, pgsql, zip, intl, gd
           coverage: none
 
       - name: Install dependencies
@@ -171,6 +173,78 @@ jobs:
 
       - name: Tests
         run: php artisan test
+
+      # The same suite again on PostgreSQL, the engine every tier runs on, so
+      # SQL that only SQLite accepts cannot reach a server. Environment
+      # variables win over phpunit.xml's sqlite defaults.
+      - name: Tests on PostgreSQL
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: bk_edu_test
+          DB_USERNAME: bk_edu
+          DB_PASSWORD: ci-only-not-a-real-password
+        run: php artisan test
+
+      # And through a pooler, the way DB_URL reaches Neon on every tier:
+      # PgBouncer in transaction mode, prepared-statement tracking on, TLS
+      # required, as a role that is not a superuser and owns its database.
+      # Two things only this run can see: PHP's named prepared statements
+      # aborted every transaction behind a pooler (edu/TEST_SPEC.md, S7.1),
+      # and citext installing without superuser rights, as it must on Neon.
+      - name: Tests through PgBouncer (transaction mode, TLS)
+        env:
+          PGPASSWORD: ci-only-not-a-real-password
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends pgbouncer postgresql-client > /dev/null
+          psql -h 127.0.0.1 -U bk_edu -d bk_edu_test -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE bk_edu_pool LOGIN PASSWORD 'ci-only-pool-password' NOSUPERUSER" \
+            -c "CREATE DATABASE bk_edu_pool OWNER bk_edu_pool"
+          d=$(mktemp -d)
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=127.0.0.1 \
+            -keyout "$d/key.pem" -out "$d/cert.pem" 2> /dev/null
+          printf '"bk_edu_pool" "ci-only-pool-password"\n' > "$d/users.txt"
+          cat > "$d/pgbouncer.ini" <<INI
+          [databases]
+          bk_edu_pool = host=127.0.0.1 port=5432 dbname=bk_edu_pool
+          [pgbouncer]
+          listen_addr = 127.0.0.1
+          listen_port = 6433
+          unix_socket_dir =
+          auth_type = scram-sha-256
+          auth_file = $d/users.txt
+          pool_mode = transaction
+          max_prepared_statements = 1000
+          client_tls_sslmode = require
+          client_tls_key_file = $d/key.pem
+          client_tls_cert_file = $d/cert.pem
+          logfile = $d/pgbouncer.log
+          pidfile = $d/pgbouncer.pid
+          INI
+          pgbouncer -d "$d/pgbouncer.ini"
+          for attempt in $(seq 1 10); do
+            pg_isready -q -h 127.0.0.1 -p 6433 && break
+            [ "$attempt" = 10 ] && { cat "$d/pgbouncer.log"; echo "::error::PgBouncer did not start"; exit 1; }
+            sleep 1
+          done
+          DB_CONNECTION=pgsql \
+          DB_URL='postgresql://bk_edu_pool:ci-only-pool-password@127.0.0.1:6433/bk_edu_pool?sslmode=require' \
+            php artisan test
+          kill "$(cat "$d/pgbouncer.pid")"
+
+      # Every migration and seeder, from empty, on PostgreSQL.
+      - name: Migrate and seed on PostgreSQL
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: bk_edu_test
+          DB_USERNAME: bk_edu
+          DB_PASSWORD: ci-only-not-a-real-password
+        run: php artisan migrate:fresh --seed --force
 
       # The compiled front-end assets are committed, so a manifest that names
       # a file which is not there means every page 500s on a missing asset.

@@ -34,9 +34,16 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
+        <!-- Zero-setup default: in-memory SQLite. These do not override variables
+             already set in the environment, so CI (and TESTING.md) run the same
+             suite against PostgreSQL by exporting DB_CONNECTION=pgsql and the
+             other DB_* variables. PostgreSQL is the only production database. -->
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="DB_URL" value=""/>
+        <!-- Pinned like DB_URL, so a DB_URL_UNPOOLED line in .env (the direct
+             Neon endpoint, on a server) is never read by a test run. -->
+        <env name="DB_URL_UNPOOLED" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

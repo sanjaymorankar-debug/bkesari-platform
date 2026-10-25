@@ -6,18 +6,24 @@ How to run all three repositories on one Mac: **ATIP-DEV**, **bkesari** and **bk
 - The two websites (bkesari and bkesari-platform) normally live on Hostinger. On the Mac you run them locally to try changes before pushing; for the hosted sites see `bkesari/DEPLOYMENT.md` and `bkesari-platform/DEPLOY.md`.
 
 The feature and merge status of all three repos is in
-[`FEATURE_STATUS_2026-10-08.xlsx`](FEATURE_STATUS_2026-10-08.xlsx), next to this file.
+[`FEATURE_STATUS_2026-10-08.xlsx`](FEATURE_STATUS_2026-10-08.xlsx), next to this file. It is a
+snapshot from 2026-10-08, before the move to PostgreSQL, so where it says MySQL (the portal's
+database adapter, `setup_local_mysql.sh`, the test results) read PostgreSQL and this guide.
 
-**Checked on 2026-10-08**, after every open pull request was merged, from fresh clones of
-`master` / `main` against a local MySQL 8.0. The checks ran on Linux, so the macOS-only parts
-(Homebrew, the MySQL installer, LaunchAgents) are as documented but untested.
+**The databases are PostgreSQL now** (from 2026-10-09; MySQL is no longer used). **Checked on
+2026-10-09** for bkesari-platform against a local PostgreSQL 16. The checks ran on Linux, so the
+macOS-only parts (Homebrew, LaunchAgents) are as documented but untested.
 
 | App | Result |
 |---|---|
-| ATIP | 1,336 tests pass (42 skipped) |
-| bkesari | `tools/setup_local_mysql.sh` migrates and seeds it; the site serves its shops; 284/284 tests pass |
-| Education | 387/387 tests pass; serves pages from MySQL |
-| Portal | 44 tests + 32 deploy-guard checks pass; the Task Tracker saves to MySQL |
+| ATIP | not re-checked in this change (its PostgreSQL move is in the ATIP-DEV repo); on 2026-10-08, 1,336 tests passed (42 skipped) |
+| bkesari | not re-checked in this change (its PostgreSQL move is in the bkesari repo); on 2026-10-08, against MySQL, 284/284 tests passed |
+| Education | `tools/setup_local_postgres.sh` migrates and seeds it; 392/392 tests pass on PostgreSQL; serves pages and logs in from PostgreSQL |
+| Portal | 53 tests (7 of them against PostgreSQL) + 32 deploy-guard checks pass; the Task Tracker saves to PostgreSQL |
+
+The portal was checked again on 2026-10-24, made ready for Neon: 80 tests (15 of them against
+PostgreSQL) and the 32 deploy-guard checks pass, and so do the smoke and Neon-parity runs. The
+current counts and how to run them are in `TEST_SPEC.md`.
 
 ## What runs where
 
@@ -26,9 +32,8 @@ Each app gets its own port, so all four can run at the same time.
 | App | Folder | Address on the Mac | Database |
 |---|---|---|---|
 | ATIP dashboard + scheduler | `ATIP-DEV/` | http://localhost:8000 | SQLite file `atip_data/atip.db` |
-| Bkesari shop & milk marketplace | `bkesari/` | http://localhost:3000 | MySQL `bk_milk` (tests: `bk_milk_test`) |
-| bkesari.com portal (Task Tracker, ATIP viewer) | `bkesari-platform/` | http://localhost:3001 | MySQL `bk_portal` |
-| Education platform (Laravel) | `bkesari-platform/edu/` | http://127.0.0.1:8001 | MySQL `bk_edu` |
+| bkesari.com portal (Task Tracker, ATIP viewer) | `bkesari-platform/` | http://localhost:3001 | PostgreSQL `bk_portal` (tests: `bk_portal_test`) |
+| Education platform (Laravel) | `bkesari-platform/edu/` | http://127.0.0.1:8001 | PostgreSQL `bk_edu` (tests: in memory, or `bk_edu_test`) |
 
 The script in step 3 also creates `bk_ladwani` (LadWani's tables, ready for when that app runs here)
 and `bk_atip` (empty, for if ATIP ever moves off its SQLite file).
@@ -46,24 +51,29 @@ xcode-select --install
 # Homebrew, if you don't have it: https://brew.sh
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# Everything the three repos need (MySQL itself you installed from mysql.com)
-brew install git gh python@3.13 node@22 php composer
+# Everything the three repos need, PostgreSQL included
+brew install git gh python@3.13 node@22 php composer postgresql@16
 
-# node@22 is "keg-only", and the mysql.com installer does not put its tools on the PATH
-echo 'export PATH="$(brew --prefix)/opt/node@22/bin:/usr/local/mysql/bin:$PATH"' >> ~/.zprofile
+# node@22 and postgresql@16 are "keg-only": put their commands on the PATH
+echo 'export PATH="$(brew --prefix)/opt/node@22/bin:$(brew --prefix)/opt/postgresql@16/bin:$PATH"' >> ~/.zprofile
 source ~/.zprofile
+
+# Start PostgreSQL now and at every login
+brew services start postgresql@16
 ```
 
-MySQL must be running: System Settings → **MySQL** → **Start MySQL Server**, and tick
-"Start MySQL when your computer starts up".
+Homebrew's PostgreSQL listens on 127.0.0.1:5432 and makes your macOS user its administrator,
+with no password, so nothing else needs setting up. If you had MySQL from mysql.com for these
+sites, nothing uses it any more; stop it in System Settings → **MySQL** if you like.
 
 Check the versions:
 
 ```bash
 python3.13 --version   # 3.13.x  (ATIP needs 3.11+. macOS's own python3 is 3.9, too old)
-node --version         # v22.x   (the portal needs 22.13+)
-mysql --version        # 8.x or 9.x (from mysql.com)
+node --version         # v22.x   (the portal needs 20+; CI uses 22)
+psql --version         # 16.x (from Homebrew)
 php --version          # 8.3 or newer
+php -m | grep pdo_pgsql   # Education needs it; Homebrew's PHP normally has it
 ```
 
 ## 2. Get the code
@@ -109,32 +119,37 @@ exists only on this Mac.
 
 ---
 
-## 3. Local MySQL databases (once)
+## 3. Local PostgreSQL databases (once)
 
-One script creates a database and a user for each site in the MySQL on your Mac, and writes those
-logins into each app's `.env`:
+One script creates a database and a login for each site in the PostgreSQL on your Mac, and writes
+those logins into each app's `.env`:
 
 ```bash
 cd ~/Projects/bkesari-platform
-tools/setup_local_mysql.sh
+tools/setup_local_postgres.sh
 ```
 
-It asks for the MySQL **root** password, the one you chose while installing MySQL. Then it:
+It logs in to PostgreSQL as you (Homebrew's default), so it asks for nothing. Then it:
 
-1. creates `bk_milk`, `bk_milk_test`, `bk_portal`, `bk_edu`, `bk_ladwani` and `bk_atip`, each with
-   its own user. A user can reach only its own database, and only from this Mac;
+1. creates `bk_portal`, `bk_portal_test`, `bk_edu`, `bk_edu_test`,
+   `bk_ladwani` and `bk_atip`, each owned by its own login role. No other role may connect to a
+   site's database;
 2. writes the logins into `bkesari/.env`, `bkesari-platform/.env` and `bkesari-platform/edu/.env`.
    An existing `.env` is backed up to `~/.bkesari_env_backups/` first, and only its database lines
    change;
 3. creates the tables (installing each app's packages the first time) and loads demo data into a
    database that was empty.
 
-The passwords it generates are saved in `~/.bkesari_local_mysql.env`, which only your user can read.
+The passwords it generates are saved in `~/.bkesari_local_postgres.env`, which only your user can read.
 Running it again is safe: it reuses those passwords and never re-seeds a database that has data.
 `--no-migrate` stops after step 2.
 
-ATIP is the exception. It keeps its SQLite file `atip_data/atip.db`, because ATIP's MySQL mode is
-still marked experimental. The script creates `bk_atip` but never changes ATIP's settings.
+ATIP is the exception. It keeps its SQLite file `atip_data/atip.db`, because ATIP's PostgreSQL
+runtime is opt-in in its own config (see `ATIP-DEV/docs/POSTGRESQL_MIGRATION.md`). The script
+creates `bk_atip` but never changes ATIP's settings.
+
+Using a PostgreSQL that is not Homebrew's (Postgres.app, a password-protected server, another
+port)? Set `PG_ADMIN_USER`, `PG_ADMIN_PASSWORD`, `PG_HOST` or `PG_PORT` — `--help` lists them.
 
 ---
 
@@ -212,7 +227,7 @@ source .env
 curl -X POST http://localhost:3000/api/cron/daily-orders -H "Authorization: Bearer $CRON_SECRET"
 ```
 
-**Tests:** `npm test` (284 tests, on `bk_milk_test`).
+**Tests:** `npm test`.
 
 Production-style run: `npm run build && npm start`.
 
@@ -228,10 +243,14 @@ npm install
 node --env-file=.env portal/server.js                # http://localhost:3001
 ```
 
-`--env-file=.env` is what makes it use MySQL: plain `npm start` reads no file and falls back to
-SQLite. The `.env` from step 3 holds the database login, port 3001, and generated logins for the
-Task Tracker (`TRACKER_USER` / `TRACKER_PASSWORD`) and the ATIP viewer (`ATIP_USER` /
-`ATIP_PASSWORD`). The portal creates its own tables the first time it starts.
+`--env-file=.env` is what gives it its database: plain `npm start` reads no file, and stops with
+"No database configured". The `.env` from step 3 holds the PostgreSQL login, port 3001, and
+generated logins for the Task Tracker (`TRACKER_USER` / `TRACKER_PASSWORD`) and the ATIP viewer
+(`ATIP_USER` / `ATIP_PASSWORD`). The portal creates any missing tables when it starts.
+
+Tests: `node --env-file=.env --test tests/*.test.js` (the Task Tracker ones use `bk_portal_test`,
+named by `TEST_DATABASE_URL` in that `.env`; plain `npm test` skips them), or `npm run test:pg`
+once that line is copied into `.env.test`. The whole procedure is `TEST_SPEC.md`.
 
 To see ATIP's read-only dashboard here:
 1. Point ATIP's `atip_data/publish.json` at `http://localhost:3001/ATIP/api/snapshot`, using the
@@ -252,7 +271,13 @@ php artisan serve --port=8001                        # http://127.0.0.1:8001
 ```
 
 Demo logins (all use the password `Password123!`) are in `edu/TEST_ACCOUNTS.md`, for example `admin@test.agtci.com`.
-Tests: `php artisan test`. These use an in-memory database, not `bk_edu`.
+Tests: `php artisan test`. These use an in-memory SQLite database, not `bk_edu`. To run them on
+PostgreSQL as CI does, give them `bk_edu_test` (password in `~/.bkesari_local_postgres.env`, as
+`BK_EDU_PASS`):
+
+```bash
+DB_CONNECTION=pgsql DB_DATABASE=bk_edu_test DB_USERNAME=bk_edu DB_PASSWORD=... php artisan test
+```
 
 ---
 
@@ -265,10 +290,10 @@ Tests: `php artisan test`. These use an in-memory database, not `bk_edu`.
 | Start the marketplace | `cd ~/Projects/bkesari && npm run dev` |
 | Start the portal | `cd ~/Projects/bkesari-platform && node --env-file=.env portal/server.js` |
 | Start Education | `cd ~/Projects/bkesari-platform/edu && php artisan serve --port=8001` |
-| Pull the latest code | `git pull` in each folder. If dependencies changed, run `npm ci`, `composer install` or `pip install -r requirements.txt`. Then run `tools/setup_local_mysql.sh` again to apply new migrations |
+| Pull the latest code | `git pull` in each folder. If dependencies changed, run `npm ci`, `composer install` or `pip install -r requirements.txt`. Then run `tools/setup_local_postgres.sh` again to apply new migrations |
 | Check Git vs GitHub | `~/Projects/bkesari-platform/tools/check_local_git.sh` |
 | Something already uses a port | `lsof -i :8000`, then stop that process, or pick another port |
-| Look inside a database | `mysql -u bk_edu -p bk_edu` (password in `~/.bkesari_local_mysql.env`), or MySQL Workbench |
+| Look inside a database | `psql -h 127.0.0.1 -U bk_edu bk_edu` (password in `~/.bkesari_local_postgres.env`), or as yourself with no password: `psql bk_edu`. Any PostgreSQL GUI works too (pgAdmin, Postico, TablePlus) |
 
 ## 9. What changed on 2026-10-08
 
@@ -277,10 +302,9 @@ Every pull request that was open on 2026-10-08 is now merged:
 | PR | What it added |
 |---|---|
 | ATIP-DEV#8 | MySQL runtime fixes for ATIP. SQLite stays the default. |
-| bkesari#9 | The marketplace moved from PostgreSQL to **MySQL**, is served under `/milk` on bkesari.com, and gained a dev-only deploy workflow and `.env.example`. |
 | bkesari#10 | A README notice that this repo and GoKesari have diverged. |
 | bkesari-platform#1 | The dev tier, ATIP at `/ATIP/`, the stale `atip/` copy removed, and the Ladwani SQL fixed. |
-| bkesari-platform#2 | A shared menu, Global Warming and Driving Simulator pages, dev deploys and CI, and the app tabs (`/milk/`, `/edu/`, `/ladwani/`) served through the hub. |
+| bkesari-platform#2 | A shared menu, Global Warming and Driving Simulator pages, dev deploys and CI, and the app tabs (`/edu/`, `/ladwani/`) served through the hub. |
 
 Merged on 2026-10-09:
 
@@ -288,5 +312,12 @@ Merged on 2026-10-09:
 |---|---|
 | bkesari#12 | `/admin` answered 500 on MySQL; `db:migrate` now reads the `DB_*` settings; the README describes MySQL. |
 | bkesari#13 | 11 tests failed when `.env` came from `.env.example`. |
+
+On 2026-10-09 the plan changed to **PostgreSQL for every database**. In bkesari-platform: the
+portal uses `pg` with `portal/sql/schema.sql`; Education's default connection is `pgsql`; every
+script under `database/` and `edu/database/sql/` is PostgreSQL; `tools/setup_local_mysql.sh` became
+`tools/setup_local_postgres.sh`. bkesari, Ladwani and ATIP-DEV make the same move in their own
+repositories. Hosted tiers need a PostgreSQL service, since Hostinger's web hosting has none
+(`DEPLOY.md`, *Databases*).
 
 Always run ATIP from the `ATIP-DEV` repo. `bkesari-platform/atip/` now only points there.

@@ -176,7 +176,8 @@ new #[Layout('layouts.app')] class extends Component
         $query = School::query()->orderBy('name');
 
         if ($this->search !== '') {
-            $query->where('name', 'like', "%{$this->search}%");
+            // Case-insensitive on every driver (ILIKE on PostgreSQL).
+            $query->whereLike('name', "%{$this->search}%");
         }
 
         return [

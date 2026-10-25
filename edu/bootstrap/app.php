@@ -26,6 +26,16 @@ return Application::configure(basePath: dirname(__DIR__))
         // those are pinned to APP_URL in AppServiceProvider.
         $middleware->trustProxies(at: '*');
 
+        // Signs in whoever the bkesari.com hub vouches for (X-Bkesari-Token).
+        // It must run before the `auth` route middleware, or a deep link through
+        // the hub (/edu/dashboard) is sent to /edu/login first: Laravel sorts
+        // Authenticate ahead of any group middleware not in its priority list.
+        $middleware->appendToGroup('web', \App\Http\Middleware\HubSignIn::class);
+        $middleware->prependToPriorityList(
+            before: \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
+            prepend: \App\Http\Middleware\HubSignIn::class,
+        );
+
         $middleware->alias([
             'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,

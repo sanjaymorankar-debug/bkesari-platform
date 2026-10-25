@@ -18,7 +18,7 @@ main branch →  bkesari.com          (production)
 | Git branch | `dev` | `staging` | `main` |
 | Portal (Node) | dev.bkesari.com | test.bkesari.com | bkesari.com |
 | Education (PHP) | devedu.bkesari.com | testedu.bkesari.com | edu.bkesari.com |
-| MySQL database | its own | its own | its own (never share with dev/test) |
+| PostgreSQL database | its own | its own | its own (never share with dev/test) |
 
 **Promoting a tier** (once its site is confirmed working):
 
@@ -32,6 +32,29 @@ directly to `staging` or `main`.
 
 The repository is **private**. Hostinger's GitHub connection (step 1) asks for access to it,
 and the SSH clone in part 2 needs a GitHub Personal Access Token or a deploy key.
+
+### Databases: PostgreSQL on Neon
+
+Every app on bkesari.com keeps its data in **PostgreSQL on Neon** (CI and local setup use a
+throwaway PostgreSQL 16 instead, and never reach Neon). Hostinger's web hosting has no
+PostgreSQL of its own, so the sites stay on Hostinger and connect out to Neon.
+
+**[docs/NEON.md](docs/NEON.md)** is the one place for the rest: one Neon branch per tier
+(`production` → bkesari.com, `test` → test.bkesari.com, `dev` → dev.bkesari.com), one database
+and one owning role per project on each, the two connection strings every app takes
+(`DATABASE_URL` pooled for the app, `DATABASE_URL_UNPOOLED` direct for schema changes), where in
+the Neon console to copy them from, and the script that creates it all. Each tier's server `.env`
+holds **only that tier's** strings.
+
+Every `.sql` file in this repository is PostgreSQL and is run with `psql` (or any PostgreSQL
+SQL console your provider offers), not phpMyAdmin:
+
+```bash
+psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -1 -f FILE.sql     # the direct string, never the pooled one
+```
+
+`-1` runs the file as one transaction (PostgreSQL DDL is transactional, so a failure leaves
+nothing half-applied); `ON_ERROR_STOP` stops at the first error instead of carrying on.
 
 ---
 
@@ -57,19 +80,24 @@ For **test.bkesari.com**, do the same with branch `staging`. For **bkesari.com**
 
 ### 2. Database
 
-hPanel → Databases → MySQL: create a database and user (for example `u…_bk_test`).
-In phpMyAdmin, run `portal/sql/mysql_schema.sql`. It is safe to re-run, and the app also creates missing tables on start.
+On Neon, the hub uses the database `neondb` on this tier's branch of the `bkesari-hub` project,
+as the login `bk_portal_app`, which owns it (docs/NEON.md). The app creates its tables on start from
+`portal/sql/schema.sql`, over the direct connection. To create them beforehand, run that file
+(or its copy, `database/portal/01_portal_schema.sql`) with `psql "$DATABASE_URL_UNPOOLED"`; it is
+safe to re-run.
 
 ### 3. Environment variables
 
 | Variable | Value |
 |---|---|
-| `DB_CLIENT` | `mysql` |
-| `DB_HOST` | `localhost` (or what hPanel shows) |
-| `DB_NAME`, `DB_USER`, `DB_PASSWORD` | from step 2 |
+| `DATABASE_URL` | Neon console → this tier's branch → **Connect** → database `neondb`, role `bk_portal_app`, *Connection pooling* **on**. Paste it whole: the `?sslmode=require&channel_binding=require` on the end is what turns TLS on |
+| `DATABASE_URL_UNPOOLED` | the same, with *Connection pooling* **off**. Used only to create the tables |
 | `TRACKER_USER`, `TRACKER_PASSWORD` | login for `/tasks/` |
 | `ATIP_USER`, `ATIP_PASSWORD` | login for `/ATIP/` |
 | `ATIP_PUBLISH_TOKEN` | long random secret. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Use a **different one per tier** (dev/test/production). |
+
+`DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` (and `DB_SSL=require` for TLS) still work
+in place of `DATABASE_URL` for a database that is not on Neon; `.env.example` lists them.
 
 Redeploy. Check (same checks for dev.bkesari.com and test.bkesari.com — add a **DEV** badge
 alongside the existing **TEST** one in `portal/` if you want the two visually distinguishable):
@@ -83,14 +111,24 @@ alongside the existing **TEST** one in `portal/` if you want the two visually di
 ## Part 2: Education (Laravel, PHP)
 
 Same pattern as the existing `edu/DEPLOYMENT.md`, except that the app now lives in the `edu/` folder of this repo.
-Prefer phpMyAdmin for schema changes (`database/edu/*.sql`, in order) over `php artisan migrate`
-where you can — see that folder's own notes — but `migrate --force` is shown below too since a
-fresh environment needs the `migrations` table populated either way.
+Its database is `bk_edu`, owned by the login `bk_edu_app`, on the tier's Neon branch ([docs/NEON.md](docs/NEON.md)).
+Laravel takes the two strings under its own names, `DB_URL` (pooled) and `DB_URL_UNPOOLED`
+(direct). Schema changes go in with `php artisan migrate --force` (below), which runs over
+`DB_URL_UNPOOLED` by itself. The hand-run alternative is `database/edu/*.sql`, run in order with
+`psql "$DB_URL_UNPOOLED"` (see that folder's own notes); either way leaves the `migrations` table
+populated, so the two can be mixed. `edu/DEPLOYMENT.md` says what the app does with each string.
 
-Do this for **devedu.bkesari.com** / branch `dev` first. Once it checks out, repeat verbatim for
-**testedu.bkesari.com** / branch `staging`, then **edu.bkesari.com** / branch `main`.
+The site's PHP needs the **`pdo_pgsql`** extension, built against **libpq 14 or newer** (Neon
+needs SNI, and the strings carry `channel_binding=require`). Check over SSH with
+`php -m | grep -i pgsql` and `php -i | grep -i libpq`; if either falls short, it has to be fixed
+for the site before anything below will connect (this was not verified against Hostinger here).
 
-1. hPanel → create the website/subdomain (e.g. **devedu.bkesari.com**) (PHP 8.3) and a MySQL database for it.
+Do this for **devedu.bkesari.com** / branch `dev` first. Once it checks out, repeat for
+**testedu.bkesari.com** / branch `staging`, then **edu.bkesari.com** / branch `main`, with the
+differences the steps call out.
+
+1. hPanel → create the website/subdomain (e.g. **devedu.bkesari.com**) (PHP 8.3). The database
+   and its role already exist on the tier's branch of the `bkesari-edu` Neon project (docs/NEON.md).
 2. SSH in and clone:
 
 ```bash
@@ -99,11 +137,37 @@ git clone -b dev https://github.com/sanjaymorankar-debug/bkesari-platform.git pl
 cd platform/edu
 composer install --no-dev --optimize-autoloader
 cp .env.example .env
-nano .env        # APP_URL=https://devedu.bkesari.com, APP_DEBUG=false, DB_* from step 1
+nano .env        # APP_URL=https://dev.bkesari.com/edu, APP_DEBUG=false, and from the Neon
+                 # console (this tier's branch -> Connect -> database bk_edu, role bk_edu_app):
+                 #   DB_CONNECTION=pgsql
+                 #   DB_URL=<Connection pooling ON>
+                 #   DB_URL_UNPOOLED=<Connection pooling OFF>
 php artisan key:generate --force
 php artisan migrate --force
-php artisan db:seed --force      # first time only
 ```
+
+   `APP_URL` is the address visitors use, the Education tab on the hub (Part 7), not this
+   site's own hostname: `https://dev.bkesari.com/edu`, `https://test.bkesari.com/edu`,
+   `https://bkesari.com/edu`. Its path is what makes every link, asset and sign-in post come
+   back under `/edu/`. Only a site that is used directly, not through the hub, takes its own
+   hostname here.
+
+   `bk_edu` already exists on Neon with the migrations applied and no data, so `migrate`
+   reports nothing to do there; the starting data is still needed. It differs by tier:
+
+```bash
+# dev and test: the demo dataset (edu/TEST_ACCOUNTS.md; every account shares ONE known password)
+php artisan db:seed --force
+# production: reference data only, then your own first administrator; NEVER db:seed here,
+# it would create the demo System Admin with the published password
+psql "$(grep '^DB_URL_UNPOOLED=' .env | cut -d= -f2-)" -v ON_ERROR_STOP=1 -1 -f ../database/edu/02_edu_reference_data.sql
+#   first edit the name, email and password hash in ../database/edu/04_edu_first_admin.sql (its header says where)
+psql "$(grep '^DB_URL_UNPOOLED=' .env | cut -d= -f2-)" -v ON_ERROR_STOP=1 -f ../database/edu/04_edu_first_admin.sql
+php artisan permission:cache-reset
+```
+
+   No `psql` on the server? Paste the two files into the Neon console's **SQL Editor** instead,
+   on the tier's branch and database `bk_edu`.
 
 3. Wire up the web root:
 
@@ -117,6 +181,9 @@ nano ~/domains/devedu.bkesari.com/public_html/index.php
 php artisan config:cache && php artisan route:cache && php artisan view:cache
 ```
 
+   The cached configuration is what the app reads from then on, `DB_URL` and `DB_URL_UNPOOLED`
+   included: after any change to `.env`, run `php artisan config:cache` again before anything else.
+
 4. Cron (hourly analytics), via `crontab -e`:
 
 ```
@@ -124,10 +191,12 @@ php artisan config:cache && php artisan route:cache && php artisan view:cache
 ```
 
 **Redeploy later:** `cd ~/domains/devedu.bkesari.com/platform && git pull`, then in `edu/` run
-`composer install --no-dev --optimize-autoloader && php artisan migrate --force`. Copy `public/.` again and re-run the three `cache` commands.
+`composer install --no-dev --optimize-autoloader && php artisan migrate --force` (over
+`DB_URL_UNPOOLED`, as above). Copy `public/.` again and re-run the three `cache` commands.
 
-Repeat all of the above for **testedu.bkesari.com** (branch `staging`) and **edu.bkesari.com**
-(branch `main`), substituting the domain/branch throughout.
+Repeat all of the above for **testedu.bkesari.com** (branch `staging`, Neon branch `test`) and
+**edu.bkesari.com** (branch `main`, Neon branch `production`), substituting the domain, branch and
+`APP_URL` throughout. Each site's `.env` holds only its own branch's strings.
 The existing site at edutest.agtci.com is unaffected and keeps using the old `edu` repo until you retire it.
 
 ---
@@ -200,12 +269,15 @@ Read `/Users/agtci/Documents/Project_Documents/Projects/ATIP/docs/HOSTED_DEPLOYM
    ones), `enterprise.enabled: true` and `execution.mode: paper` are prerequisites,
    not polish.
 
-In outline: run ATIP on the VPS with `ATIP_DATABASE_URL=mysql://…`,
+In outline: run ATIP on the VPS with `ATIP_DATABASE_URL=postgresql://…`,
 `ATIP_ROOT_PATH=/ATIP`, then reverse-proxy `/ATIP/` to it. The prefix-stripping
-nginx block, the MySQL setup and the per-tier table are all in that document.
+nginx block and the per-tier table are in that document; the PostgreSQL setup and
+the config switch that opts ATIP's runtime in to it are in the ATIP repo's
+`docs/POSTGRESQL_MIGRATION.md`.
 
-ATIP's own database is **MySQL** (`db/mysql.py`), one database per tier, never
-shared — same rule as the portal and `edu`.
+ATIP's server database is **PostgreSQL**, one database per tier, never shared —
+same rule as the portal and `edu`. A VPS that runs ATIP can host PostgreSQL for
+the other apps too.
 
 ## Part 4: The shared menu
 
@@ -214,7 +286,7 @@ array. Adding, renaming or reordering a tab is an edit to that one file — ther
 no second list to keep in step, including the cards on the welcome page, which are
 built from the same array.
 
-Tabs are **paths**, not hostnames (`/milk/`, `/edu/`, …). Each tier serves every
+Tabs are **paths**, not hostnames (`/ladwani/`, `/edu/`, …). Each tier serves every
 project under one origin, so the same link is correct on dev, test and production
 with no substitution. The tier only affects the badge beside the brand, and is read
 from the hostname (`dev.` / `test.` / bare) or from an explicit `window.BKESARI_ENV`
@@ -249,15 +321,16 @@ and server-rendering keeps that page's policy untouched.
 
 | Path | Served by |
 |---|---|
-| `/`, `/tasks/`, `/atip/` | this repo (`portal/`) |
-| `/global-warming/`, `/driving-simulator/` | this repo, static — still to be added |
-| `/milk/`, `/edu/`, `/ladwani/` | their own apps, reached through the hub |
+| `/`, `/tasks/`, `/ATIP/` (owner only) | this repo (`portal/`) |
+| `/environment/` (`/global-warming/` redirects to it), `/driving-simulator/` | this repo, static |
+| `/access/request`, `/admin/access`, `/hub/api/*`, `/.well-known/jwks.json` | this repo: sign-in permissions (Part 8) |
+| `/edu/`, `/ladwani/` | their own apps, reached through the hub |
 
 A tab whose destination is not deployed on a tier yet answers with a short
 "not available on this tier" page rather than a bare 404, so the menu never
 dead-ends while the estate is still being assembled.
 
-How `/milk/`, `/edu/` and `/ladwani/` get served is Part 7.
+How `/edu/` and `/ladwani/` get served is Part 7.
 
 ---
 
@@ -281,13 +354,20 @@ what `main` now holds. The rebuild covers Family Registry, Matrimony, Community 
 Bookings/Assets, Payments/Fees/Ledger and Admin/Reporting (M0–M6), vs. the older app's Family
 Registry/Directory/Matrimony only.
 
-**Database**: `database/ladwani/01_ladwani_schema.sql` (**73 tables, 108 foreign keys**),
-`02_ladwani_reference_data.sql` and `03_ladwani_first_admin.sql` were regenerated on 2026-10-02
-from `rebuild` at `516d3b9` ("M6: profile data model…") with the rebuild's own tooling
-(`prisma migrate diff --from-empty --to-schema-datamodel`), and validated end-to-end against a
-real MySQL server: fresh import of all three, a re-run of 02 and 03 to confirm idempotency, and a
-round-trip insert proving the new foreign keys resolve. Import all three via phpMyAdmin, in
-order, exactly like `edu`'s migrations.
+**Database (PostgreSQL)**: `database/ladwani/01_ladwani_schema.sql` (**73 tables, 108 foreign
+keys**), `02_ladwani_reference_data.sql` and `03_ladwani_first_admin.sql`. 01 was regenerated on
+2026-10-09 from `rebuild` at `516d3b9` ("M6: profile data model…") with the rebuild's own tooling
+(`prisma migrate diff --from-empty --to-schema-datamodel`), with the schema's datasource switched
+from `provider = "mysql"` to `"postgresql"` and nothing else changed; 02 and 03 were converted by
+hand (same rows). Validated against PostgreSQL 16: fresh load of all three, a re-run of 02 and 03
+to confirm idempotency, the first-admin options run, and `prisma migrate diff` from the loaded
+database to the schema reporting nothing to change. Load all three with `psql`, in order, as the
+database's owner (*Databases* at the top).
+
+> **The `rebuild` app moves to PostgreSQL in Ladwani#16** (2026-10-24): `provider = "postgresql"`,
+> one PostgreSQL baseline migration generated from the same schema, case-insensitive searches and
+> emails, and a booking transaction fixed for PostgreSQL. On a fresh `bk_ladwani`, its own
+> `prisma migrate deploy` and seed replace these scripts (Ladwani `docs/27-dev-deploy.md`).
 
 > The previous export (2026-10-01, 69 tables) predated the **M6** commit and would have produced
 > a database the app cannot run against. M6 added four tables *and* columns to tables that
@@ -352,8 +432,13 @@ afford.
 |---|---|---|---|
 | `bkesari-platform` | `deploy-dev-portal.yml` | `portal/` (the hub, Node) | `dev.bkesari.com` |
 | `bkesari-platform` | `deploy-dev-edu.yml` | `edu/` (Laravel) | `devedu.bkesari.com` |
-| `bkesari` | `deploy-dev.yml` | Milk & Dairy (Next.js) | `devmilk.bkesari.com` |
 | `Ladwani` | `deploy-dev.yml` | LadWani (Next.js) | `devladwani.bkesari.com` |
+
+**LadWani: that workflow deploys the wrong app.** It lives on the Ladwani
+repository's `main` branch, which is the older single Next.js app. LadWani is
+the **`rebuild`** branch (Part 5), which has no deploy workflow yet. It needs one
+for its two processes (web and API, two Hostinger sites), plus a `dev` branch
+cut from `rebuild`. Until then, do not push `main` to Ladwani's `dev`.
 
 Each one: runs the repo's checks → builds → `rsync` over SSH → installs runtime
 dependencies and restarts on the server → fetches the URL to confirm it answers.
@@ -372,8 +457,7 @@ That has one visible consequence worth knowing about: for the two Next.js apps,
 anything named `NEXT_PUBLIC_*` is baked into the bundle **at build time**, in CI,
 so the server's `.env` is read too late to supply it. Nothing public is set in CI
 at the moment, which means `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is empty on dev and
-Milk & Dairy falls back to manual address entry — which is what its `.env.example`
-already describes as the intended dev behaviour. If you want Maps working on dev,
+LadWani falls back to manual address entry on dev. If you want Maps working on dev,
 add that one key as a repository **variable** (it is domain-restricted and public
 by design) and pass it to the `Build` step. Never the server-side key.
 
@@ -437,7 +521,6 @@ property rather than a comment.
    |---|---|---|
    | `bkesari-platform` | `DEV_PORTAL_PATH` | `/home/u879099820/domains/dev.bkesari.com/app` |
    | `bkesari-platform` | `DEV_EDU_PATH` | `/home/u879099820/domains/devedu.bkesari.com/app` |
-   | `bkesari` | `DEV_DEPLOY_PATH` | `/home/u879099820/domains/devmilk.bkesari.com/app` |
    | `Ladwani` | `DEV_DEPLOY_PATH` | `/home/u879099820/domains/devladwani.bkesari.com/app` |
 
 4. **Optional repository variables** (Settings → Secrets and variables → Actions
@@ -453,11 +536,11 @@ property rather than a comment.
 
 ### Migrations are not applied automatically
 
-By design, and consistent with the rest of this file preferring phpMyAdmin for
-schema changes: a deploy ships code and never alters a database. Each deploy's
+By design: a deploy ships code and never alters a database. Each deploy's
 summary lists any migration files the push brought, with a warning, so you can
-apply them yourself — through phpMyAdmin, or over SSH with `npm run db:migrate`
-(Milk & Dairy) or `npx prisma migrate deploy` (LadWani).
+apply them yourself — over SSH with `php artisan migrate --force` (edu),
+`npx prisma migrate deploy` (LadWani), or
+with `psql` and the hand-run scripts under `database/`.
 
 ### Repositories that deliberately have no deploy workflow
 
@@ -489,13 +572,13 @@ None of it is verified against a real server, because none of the dev sites
 exists yet. In order:
 
 1. Create the hPanel sites and DNS records: `dev.bkesari.com`,
-   `devedu.bkesari.com`, `devmilk.bkesari.com`, `devladwani.bkesari.com`.
+   `devedu.bkesari.com`, `devladwani.bkesari.com`.
 2. Create each project's dev database and fill in that site's `.env`.
 3. Do the one-time setup above in each repository.
 4. Push to `dev` and read the workflow's summary.
 
 One design question is still open and is not a deployment detail. The menu's tabs
-are **paths** (`/milk/`, `/edu/`, `/ladwani/`), but each app above is its own
+are **paths** (`/edu/`, `/ladwani/`), but each app above is its own
 Hostinger site on its own subdomain. Serving them under the hub's paths needs
 either the hub proxying those paths to each app, or each app being given a
 `basePath` — neither is built, and until one is, those three tabs will keep
@@ -507,47 +590,22 @@ each app's config rather than to these workflows.
 
 ## Part 7: Serving a project under one of the hub's paths
 
-The menu's tabs are **paths** — `/milk/`, `/edu/`, `/ladwani/` — but each of
+The menu's tabs are **paths** — `/edu/`, `/ladwani/` — but each of
 those projects is its own application on its own Hostinger site. The hub closes
 that gap: it forwards those paths to the app behind them, so one origin serves
 the whole estate and the same link is right on dev, test and production.
 
-### Turn it on for Milk & Dairy
+### Turn it on for a project
 
-Two settings, one on each side.
+Two settings, one on each side. On the hub (Node.js Web App → Environment
+variables) set `LADWANI_ORIGIN` or `EDU_ORIGIN` to the app's own origin, e.g.
+`https://devladwani.bkesari.com`; the startup log then prints
+`/ladwani/ -> https://devladwani.bkesari.com`. On a Next.js app set `BASE_PATH`
+(`/ladwani`) in **both** its build and its server `.env`: a build made with it but
+started without it serves unstyled markup with a 200 status, which
+`scripts/smoke-dev.sh` reports by name.
 
-**1. On the hub** (dev.bkesari.com → Node.js Web App → Environment variables):
-
-| Variable | Value |
-|---|---|
-| `MILK_ORIGIN` | the Milk & Dairy site's own origin, e.g. `https://devmilk.bkesari.com` |
-
-That is all. Restart, and `/milk/` stops showing the placeholder and starts
-serving the app. The startup log prints `/milk/ -> https://devmilk.bkesari.com`
-so you can see it took.
-
-**2. On the Milk & Dairy app** (devmilk.bkesari.com → Environment variables):
-
-| Variable | Value |
-|---|---|
-| `BASE_PATH` | `/milk` |
-
-`BASE_PATH` has to be set in **two** places, and missing either one is the
-mistake worth warning about:
-
-- in the **build**, which `bkesari`'s deploy workflow already does, because
-  Next inlines the value into its client bundles;
-- in the **server's `.env`**, as above, because `next start` reads the config
-  again to decide how to route.
-
-A build made with it but started without it serves the app at its root while
-every asset URL in the HTML points at `/milk/...`, so every page arrives as
-unstyled markup with broken navigation — and the HTTP status is still 200, so
-nothing looks wrong until you open it. `scripts/smoke-dev.sh` reports this case
-by name.
-
-The same two settings, for the other two projects, are `EDU_ORIGIN` and
-`LADWANI_ORIGIN`. Each tab is independent: an origin that is not set leaves
+The settings are `EDU_ORIGIN` and `LADWANI_ORIGIN`. Each tab is independent: an origin that is not set leaves
 that tab on its placeholder, so you can bring them up one at a time.
 
 ### Two ways to live under a prefix
@@ -556,8 +614,8 @@ There are two arrangements, and which one a tab uses is a fact about the
 framework behind it, not about the tier. `portal/proxy.js` marks the difference
 with `strip` on the tab, and `tests/proxy.test.js` pins it.
 
-**Next.js keeps the prefix** (`/milk/`, `/ladwani/`). The hub forwards
-`/milk/orders` as `/milk/orders` and the app serves itself there, via
+**Next.js keeps the prefix** (`/ladwani/`). The hub forwards
+`/ladwani/orders` as `/ladwani/orders` and the app serves itself there, via
 `basePath`:
 
 - strip it, and the app answers as if it were at the root, so its pages come
@@ -585,7 +643,6 @@ story is not obvious.
 
 | Project | Hub side | App side |
 |---|---|---|
-| **Milk & Dairy** | `MILK_ORIGIN` | ✅ built for it — `BASE_PATH=/milk` in its deploy build; set it in that site's `.env` too |
 | **LadWani** | `LADWANI_ORIGIN` | ✅ built for it — `BASE_PATH=/ladwani` in its deploy build; set it in that site's `.env` too |
 | **Education** | `EDU_ORIGIN` | ✅ built for it — set `APP_URL=https://dev.bkesari.com/edu` in that site's `.env`; nothing else, and no change to its document root |
 
@@ -600,8 +657,7 @@ costs a day if you find it in production. Next's `basePath` covers `next/link`,
 `useRouter` and asset URLs. It does **not** rewrite `fetch()`, because the
 argument is an ordinary runtime string the compiler never looks inside.
 
-Milk & Dairy happened to have no absolute `fetch('/api/...')` calls, so
-`basePath` really was the whole change there. LadWani had **100 of them across
+LadWani had **100 of them across
 42 files**, every one of which would have called the hub's root instead of the
 app — returning the hub's own 404 page while the app's pages looked perfectly
 fine. They now read `` `${BASE_PATH}/api/...` ``, and
@@ -645,13 +701,15 @@ driving the live site in a browser rather than by reading the code:
 | The remembered page after signing in | `redirect()->guest()` stores `UrlGenerator::full()`, which reads the URL straight off the request — prefix already stripped. Signing in landed the visitor on `Cannot GET /admin/rating-weights` at the hub | `App\Routing\BasePathRedirector` |
 | A literal path in a view | the generator never sees it. Three did this: `href="/"` in the guest layout and `redirect('/')` in logout, delete-account and verify-email — all three left the tab for the hub | `url('/')` / `route('home')`, and a test that greps every Blade file so a new one fails the suite |
 
-Two more things to know, neither currently a bug:
+Two more things to know:
 
-- **Signed URLs would not survive the trip.** `hasValidSignature()` rebuilds the
-  URL from the request, which arrives without the prefix, so a signature made
-  with it can never match. Nothing signs a URL today — `MustVerifyEmail` is
-  switched off on the `User` model — but whatever turns it on will need the
-  prefix restored before the check.
+- **Signed URLs do not survive the trip by themselves.** `hasValidSignature()`
+  rebuilds the URL from the request, which arrives without the prefix, so a
+  signature made with it can never match. Livewire signs every file upload, so
+  until `App\Routing\BasePathSignedUploadUrl` no upload worked under `/edu/`
+  (complaint evidence included); it signs the stripped path and prefixes the
+  URL once. The app signs nothing else today (`MustVerifyEmail` is off on the
+  `User` model), but email verification links will need the same treatment.
 - **Outside a request the rule inverts.** In a queued job or scheduled command
   Laravel invents a stand-in request from `APP_URL`, so its base path *is*
   `/edu` and `route(..., absolute: false)` comes back **without** the prefix —
@@ -686,3 +744,113 @@ cannot be turned into an open proxy. Each value must be a bare `http://` or
 refused with a message naming the variable, and that tab stays on its
 placeholder rather than the hub failing to start. `tests/proxy.test.js` covers
 those rules along with the forwarding itself.
+
+---
+
+## Part 8: Neon (Postgres, Auth, Realtime, Functions, Object Storage)
+
+The portal runs on Neon project **`bkesari-hub`** (`aged-snow-54676890`, org
+`org-calm-cell-54818057`, region `aws-ap-southeast-1`, Singapore, near
+Hostinger and the users), with the services declared in **`neon.ts`**.
+Neon Auth, the `assets` bucket and the `report` function are deployed on its
+`dev` branch (2026-10-24). Deploy them to `test` and `production` the same way:
+`neon deploy --project-id aged-snow-54676890 --branch <tier> --env .env.local`.
+Neon Auth reaches `neondb` as its own `neon_auth` role.
+Every Neon service is optional: each turns on only when its variables are
+present, so a site configured as in Parts 1–7 behaves exactly as before.
+
+### Databases
+
+The databases, their logins and the per-tier isolation SQL are in
+**docs/NEON.md**: `neondb` for the portal (also home to Neon Auth's
+`neon_auth` schema), then `bk_edu`, `bk_ladwani`, `bk_tasklist`, `bk_atip`,
+`bk_agtci`, each owned by its own `bk_*_app` login. `bk_env` (Environment
+Activities, no app yet) is added the same way.
+
+ATIP needs none: it keeps its own database on the Mac and pushes a page into
+`neondb`'s `atip_snapshots`. The Driving Simulator is a static page.
+
+**One branch per tier.** Everything above is on one branch, `production`. The
+rule at the top of this file still applies: dev, test and production must
+never share a database. Give each tier its own branch (`neon checkout dev
+--create`, then `neon deploy --env .env.local`), which copies `neon.ts`'s
+services onto it with its own credentials.
+
+### Set up, or redeploy
+
+```bash
+npm i -g neon
+neon login                      # once; a browser sign-in
+echo "ORIGIN_SECRET=$(openssl rand -hex 32)" >> .env.local
+echo "NEON_AUTH_COOKIE_SECRET=$(openssl rand -base64 32)" >> .env.local
+neon deploy --env .env.local    # provisions neon.ts, pulls its variables into .env.local
+node --env-file=.env.local portal/server.js
+```
+
+On a host, copy the variables from `.env.local` into the host's environment
+(hPanel → Environment variables), plus `TRACKER_ALLOWED_EMAILS`.
+
+### What each service does in the portal
+
+| Service | Where | Variables |
+|---|---|---|
+| Postgres | `portal/db.js` on `pg`. Tables created over `DATABASE_URL_UNPOOLED`, queries over the pooled `DATABASE_URL` (docs/NEON.md). | `DATABASE_URL`, `DATABASE_URL_UNPOOLED` |
+| Auth | `portal/neon-auth.js`: sign-in at `/auth/sign-in`, `/api/auth/*` proxied to Neon Auth so its cookies are first-party. Replaces the Basic login on `/tasks/`. Lets in only **verified** accounts on `TRACKER_ALLOWED_EMAILS`; anyone can create an account, so a session alone proves nothing. Email + password only. | `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, `TRACKER_ALLOWED_EMAILS` |
+| Realtime | **Off on `bkesari-hub`**: it needs PostgreSQL 18, and the project runs 16 (see `neon.ts`). The tracker works without it. When on, `portal/realtime.js` seals one live query; `portal/client/live.js` (bundled by `npm run build` into `portal/public/tasks/live.js`, committed) subscribes. The dashboard updates when anyone changes a project or task. | `NEON_REALTIME_URL`, `NEON_REALTIME_SECRET` |
+| Functions | `functions/report.ts`, slug `report`: last-seven-days figures, computed next to the data. Called only by the portal (`/tasks/api/report`) with `X-Secret`; answers 401 to anyone else. | `NEON_FUNCTION_REPORT_BASE_URL`, `ORIGIN_SECRET` |
+| Object Storage | `portal/storage.js` (AWS S3 client, path-style): every ATIP snapshot upload is also archived to bucket `assets` (`atip-snapshots/<date>/<time>.html`); `/ATIP/api/archive` lists them with one-hour links. | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION` |
+| AI Gateway | **Not enabled.** Neon refuses to deploy it on the Free plan. Upgrade, uncomment `aiGateway: true` in `neon.ts`, and `neon deploy --env .env.local`. | — |
+
+### Before pointing dev.bkesari.com at it
+
+- **Trusted domain for sign-in:** `neon neon-auth domain add https://dev.bkesari.com`
+  (localhost is trusted by default). Realtime is off on `bkesari-hub`; its
+  allowed origins, commented out in `neon.ts`, include `https://dev.bkesari.com`
+  for when it is turned back on.
+- **Production email:** sign-up codes go out from Neon's shared sender. Neon
+  asks for your own SMTP before production use (Neon Auth production checklist).
+- **Outbound Postgres from Hostinger:** the portal connects to Neon on port
+  5432. Confirm the Hostinger plan allows outbound connections to it.
+- `scripts/smoke-dev.sh` understands both logins: under Neon Auth a redirect to
+  the sign-in page counts as "login required", and the API must answer 401.
+
+### How it was verified
+
+Against the real branch, through a browser (Playwright), 17 checks: the
+portal creates its tables in Neon; `/tasks/` redirects to sign-in and its API
+answers 401 without a session; sign-up works and an unverified account is
+held at the verify step; sending the verification code is accepted; a
+verified, allowed account reaches the dashboard; rows written through the API
+are in Neon; the dashboard goes "Live" and shows a task created in another
+session without reloading; the report function answers through the portal and
+its count rises after a posted update, also live; an ATIP upload is archived
+to the bucket, listed, and downloads byte-for-byte; a verified account not on
+the list gets 403; sign-out ends the session. The emailed code itself was not
+read (no mailbox access); the test account was marked verified directly.
+
+---
+
+## Part 8: The access layer (one bkesari ID, a permission per project)
+
+Sign-in is **Neon Auth** on the hub (`NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`).
+What a signed-in person may open is decided by the hub's own tables
+(`portal/sql/hub_schema.sql`): `hub_projects`, `project_access`, `access_requests`
+and `audit_log`.
+
+| Setting | Meaning |
+|---|---|
+| `HUB_OWNER_EMAILS` | comma-separated owner emails (default `agtcipl@gmail.com`). The owner reaches ATIP, may decide every request, and needs a **verified** email |
+| `HUB_TOKEN_PRIVATE_KEY` | RSA private key (PEM, `\n` escapes allowed) that signs the project token. Set it on every tier; without it a key is made at start-up and tokens die on restart |
+| `TASKLIST_DATABASE_URL` / `ATIP_DATABASE_URL` | the `bk_tasklist` and `bk_atip` databases. `DATABASE_URL` is then the hub's own, holding only sign-in permissions. Unset, one database carries everything (local use) |
+
+* `/ladwani/` and `/edu/`: not signed in -> `/auth/sign-in?next=...`; signed in without
+  permission -> `/access/request?project=...`; permitted -> the request is forwarded
+  with `X-Bkesari-Token`, an RS256 JWT valid 60 seconds with `sub` (user id), `email`,
+  `role`, `aud` (the project). Apps verify it against `/.well-known/jwks.json` and map
+  `sub` to a `hub_user_id` column on their own `users` table. A token for one project
+  is refused by another (`aud`). A client-sent `X-Bkesari-Token` is always discarded.
+* `/ATIP/`: owner only. Everyone else, signed in or not, gets a plain 404.
+* `/tasks/`: the existing `TRACKER_ALLOWED_EMAILS` list, plus anyone with a
+  `tasklist` row in `project_access`.
+* `/admin/access`: the owner (all projects) and each project's admin approve or
+  decline requests and revoke access. Every decision lands in `audit_log`.

@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Routing\BasePathRedirector;
+use App\Routing\BasePathSignedUploadUrl;
+use Facades\Livewire\Features\SupportFileUploads\GenerateSignedUploadUrl as SignedUploadUrl;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Livewire\Mechanisms\FrontendAssets\FrontendAssets;
@@ -86,17 +88,19 @@ class AppServiceProvider extends ServiceProvider
      *
      * What it does not cover is anything derived from the incoming request
      * instead of the generator, because the hub has already taken the prefix
-     * off that. Those are handled one by one below.
+     * off that. Those are handled one by one below; the least obvious is a
+     * signed URL, whose signature is checked against the request's path, and
+     * Livewire signs every file upload (BasePathSignedUploadUrl).
      *
      * Two things are deliberately left alone. Pagination resolves its own base
      * path, but Livewire replaces that resolver with one reading the browser's
      * own URL as soon as a component mounts, and every list here pages through
-     * Livewire with `wire:click` and no URL at all. And signed URLs would not
-     * survive the trip, because `hasValidSignature()` rebuilds the URL from the
-     * request, which arrives without the prefix, so the signature would never
-     * match: nothing here signs a URL today (`MustVerifyEmail` is switched off
-     * on the User model), but anything that starts to will need the prefix put
-     * back before the signature is checked.
+     * Livewire with `wire:click` and no URL at all. And the app's own signed
+     * URLs would not survive the trip, because `hasValidSignature()` rebuilds
+     * the URL from the request, which arrives without the prefix, so the
+     * signature would never match: the app signs none today (`MustVerifyEmail`
+     * is switched off on the User model), but anything that starts to will
+     * need what BasePathSignedUploadUrl does for Livewire's.
      *
      * One surprise worth knowing: outside a request — a queued job, a
      * scheduled command — Laravel builds a stand-in request out of APP_URL, so
@@ -134,6 +138,13 @@ class AppServiceProvider extends ServiceProvider
             if ($route !== null) {
                 config(['livewire.asset_url' => $appUrl.'/'.ltrim($route->uri, '/')]);
             }
+
+            // Livewire's signed upload URLs: signed for the prefixed path but
+            // checked against the stripped one, and prefixed twice on the way
+            // out. See BasePathSignedUploadUrl. Swapped here, after Livewire
+            // has booted, because Livewire swaps in its own instance while it
+            // boots under the test runner.
+            SignedUploadUrl::swap(new BasePathSignedUploadUrl);
         });
     }
 }

@@ -3,7 +3,9 @@
 use App\Models\TwoFactorAuthentication;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 use PragmaRX\Google2FA\Google2FA;
@@ -18,10 +20,31 @@ new #[Layout('layouts.guest')] class extends Component
         abort_unless(session('2fa_user_id'), 403);
     }
 
+    /**
+     * Wrong codes allowed per account per minute, the same as the password
+     * step allows (LoginForm).
+     */
+    private const MAX_ATTEMPTS = 5;
+
     public function verify(): void
     {
         $userId = session('2fa_user_id');
         abort_unless($userId, 403);
+
+        // Whoever reaches this screen already has the password, and the
+        // password step clears its own limit on success, so without this the
+        // six-digit code and the recovery codes could be guessed endlessly.
+        // Keyed on the account rather than the address, so moving to another
+        // address does not buy more guesses.
+        $throttleKey = 'two-factor|'.$userId;
+
+        if (RateLimiter::tooManyAttempts($throttleKey, self::MAX_ATTEMPTS)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+
+            throw ValidationException::withMessages([
+                'code' => trans('auth.throttle', ['seconds' => $seconds, 'minutes' => ceil($seconds / 60)]),
+            ]);
+        }
 
         $user = User::findOrFail($userId);
         $twoFactor = TwoFactorAuthentication::where('user_id', $user->id)->firstOrFail();
@@ -41,11 +64,13 @@ new #[Layout('layouts.guest')] class extends Component
         }
 
         if (! $verified) {
+            RateLimiter::hit($throttleKey);
             $this->addError('code', 'That code is not valid.');
 
             return;
         }
 
+        RateLimiter::clear($throttleKey);
         Auth::login($user, session('2fa_remember', false));
         session()->forget(['2fa_user_id', '2fa_remember']);
         Session::regenerate();

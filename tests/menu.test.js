@@ -28,16 +28,15 @@ function bar(options) {
 
 // The order is specified, not incidental — it is the order in the brief.
 const EXPECTED_TABS = [
-  ['Milk & Dairy Products', '/milk/'],
-  ['Education', '/edu/'],
-  ['Global Warming', '/global-warming/'],
   ['LadWani', '/ladwani/'],
+  ['ATIP', '/ATIP/'],
+  ['Education', '/edu/'],
   ['TaskList', '/tasks/'],
-  ['ATIP', '/atip/'],
   ['Driving Simulator', '/driving-simulator/'],
+  ['Environmental Activities', '/environment/'],
 ];
 
-test('the seven tabs are present, in the specified order', () => {
+test('the six tabs are present, in the specified order', () => {
   assert.deepEqual(
     menu.TABS.map((t) => [t.name, t.path]),
     EXPECTED_TABS,
@@ -48,7 +47,7 @@ test('every tab path is absolute and ends in a slash', () => {
   // activeTabPath strips one trailing slash to compare, and server.js
   // registers these paths verbatim as routes. Both assume this shape.
   for (const tab of menu.TABS) {
-    assert.match(tab.path, /^\/[a-z-]+\/$/, `${tab.name} has path ${tab.path}`);
+    assert.match(tab.path, /^\/[A-Za-z-]+\/$/, `${tab.name} has path ${tab.path}`);
   }
 });
 
@@ -90,9 +89,10 @@ test('an unknown hostname is treated as production, never as dev', () => {
 });
 
 test('the active tab is the longest matching prefix', () => {
-  assert.equal(menu.activeTabPath('/milk/'), '/milk/');
-  assert.equal(menu.activeTabPath('/milk'), '/milk/');
-  assert.equal(menu.activeTabPath('/milk/orders/42'), '/milk/');
+  assert.equal(menu.activeTabPath('/ladwani/'), '/ladwani/');
+  assert.equal(menu.activeTabPath('/ladwani'), '/ladwani/');
+  assert.equal(menu.activeTabPath('/ladwani/members/42'), '/ladwani/');
+  assert.equal(menu.activeTabPath('/atip/'), '/ATIP/');
   assert.equal(menu.activeTabPath('/driving-simulator/'), '/driving-simulator/');
   assert.equal(menu.activeTabPath('/'), '/');
   assert.equal(menu.activeTabPath(''), '/');
@@ -100,23 +100,20 @@ test('the active tab is the longest matching prefix', () => {
 });
 
 test('a path that only looks like a tab does not activate it', () => {
-  assert.equal(menu.activeTabPath('/milkshake/'), '/');
+  assert.equal(menu.activeTabPath('/ladwanix/'), '/');
   assert.equal(menu.activeTabPath('/edu-news/'), '/');
 });
 
-test('renderHtml lists all seven tabs', () => {
-  const html = menu.renderHtml({ pathname: '/', env: 'dev' });
-  for (const [name] of EXPECTED_TABS) {
-    const escaped = name.replace(/&/g, '&amp;');
-    assert.ok(html.includes(escaped), `${name} is missing from the bar`);
-  }
+test('renderHtml lists every tab to the owner and hides ATIP from everyone else', () => {
+  const owner = menu.renderHtml({ pathname: '/', env: 'dev', isOwner: true });
+  for (const [name] of EXPECTED_TABS) assert.ok(owner.includes(name), `${name} is missing from the owner's bar`);
+  const other = menu.renderHtml({ pathname: '/', env: 'dev' });
+  assert.ok(!other.includes('ATIP'), 'ATIP must not appear for a non-owner');
+  assert.equal((other.match(/<li>/g) || []).length, 5);
 });
 
-test('renderHtml escapes the tab names', () => {
-  // "Milk & Dairy Products" is the one tab whose name is not HTML-safe.
-  const html = menu.renderHtml({ pathname: '/' });
-  assert.ok(html.includes('Milk &amp; Dairy Products'));
-  assert.ok(!html.includes('Milk & Dairy'));
+test('the bar never mentions Milk & Dairy', () => {
+  assert.ok(!/milk/i.test(menu.renderHtml({ pathname: '/', isOwner: true })));
 });
 
 test('renderHtml marks exactly one current item', () => {
@@ -181,7 +178,7 @@ test('every static hub page includes the shared bar', () => {
   // it reads BKESARI_MENU.TABS to build the welcome cards from the same list,
   // so the script has to have run by then. The other two defer it.
   const publicDir = path.join(__dirname, '..', 'portal', 'public');
-  const pages = ['index.html', 'global-warming/index.html', 'driving-simulator/index.html'];
+  const pages = ['index.html', 'environment/index.html', 'driving-simulator/index.html'];
   for (const page of pages) {
     const html = fs.readFileSync(path.join(publicDir, page), 'utf8');
     assert.match(
@@ -208,7 +205,7 @@ test("the welcome page's <noscript> list matches the tabs", () => {
 
   assert.deepEqual(
     listed,
-    menu.TABS.map((t) => [menu.escapeHtml(t.name), t.path]),
+    menu.TABS.filter((t) => !t.ownerOnly).map((t) => [menu.escapeHtml(t.name), t.path]),
     'the <noscript> list has drifted from TABS',
   );
 });

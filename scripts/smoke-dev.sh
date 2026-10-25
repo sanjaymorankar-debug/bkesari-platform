@@ -141,12 +141,28 @@ esac
 # is right for a laptop and catastrophic on a public hostname: a 200 means
 # anyone on the internet can read and edit the task tracker.
 group "Access control"
+# Under Neon Auth (NEON_AUTH_BASE_URL set) /tasks/ redirects to the sign-in
+# page instead, and fetch follows redirects -- so a 200 that IS that page is
+# the login working, not the tracker being open.
 fetch /tasks/
 case "$STATUS" in
   401) ok "the task tracker requires a login (401)" ;;
-  200) bad "THE TASK TRACKER IS OPEN TO THE INTERNET" \
-            "/tasks/ answered 200. Set TRACKER_USER and TRACKER_PASSWORD on the server and redeploy." ;;
+  200)
+    if grep -q 'id="credForm"' "$BODY"; then
+      ok "the task tracker requires a sign-in (Neon Auth sign-in page)"
+    else
+      bad "THE TASK TRACKER IS OPEN TO THE INTERNET" \
+          "/tasks/ answered 200. Set TRACKER_USER and TRACKER_PASSWORD (or Neon Auth) on the server and redeploy."
+    fi ;;
   *)   caution "/tasks/ answered $STATUS" "expected 401; check the site is fully deployed" ;;
+esac
+
+# The API under it, which both logins answer with 401 rather than a page.
+fetch /tasks/api/overview
+case "$STATUS" in
+  401) ok "the task tracker API refuses an anonymous request (401)" ;;
+  200) bad "THE TASK TRACKER API IS OPEN TO THE INTERNET" "/tasks/api/overview answered 200 with no login." ;;
+  *)   caution "/tasks/api/overview answered $STATUS" "expected 401" ;;
 esac
 
 # /atip/ fails CLOSED (failClosed=true): 503 when unconfigured, never open.
@@ -199,7 +215,7 @@ fi
 # brand. Only a tab with no app behind it can be used for this, because its
 # placeholder is the one page the hub renders server-side without a login — so
 # this is a bonus check when one is available, never a requirement.
-for probe in /milk/ /edu/ /ladwani/; do
+for probe in /edu/ /ladwani/; do
   fetch "$probe"
   [ "$STATUS" = 404 ] || continue
   grep -qF 'not on this tier yet' "$BODY" || continue
@@ -256,11 +272,12 @@ group "The project tabs"
 for tab in /global-warming/ /driving-simulator/; do
   status "$tab" "$tab is served from the hub" 200
 done
-contains /global-warming/ 'shared/menu.js' "/global-warming/ carries the shared menu"
+contains /environment/ 'shared/menu.js' "/environment/ carries the shared menu"
 contains /driving-simulator/ 'shared/menu.js' "/driving-simulator/ carries the shared menu"
 
-for tab in /milk/ /edu/ /ladwani/; do
+for tab in /ladwani/ /edu/; do
   fetch "$tab"
+  # fetch follows redirects, so a protected project answers 200 from the sign-in page.
   if [ "$STATUS" = 200 ]; then
     ok "$tab is deployed and answering"
   elif [ "$STATUS" = 404 ] && grep -qF 'not on this tier yet' "$BODY"; then
@@ -272,7 +289,7 @@ for tab in /milk/ /edu/ /ladwani/; do
     # basePath for a Next.js app, or APP_URL for Laravel. This is the likeliest
     # mistake when wiring a tab up, so it is named rather than left as a code.
     bad "$tab answered 404 from the app behind it, not from the hub" \
-        "An origin is set for $tab, so the request reached the app and the app did not recognise the path. For /milk/ or /ladwani/ the app is probably not serving itself under $tab (Next.js basePath). For /edu/ the hub strips the prefix, so a 404 means the app has no route for the stripped path at all. See DEPLOY.md Part 7."
+        "An origin is set for $tab, so the request reached the app and the app did not recognise the path. For /ladwani/ the app is probably not serving itself under $tab (Next.js basePath). For /edu/ the hub strips the prefix, so a 404 means the app has no route for the stripped path at all. See DEPLOY.md Part 7."
   else
     bad "$tab answered $STATUS" "expected 200, or 404 with the placeholder page."
   fi

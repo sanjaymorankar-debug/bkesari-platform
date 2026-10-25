@@ -2,6 +2,11 @@
 
 return [
 
+    // The bkesari.com hub's public key set, for its X-Bkesari-Token (App\Support\HubToken).
+    'hub' => [
+        'jwks_url' => env('HUB_JWKS_URL'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services

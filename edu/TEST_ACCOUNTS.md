@@ -50,7 +50,7 @@ Then:
   everything else honestly says "not enough years yet" (§31).
 - `/how-india-compares` — the benchmarking page, which opens by stating there is no Indian PISA
   score to show (§3).
-- `/schools/1/safeguarding/report` — the safeguarding entry point. Note the POCSO notice appears
+- `/schools/1/safeguarding/report` (signed in as anyone) — the safeguarding entry point. Note the POCSO notice appears
   *before* the form, and the confirmation leads with "This is not a report to the police" (§25).
 
 ## Trying the newer modules
