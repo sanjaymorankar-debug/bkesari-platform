@@ -26,6 +26,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // those are pinned to APP_URL in AppServiceProvider.
         $middleware->trustProxies(at: '*');
 
+        // Signs in whoever the bkesari.com hub vouches for (X-Bkesari-Token).
+        $middleware->appendToGroup('web', \App\Http\Middleware\HubSignIn::class);
+
         $middleware->alias([
             'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
