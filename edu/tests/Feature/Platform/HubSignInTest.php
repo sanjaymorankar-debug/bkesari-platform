@@ -5,6 +5,7 @@ namespace Tests\Feature\Platform;
 use App\Models\User;
 use App\Support\HubToken;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Spatie\Permission\Models\Role;
@@ -113,7 +114,7 @@ class HubSignInTest extends TestCase
         $calls = 0;
         Http::fake(function () use (&$calls) {
             $calls++;
-            throw new \Illuminate\Http\Client\ConnectionException('Resolving timed out');
+            throw new ConnectionException('Resolving timed out');
         });
         $this->get('/', [HubToken::HEADER => $this->token($this->asha)]);
         $this->get('/', [HubToken::HEADER => $this->token($this->asha)]);
