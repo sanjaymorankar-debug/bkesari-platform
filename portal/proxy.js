@@ -7,9 +7,10 @@
  * them, so one origin serves the whole estate and the same link works on dev,
  * test and production.
  *
- * Each route is off until its origin is set, and a tab with no origin keeps
- * falling through to the hub's "not on this tier yet" page. So this file
- * changes nothing until a tier is actually configured.
+ * Each route is off until it has an origin: its variable, or, when that is
+ * unset and APP_ENV names a tier, the tier's entry in TIER_ORIGINS below. A
+ * tab with neither keeps falling through to the hub's "not on this tier yet"
+ * page, so with no APP_ENV this file changes nothing until a tier is configured.
  *
  * THE PREFIX IS FORWARDED UNCHANGED, UNLESS A TAB ASKS OTHERWISE.
  * `/ladwani/orders` is forwarded as `/ladwani/orders`, and the app behind it serves
@@ -51,6 +52,30 @@ const PROXIED_TABS = [
   { key: 'edu', path: '/edu/', env: 'EDU_ORIGIN', name: 'Education', strip: true },
   { key: 'ladwani', path: '/ladwani/', env: 'LADWANI_ORIGIN', name: 'LadWani' },
 ];
+
+/**
+ * Where each tier's projects live on Hostinger, used when the tab's variable is
+ * unset. These are public addresses, not secrets, so they belong in the code
+ * rather than in a full-replace environment set that has to carry every secret
+ * just to add one URL. Keyed by APP_ENV only: a local run without APP_ENV gets
+ * no defaults and keeps the "not on this tier yet" page.
+ *
+ * LadWani production is not deployed yet, so it has no default; set
+ * LADWANI_ORIGIN (or add it here) once ladwani.bkesari.com serves the app.
+ */
+const TIER_ORIGINS = {
+  dev: { edu: 'https://devedu.bkesari.com', ladwani: 'https://devladwani.bkesari.com' },
+  test: { edu: 'https://testedu.bkesari.com', ladwani: 'https://testladwani.bkesari.com' },
+  prod: { edu: 'https://edu.bkesari.com' },
+};
+
+function tierOf(appEnv) {
+  const v = String(appEnv || '').trim().toLowerCase();
+  if (v === 'dev' || v === 'development') return 'dev';
+  if (v === 'test' || v === 'staging') return 'test';
+  if (v === 'prod' || v === 'production') return 'prod';
+  return null;
+}
 
 /**
  * Reads one origin, or explains why it cannot be used.
@@ -101,9 +126,11 @@ function parseOrigin(value) {
 function readRoutes(env) {
   const routes = [];
   const problems = [];
+  const defaults = TIER_ORIGINS[tierOf(env.APP_ENV)] || {};
   for (const tab of PROXIED_TABS) {
-    const value = env[tab.env];
-    if (value === undefined || String(value).trim() === '') continue;
+    const set = env[tab.env];
+    const value = set === undefined || String(set).trim() === '' ? defaults[tab.key] : set;
+    if (value === undefined) continue;
     const parsed = parseOrigin(value);
     if (parsed.ok) {
       routes.push({ ...tab, target: parsed.origin, base: tab.path.replace(/\/$/, '') });
@@ -273,4 +300,4 @@ function mount(app, {
   return routes;
 }
 
-module.exports = { PROXIED_TABS, parseOrigin, readRoutes, matches, stripPrefix, mount };
+module.exports = { PROXIED_TABS, TIER_ORIGINS, parseOrigin, readRoutes, matches, stripPrefix, mount };

@@ -100,7 +100,7 @@ Any other machine: create a login role that is not a superuser, two databases it
 | `TRACKER_USER`, `TRACKER_PASSWORD` | `/tasks/` login (unset = open: fails open on purpose) | `smoke` / `smoke-local-only` |
 | `ATIP_USER`, `ATIP_PASSWORD` | `/ATIP/` login (unset = 503: fails closed) | `smoke` / `smoke-local-only` |
 | `ATIP_PUBLISH_TOKEN` | snapshot upload | `smoke-local-token` |
-| `EDU_ORIGIN`, `LADWANI_ORIGIN` | the proxy | blank, except in S5's proxy step (`http://127.0.0.1:3111`) |
+| `EDU_ORIGIN`, `LADWANI_ORIGIN` | the proxy | blank, except in S5's proxy step (`http://127.0.0.1:3111`). Blank while `APP_ENV` names a tier means that tier's live site (`TIER_ORIGINS` in `portal/proxy.js`): S5's first hub therefore has gated routes to the dev sites, which no anonymous request gets past. A hub with a signed-in stand-in (`server.test.js`, `tests/support/signed-in-hub.js`) must set both to a local upstream or leave `APP_ENV` blank |
 | `PARITY_POOLED_URL`, `PARITY_DIRECT_URL`, `PARITY_PORT`, `PARITY_IDLE_SECONDS` | `scripts/neon-parity.sh` | section 2.6 |
 | `NODE_EXTRA_CA_CERTS` | Node, S7 only | the local CA that signed the bed's certificate. Never turn verification off instead |
 
@@ -166,7 +166,7 @@ Record each command's exit code, counts and duration.
 | 7 | S3 integration | `set -o pipefail; npm run test:pg 2>&1 \| tee /tmp/portal-r1.txt && grep -c '# SKIP' /tmp/portal-r1.txt` | the tests exit 0, `grep` prints **0** (it then exits 1, which is the good case), guard 32/32 |
 | 8 | S3 integration | the hand-run SQL load below | exit 0 |
 | 9 | S4 build | the deploy-bundle boot below | `bundle boots: 200` |
-| 10 | S5 smoke | the smoke run below | smoke-dev.sh `0 failed` (the 2 tab warnings are expected); every probe `ok`; `S5 failures: 0` |
+| 10 | S5 smoke | the smoke run below | smoke-dev.sh `0 failed` (the one warning, `/edu/ Livewire checks skipped`, is expected: `APP_ENV=dev` fills in the dev sites, so both tabs answer with the sign-in page); every probe `ok`; `S5 failures: 0` |
 | 11 | S6 security | the security checks below | `S6 failures: 0` |
 | 12 | S6 hygiene | `npm audit --omit=dev` | report only: list advisories in the report; fix only if trivial |
 | 13 | S7 Neon parity | `bash scripts/neon-parity.sh` (2.6) | `Neon parity passed.`, exit 0 |
@@ -324,7 +324,7 @@ fails on a skip.
 | ID | Behaviour that must never break | Checked by |
 |---|---|---|
 | PORTAL-CR-01 | `/tasks/` (page and API) needs the login when `TRACKER_*` are set, however the path is spelled; a wrong password is a 401 | `server.test.js` :: the Task Tracker page needs its login however the path is spelled; S6 path loop; S5 `want 401`/`200` lines; `ci.yml` smoke step |
-| PORTAL-CR-02 | `/ATIP/` fails closed: 503 with no `ATIP_*`, 401 without the login | `smoke-dev.sh` *Access control*; `tracker.pg.test.js` :: an ATIP snapshot upload replaces the previous one and is served behind the login |
+| PORTAL-CR-02 | `/ATIP/` fails closed: 503 with no `ATIP_*`, 401 without the login (under Neon Auth, 404 for everyone but the owner) | `smoke-dev.sh` *Access control*; `tracker.pg.test.js` :: an ATIP snapshot upload replaces the previous one and is served behind the login |
 | PORTAL-CR-03 | The snapshot upload needs the bearer token, and keeps only the newest snapshot | `tracker.pg.test.js` :: an ATIP snapshot upload replaces the previous one…; S5 `want 401`/`200` |
 | PORTAL-CR-04 | The ATIP page stays view-only: CSP with `connect-src 'none'`, the read-only stylesheet (also for a page with no `</head>`), the menu rendered server-side | `tracker.pg.test.js` :: a snapshot with no </head> still has its order controls hidden; S5 `has` lines on `$V`; `menu.test.js` :: renderHtml needs no scripts to work |
 | PORTAL-CR-05 | Deleting a project keeps its tasks as independent tasks, and removes its comments | `tracker.pg.test.js` :: deleting a project keeps its tasks as independent tasks |
@@ -335,7 +335,7 @@ fails on a skip.
 | PORTAL-CR-10 | A Neon URL works as pasted: TLS on and verified without `DB_SSL` (the URL's `sslmode` wins over db.js's `ssl: undefined`), channel binding honoured, a connect timeout long enough for a cold start | `db-config.test.js` (all 5); S7 |
 | PORTAL-CR-11 | The proxy is mounted before the body parsers, so a POST into a proxied app keeps its body | `server.test.js` :: the real server.js mounts the proxy before the body parsers; `proxy.test.js` :: a POST body reaches the app intact; mounting the parsers first makes a POST hang…; S5 proxy `"body"` line |
 | PORTAL-CR-12 | `/ladwani/` keeps its prefix; only `/edu/` has it stripped, query string intact | `proxy.test.js` :: only the tab that cannot own its prefix has it stripped; a stripping tab reaches its app at the root…; S5 proxy lines |
-| PORTAL-CR-13 | A proxy origin comes only from the environment and must be a bare http(s) origin (no open proxy) | `proxy.test.js` :: anything that is not a plain http origin is refused; an origin with a path is refused |
+| PORTAL-CR-13 | A proxy origin comes only from the environment (its variable, or for an unset one the `TIER_ORIGINS` entry of the tier `APP_ENV` names, read as the same tier the hub reports), never from the request, and must be a bare http(s) origin (no open proxy); a tier default meets the same gate | `proxy.test.js` :: anything that is not a plain http origin is refused; an origin with a path is refused; APP_ENV fills in the tier origins…; the proxy reads APP_ENV as the same tier the hub reports…; a tier default meets its gate like any other origin… |
 | PORTAL-CR-14 | A down app gives a 502 page that still carries the menu, with its own tab current | `proxy.test.js` :: an app that is down gives a 502 that still carries the menu; a stripping tab's 502 page still marks that tab as current; S5 `want 502` and the Education line |
 | PORTAL-CR-15 | The hub states its tier (`X-Bkesari-Env`) and keeps non-production out of search; an unknown host is production | `smoke-dev.sh` *Tier identity*; `menu.test.js` :: an unknown hostname is treated as production, never as dev |
 | PORTAL-CR-16 | The menu: six tabs in the specified order (ATIP shown to the owner only), a checkbox (not `<details>`) disclosure, the `<noscript>` list matching `TABS`, on every static page | `menu.test.js` :: the six tabs are present…; renderHtml lists every tab to the owner and hides ATIP from everyone else; the mobile disclosure is a checkbox…; the welcome page's <noscript> list matches the tabs; every static hub page includes the shared bar |
@@ -414,10 +414,22 @@ test), `sw` 4 (new: what the service worker may store), `db-config` 5, `tracker.
 ok (`/ATIP` without the slash is now gated like `/ATIP/`, `9e63a60`: 401 anonymous, 302 signed in); S6 16
 ok; S7 17 passed.
 
+Tier default origins (branch `claude/bkesari-hostinger-hub-deploy-vwn6yr`, measured 2026-10-25 on
+`8ab95cf` plus the working tree: `TIER_ORIGINS` in `portal/proxy.js`, and the portal-tester fixes): S2
+**98** pass, three suites skipped; R1 **125**: `proxy` **32** (+3 from the change, +2 from portal-tester:
+tier agreement with the hub, the gate on a tier default), every other file as above, plus **32** guard
+cases. S5: smoke-dev.sh **25 / 0 / 1** (S5's first hub runs `APP_ENV=dev` with no origins, which now means
+gated routes to the dev sites: both tabs pass as "deployed" at the sign-in page, the two "not deployed"
+warnings and the tier-badge bonus check go, and `/edu/ Livewire checks skipped` is the one warning), 32
+probes ok; S6 16 ok; S7 17 passed. `smoke-dev.sh` counts a 404 from `/atip/` as the viewer hidden (owner
+only, under Neon Auth): `https://bkesari.com --env prod` went from 22 / 0 / 3 to 23 / 0 / 2.
+
 Expected, and only these: in S2 the three PostgreSQL suites skip, because S2 runs without
 `TEST_DATABASE_URL` on purpose (node lists them as `# SKIP` lines under `# suites`, not
-`# skipped`); in S5 `smoke-dev.sh` warns that `/edu/` and `/ladwani/` are not deployed,
-because the smoke run sets no origins. Anything else skipping or warning is a regression (R4).
+`# skipped`); in S5 `smoke-dev.sh` warns that the `/edu/` Livewire checks were skipped, because
+the smoke run has no signed-in session. Anything else skipping or warning is a regression (R4).
+(A hub with no `APP_ENV` and no origins still gives the old 23 / 0 / 2, the two warnings being
+`/edu/` and `/ladwani/` not deployed.)
 
 For reference, the suite as merged (before this spec, the same commit, clean tree): 80 tests,
 63 pass, 9 fail, 8 skip, all from the MySQL/SQLite `tests/db-dialects.test.js` that the move to
