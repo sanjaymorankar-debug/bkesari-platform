@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  # deploy-dev.yml runs this whole workflow as its gate, so what deploys is
+  # exactly what CI tested.
+  workflow_call:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: community_platform_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      # Same URL twice: Prisma Migrate reads the direct one (on Neon they differ).
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/community_platform_ci
+      DATABASE_URL_UNPOOLED: postgresql://postgres:postgres@127.0.0.1:5432/community_platform_ci
+      JWT_SECRET: ci-test-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared-types
+        run: npm run build --workspace=packages/shared-types
+
+      - name: Generate Prisma client
+        run: npm run db:generate --workspace=apps/api
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # The hub serves the web app under BASE_PATH (/ladwani/); a bare
+      # fetch('/...') would bypass it. See the script for why.
+      - name: No bare fetch() paths in the web app
+        run: bash apps/web/scripts/check-base-path.sh
+
+      - name: Unit tests (api)
+        run: npm run test --workspace=apps/api
+
+      - name: Apply migrations to CI database
+        run: npm run db:deploy --workspace=apps/api
+
+      - name: Booking concurrency integration test (real PostgreSQL)
+        run: npm run test:integration --workspace=apps/api
+
+      - name: Deploy guard rules
+        run: bash .github/deploy/guard.test.sh
+
+      - name: Build
+        run: npm run build

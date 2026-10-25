@@ -1,0 +1,182 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#F7F5F0; --surface:#FFFFFF; --ink:#1B1F2E; --ink-muted:#5C6070; --border:#E4E0D6;
+      --primary:#1E2A5A; --accent:#E0902C; --success:#2F8F5B; --warning:#C97A22; --danger:#B23A3A; --matrimony:#B85C72;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:'Work Sans',-apple-system,sans-serif; background:var(--bg); color:var(--ink); }
+    h1,h2,h3,.font-display { font-family:'Fraunces',Georgia,serif; text-wrap:balance; }
+    .mono { font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+    a { color:var(--primary); text-decoration:none; }
+    a:hover { color:var(--accent); }
+    .btn { display:inline-flex; align-items:center; gap:8px; padding:12px 22px; border-radius:8px; font-weight:600; font-size:15px; cursor:pointer; border:1px solid transparent; }
+    .btn-primary { background:var(--primary); color:#fff; }
+    .btn-accent { background:var(--accent); color:#fff; }
+    .btn-outline { background:transparent; color:var(--primary); border-color:var(--border); }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:10px; }
+  </style>
+</helmet>
+
+<div style="width:1440px; min-height:2200px; background:var(--bg);">
+
+  <!-- Top nav -->
+  <div style="display:flex; align-items:center; justify-content:space-between; padding:22px 64px; border-bottom:1px solid var(--border);">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#1E2A5A" stroke-width="1.6"><path d="M12 3v6M12 21v-4M6 21v-8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8M4 9h4M16 9h4M9 9V6a3 3 0 0 1 6 0v3"/></svg>
+      <span class="font-display" style="font-size:22px; font-weight:600;">Mi Samaj</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:28px;">
+      <a href="#" style="font-size:15px; color:var(--ink-muted);">About</a>
+      <a href="#" style="font-size:15px; color:var(--ink-muted);">Community Services</a>
+      <a href="#" style="font-size:15px; color:var(--ink-muted);">Contact</a>
+      <div style="display:flex; gap:10px;">
+        <div class="btn btn-outline">Sign In</div>
+        <div class="btn btn-accent">Register</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hero -->
+  <div style="display:grid; grid-template-columns:1.1fr 0.9fr; gap:48px; padding:88px 64px 64px; align-items:center;">
+    <div style="display:flex; flex-direction:column; gap:22px; max-width:620px;">
+      <div style="display:inline-flex; align-items:center; gap:8px; background:#EFEAE0; border:1px solid var(--border); border-radius:999px; padding:6px 14px; width:fit-content;">
+        <span style="width:7px; height:7px; border-radius:999px; background:var(--success);"></span>
+        <span style="font-size:13px; color:var(--ink-muted); font-weight:600; letter-spacing:.02em;">TRUSTED BY 1,240+ REGISTERED FAMILIES</span>
+      </div>
+      <h1 style="font-size:52px; line-height:1.08; margin:0; font-weight:600; color:var(--primary);">Your family's story, your community's home.</h1>
+      <p style="font-size:18px; line-height:1.6; color:var(--ink-muted); margin:0;">Register your family, build a living family tree across generations, find trusted matches within the community, and stay connected — all in one place built for the Ladwani Samaj.</p>
+      <div style="display:flex; gap:14px; margin-top:8px;">
+        <div class="btn btn-accent" style="font-size:16px; padding:14px 28px;">Register Your Family</div>
+        <div class="btn btn-outline" style="font-size:16px; padding:14px 28px;">Sign In</div>
+      </div>
+      <div style="display:flex; gap:36px; margin-top:18px;">
+        <div>
+          <div class="mono" style="font-size:26px; font-weight:600; color:var(--primary);">1,240</div>
+          <div style="font-size:13px; color:var(--ink-muted);">Families Registered</div>
+        </div>
+        <div>
+          <div class="mono" style="font-size:26px; font-weight:600; color:var(--primary);">6,842</div>
+          <div style="font-size:13px; color:var(--ink-muted);">Community Members</div>
+        </div>
+        <div>
+          <div class="mono" style="font-size:26px; font-weight:600; color:var(--primary);">184</div>
+          <div style="font-size:13px; color:var(--ink-muted);">Matrimony Connections</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Decorative family tree motif -->
+    <div class="card" style="padding:36px; position:relative; min-height:420px;">
+      <svg width="100%" height="360" viewBox="0 0 480 360" fill="none">
+        <circle cx="240" cy="50" r="26" fill="#EFEAE0" stroke="#1E2A5A" stroke-width="2"/>
+        <text x="240" y="55" text-anchor="middle" font-family="Work Sans" font-size="11" fill="#1B1F2E">RL</text>
+        <line x1="240" y1="76" x2="240" y2="110" stroke="#E4E0D6" stroke-width="2"/>
+        <line x1="140" y1="110" x2="340" y2="110" stroke="#E4E0D6" stroke-width="2"/>
+        <line x1="140" y1="110" x2="140" y2="140" stroke="#E4E0D6" stroke-width="2"/>
+        <line x1="240" y1="110" x2="240" y2="140" stroke="#E4E0D6" stroke-width="2"/>
+        <line x1="340" y1="110" x2="340" y2="140" stroke="#E4E0D6" stroke-width="2"/>
+        <circle cx="140" cy="166" r="24" fill="#fff" stroke="#1E2A5A" stroke-width="2"/>
+        <circle cx="240" cy="166" r="24" fill="#fff" stroke="#E0902C" stroke-width="2.5"/>
+        <circle cx="340" cy="166" r="24" fill="#fff" stroke="#1E2A5A" stroke-width="2"/>
+        <line x1="205" y1="166" x2="215" y2="166" stroke="#5C6070" stroke-width="2"/>
+        <circle cx="210" cy="166" r="4" fill="none" stroke="#5C6070" stroke-width="1.5"/>
+        <line x1="140" y1="190" x2="140" y2="220" stroke="#E4E0D6" stroke-width="2"/>
+        <line x1="240" y1="190" x2="240" y2="220" stroke="#E4E0D6" stroke-width="2"/>
+        <line x1="180" y1="220" x2="300" y2="220" stroke="#E4E0D6" stroke-width="2"/>
+        <line x1="180" y1="220" x2="180" y2="250" stroke="#E4E0D6" stroke-width="2"/>
+        <line x1="300" y1="220" x2="300" y2="250" stroke="#E4E0D6" stroke-width="2"/>
+        <circle cx="100" cy="270" r="22" fill="#EDEBE4" stroke="#9AA0B0" stroke-width="1.5" stroke-dasharray="3,3"/>
+        <circle cx="180" cy="270" r="22" fill="#fff" stroke="#1E2A5A" stroke-width="2"/>
+        <circle cx="300" cy="270" r="22" fill="#fff" stroke="#1E2A5A" stroke-width="2"/>
+      </svg>
+      <p style="text-align:center; color:var(--ink-muted); font-size:13px; margin:0;">A living family tree — generations, marriages, and memories, kept together.</p>
+    </div>
+  </div>
+
+  <!-- Feature grid -->
+  <div style="padding:24px 64px 88px;">
+    <h2 style="font-size:30px; text-align:center; margin:0 0 12px; color:var(--primary);">Everything your family and community need</h2>
+    <p style="text-align:center; color:var(--ink-muted); max-width:560px; margin:0 auto 48px;">One trusted platform, built with the Ladwani Samaj's traditions and privacy in mind.</p>
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:24px;">
+
+      <div class="card" style="padding:28px;">
+        <div style="width:44px; height:44px; border-radius:10px; background:#EAEEF7; display:flex; align-items:center; justify-content:center; margin-bottom:16px;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1E2A5A" stroke-width="1.8"><path d="M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6"/></svg>
+        </div>
+        <h3 style="font-size:18px; margin:0 0 8px;">Family Registry</h3>
+        <p style="font-size:14px; color:var(--ink-muted); margin:0; line-height:1.6;">Register your family once, keep every member's details current, and let your Karta manage it all in one place.</p>
+      </div>
+
+      <div class="card" style="padding:28px;">
+        <div style="width:44px; height:44px; border-radius:10px; background:#EAEEF7; display:flex; align-items:center; justify-content:center; margin-bottom:16px;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1E2A5A" stroke-width="1.8"><circle cx="12" cy="5" r="2.4"/><circle cx="6" cy="19" r="2.4"/><circle cx="18" cy="19" r="2.4"/><path d="M12 7.4V12M12 12l-4.8 4.6M12 12l4.8 4.6"/></svg>
+        </div>
+        <h3 style="font-size:18px; margin:0 0 8px;">Multi-Generation Family Tree</h3>
+        <p style="font-size:14px; color:var(--ink-muted); margin:0; line-height:1.6;">See parents, grandparents, spouses and children laid out visually — living history that grows with your family.</p>
+      </div>
+
+      <div class="card" style="padding:28px;">
+        <div style="width:44px; height:44px; border-radius:10px; background:#F0EBE3; display:flex; align-items:center; justify-content:center; margin-bottom:16px;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8C7A5B" stroke-width="1.8"><path d="M12 20s-7-4.4-9.5-9A5 5 0 0 1 12 6a5 5 0 0 1 9.5 5c-2.5 4.6-9.5 9-9.5 9Z"/></svg>
+        </div>
+        <h3 style="font-size:18px; margin:0 0 8px;">Community Matrimony</h3>
+        <p style="font-size:14px; color:var(--ink-muted); margin:0; line-height:1.6;">Privacy-first matrimonial discovery within a community you trust. Contact details are never shared without consent.</p>
+      </div>
+
+      <div class="card" style="padding:28px;">
+        <div style="width:44px; height:44px; border-radius:10px; background:#EAEEF7; display:flex; align-items:center; justify-content:center; margin-bottom:16px;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1E2A5A" stroke-width="1.8"><path d="M4 4h16v4H4zM4 12h10v8H4zM17 12h3v8h-3z"/></svg>
+        </div>
+        <h3 style="font-size:18px; margin:0 0 8px;">Community Feed</h3>
+        <p style="font-size:14px; color:var(--ink-muted); margin:0; line-height:1.6;">Announcements, events, achievements and celebrations from your area, city, and the wider community.</p>
+      </div>
+
+      <div class="card" style="padding:28px;">
+        <div style="width:44px; height:44px; border-radius:10px; background:#EAEEF7; display:flex; align-items:center; justify-content:center; margin-bottom:16px;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1E2A5A" stroke-width="1.8"><path d="M3 10.5 12 4l9 6.5M5 9.5V20h14V9.5"/></svg>
+        </div>
+        <h3 style="font-size:18px; margin:0 0 8px;">Community Services &amp; Booking</h3>
+        <p style="font-size:14px; color:var(--ink-muted); margin:0; line-height:1.6;">Find and book verified marriage halls, guest houses and event venues, with secure online payment.</p>
+      </div>
+
+      <div class="card" style="padding:28px;">
+        <div style="width:44px; height:44px; border-radius:10px; background:#EAEEF7; display:flex; align-items:center; justify-content:center; margin-bottom:16px;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1E2A5A" stroke-width="1.8"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 3v4"/></svg>
+        </div>
+        <h3 style="font-size:18px; margin:0 0 8px;">Fees &amp; Contributions</h3>
+        <p style="font-size:14px; color:var(--ink-muted); margin:0; line-height:1.6;">Pay annual family membership and community fees online, with instant receipts and full payment history.</p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="border-top:1px solid var(--border); padding:32px 64px; display:flex; justify-content:space-between; align-items:center; color:var(--ink-muted); font-size:13px;">
+    <span>© 2026 Mi Samaj — Ladwani Samaj Community Platform</span>
+    <div style="display:flex; gap:20px;">
+      <a href="#" style="color:var(--ink-muted); font-size:13px;">Privacy Policy</a>
+      <a href="#" style="color:var(--ink-muted); font-size:13px;">Terms</a>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
