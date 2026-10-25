@@ -173,7 +173,7 @@ Run in order, from `edu/`. Each row's command is literal; the "passes when" colu
 | 7 | S3a | `php artisan test` (SQLite, in memory) | all pass; exactly the 5 skips section 5 names (`vendor/bin/phpunit --display-skipped` lists them) |
 | 8 | S3a | `DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=bk_edu_test DB_USERNAME=bk_edu DB_PASSWORD=$BK_EDU_PASS php artisan test` | all pass, **0 skipped** |
 | 9 | S3b | `DB_CONNECTION=pgsql DB_URL="$PG:5432/bk_edu_test" php artisan migrate:fresh --seed --force`, then `psql "$PG:5432/bk_edu_test" -Atc "select (select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'), (select count(*) from migrations), (select count(*) from users), (select count(*) from schools), (select count(*) from complaints), (select extname from pg_extension where extname='citext')"` | exit 0; `74\|66\|289\|20\|100\|citext` |
-| 10 | S3c | the SQL load, below | every file exit 0; `compare_schema.py` prints `schemas match`; re-running 02 and 03 exits 0; `migrate --pretend` says `Nothing to migrate` |
+| 10 | S3c | the SQL load, below | every file exit 0; `compare_schema.py` prints `schemas match` (it refuses a dump with no `CREATE TABLE`, so a failed `pg_dump` cannot pass); re-running 02 and 03 exits 0; `migrate --pretend` says `Nothing to migrate` |
 | 11 | S3d | the incremental scripts, below | every file exit 0; `compare_schema.py` prints `schemas match` |
 | 12 | S4 | `npm ci && rm -rf /tmp/edu-build && npx vite build --outDir /tmp/edu-build --emptyOutDir && diff -r /tmp/edu-build public/build` | `diff` prints nothing: the committed build is exactly what the sources produce |
 | 13 | S5 | the smoke run, below | `http smoke: N passed, 0 failed` and `browser smoke: N passed, 0 failed` (50 and 18 at baseline) |
@@ -265,7 +265,7 @@ or script error from the hub's origin.
 | the suite refuses a hosted database | `DB_URL_UNPOOLED='postgresql://x:y@ep-example.ap-southeast-1.aws.neon.invalid/bk_edu' php artisan test --filter=ExampleTest` and `DB_CONNECTION=pgsql DB_HOST=ep-example.ap-southeast-1.aws.neon.invalid php artisan test --filter=ExampleTest` | both stop with `Refusing to run tests: the [pgsql_unpooled]` / `[pgsql] connection's host [...] is not a local database server`, before any connection (`tests/TestCase.php`) |
 | every protected page refuses a guest | with S5's servers up: `python3 tests/smoke/guest_routes.py /tmp/edu-routes.json http://127.0.0.1:3105/edu` | `0 not sent to .../edu/login` (56 routes at baseline) |
 | nothing private served | `http.sh`'s last block (S5) | all PASS |
-| PHP dependencies | `composer audit` | report-only: list each advisory in the report with whether this app reaches it |
+| PHP dependencies | `composer audit` | report-only: list each advisory in the report with whether this app reaches it (`No security vulnerability advisories found.` at baseline, Laravel 13.38.0) |
 | JS build dependencies | `npm audit` and `npm audit --omit=dev` | report-only; `--omit=dev` must find 0 (nothing from npm is shipped but the built files) |
 
 **S7, Neon parity.** Against the bed of 2.6, after R1 and with S5's servers stopped. Run 7.8
@@ -351,7 +351,12 @@ member of `neon_superuser`), suite database `t_pedu`, SQL database `t_pedu_sql`,
 **First run**: commit `af66526` (`edu/` is identical at `4b5eec9`), before any fix in this run.
 **Final run**: `4b5eec9` plus this run's working-tree changes (section 8's report lists them),
 after a second round of fixes (evidence downloads and uploads, the numbering lock, the
-hosted-database guard).
+hosted-database guard). **Re-measured at `40a2003`** after the approved security update
+(`composer update laravel/framework symfony/http-foundation league/commonmark
+--with-dependencies`: Laravel 13.26.1 → 13.38.0, symfony/http-foundation 7.4.17 → 7.4.21,
+league/commonmark 2.10.0 → 2.10.4, 46 packages in all): every count below is unchanged except
+`composer audit`, now 0. A fresh container (the bed rebuilt from `/etc/neonlike`, the role
+`t_pedu` given an `auth_file` entry), same versions otherwise.
 
 | # | Level | First run | Final run |
 |---|---|---|---|
@@ -368,7 +373,7 @@ hosted-database guard).
 | 11 | S3d incremental SQL | all load; schemas match | all load; schemas match; 4 s |
 | 12 | S4 rebuild | **FAIL**: rebuilt CSS differs; 3 classes the views use (`border-indigo-200`, `mt-5`, `sm:w-80`) missing from the committed CSS | byte-identical to the committed build (rebuilt in this run: `app-CDqm9BMW.css`); 10 s |
 | 13 | S5 smoke | not run before the fixes (a later probe on the earlier fixes: evidence upload through `/edu/` 404 at `/edu/edu/livewire/upload-file`) | http 50 passed, 0 failed (3 s); browser 18 passed, 0 failed (13 s), with `KILL_URL` |
-| 14 | S6 | no secrets; 56 guest routes refused (measured after the fixes); no hosted-database guard existed; `composer audit` 6 advisories; `npm audit` 7 (dev tooling), 0 with `--omit=dev` | no secrets; both hosted-database runs refused; 56 guest routes refused; 6 / 7 advisories (report-only), 0 with `--omit=dev` |
+| 14 | S6 | no secrets; 56 guest routes refused (measured after the fixes); no hosted-database guard existed; `composer audit` 6 advisories; `npm audit` 7 (dev tooling), 0 with `--omit=dev` | no secrets; both hosted-database runs refused; 56 guest routes refused; `composer audit` 0 after the security update (6 before: 3 laravel/framework, 2 league/commonmark, 1 symfony/http-foundation); `npm audit` 7 (report-only), 0 with `--omit=dev` |
 | 15 | S7.1 suite through the pooler | **FAIL**: 392 tests, 1 passed, 391 errors (SQLSTATE 25P02, from the migrations on), 42 s | 423 tests: 423 passed, 1,241 assertions, 31 s |
 | 15 | S7.2 / 7.3 routing | not possible (no direct-endpoint setting existed) | exit 0 / 1 / 1 as specified; 0 under `config:cache`, cache cleared |
 | 15 | S7.5 channel_binding | **FAIL**: `channel_binding=require` dropped, connected anyway | refused by PgBouncer 1.22 with `channel binding is required`; the direct endpoint connects |
@@ -488,5 +493,6 @@ VERDICT: PASS | FAIL | BLOCKED
   (`App\Routing\BasePathSignedUploadUrl`); the app signs nothing else today, but email
   verification would need the same (`DEPLOY.md` Part 7).
 - **Dependency advisories are reported, not fixed** (S6): upgrading the framework is a change of
-  its own, reviewed and tested as one.
+  its own, reviewed and tested as one. The six PHP advisories of 2026-10 were cleared that way
+  (owner-approved update to Laravel 13.38.0); `npm audit`'s 7 dev-tooling advisories remain.
 - Everything in `TESTING.md`'s "What's not tested" and `ROADMAP.md`'s deferred list.

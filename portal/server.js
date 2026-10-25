@@ -1,3 +1,4 @@
+const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
@@ -598,29 +599,39 @@ async function openDatabases() {
   return { db: tasklist || hubDb, extra: { hubDb, atipDb: atip || hubDb } };
 }
 
+// Listens first and connects to the database after. Hostinger's Node.js hosting
+// gives an app 3 seconds to call listen(), and a suspended Neon compute can take
+// longer than that to answer; until the database is ready every request gets a
+// 503 "starting" instead of a refused connection.
 async function main() {
+  const port = process.env.PORT || 3000;
+  let handler = null;
+  const server = http.createServer((req, res) => {
+    if (handler) return handler(req, res);
+    res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '5' });
+    res.end('Starting, try again in a moment.');
+  });
+  await new Promise((resolve, reject) => server.once('error', reject).listen(port, resolve));
+  console.log(`bkesari portal listening on port ${port}, connecting to the database`);
   const { db, extra } = await openDatabases();
   const { app, proxied } = createApp(db, extra);
-  const port = process.env.PORT || 3000;
-  app.listen(port, () => {
-    console.log(`bkesari portal running at http://localhost:${port}`);
-    console.log(`Task Tracker at http://localhost:${port}/tasks/`);
-    if (neonAuth.enabled()) {
-      const n = neonAuth.allowedEmails().size;
-      console.log(`Task Tracker login: Neon Auth, ${n} allowed email${n === 1 ? '' : 's'} (TRACKER_ALLOWED_EMAILS)`);
-      if (!n) console.warn('WARNING: TRACKER_ALLOWED_EMAILS is empty - nobody can open the tracker until it is set.');
-    } else if (!process.env.TRACKER_PASSWORD) {
-      console.warn('WARNING: TRACKER_USER/TRACKER_PASSWORD not set - the tracker is open to anyone who can reach it.');
-    }
-    console.log(`Neon: realtime ${realtime.enabled() ? 'on' : 'off'}, ` +
-      `object storage ${storage.enabled() ? 'on' : 'off'}, ` +
-      `report function ${process.env.NEON_FUNCTION_REPORT_BASE_URL && process.env.ORIGIN_SECRET ? 'on' : 'off'}`);
-    for (const route of proxied) console.log(`${route.path} -> ${route.target}`);
-    if (!proxied.length) {
-      console.log('No project origins set (EDU_ORIGIN, LADWANI_ORIGIN);');
-      console.log('those tabs will show the "not on this tier yet" page.');
-    }
-  });
+  handler = app;
+  console.log(`bkesari portal running at http://localhost:${port}`);
+  console.log(`Task Tracker at http://localhost:${port}/tasks/`);
+  if (neonAuth.enabled()) {
+    const n = neonAuth.allowedEmails().size;
+    console.log(`Task Tracker login: Neon Auth, ${n} allowed email${n === 1 ? '' : 's'} (TRACKER_ALLOWED_EMAILS)`);
+  } else if (!process.env.TRACKER_PASSWORD) {
+    console.warn('WARNING: TRACKER_USER/TRACKER_PASSWORD not set - the tracker is open to anyone who can reach it.');
+  }
+  console.log(`Neon: realtime ${realtime.enabled() ? 'on' : 'off'}, ` +
+    `object storage ${storage.enabled() ? 'on' : 'off'}, ` +
+    `report function ${process.env.NEON_FUNCTION_REPORT_BASE_URL && process.env.ORIGIN_SECRET ? 'on' : 'off'}`);
+  for (const route of proxied) console.log(`${route.path} -> ${route.target}`);
+  if (!proxied.length) {
+    console.log('No project origins set (EDU_ORIGIN, LADWANI_ORIGIN);');
+    console.log('those tabs will show the "not on this tier yet" page.');
+  }
 }
 
 if (require.main === module) {
@@ -630,4 +641,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createApp };
+module.exports = { createApp, main };
