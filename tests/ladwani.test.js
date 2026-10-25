@@ -59,12 +59,12 @@ function fakeApi(calls) {
   };
 }
 
-async function withHub({ approved = true, user = MEMBER, env = { LADWANI_DATABASE_URL: 'postgres://stand-in' }, webDir = fakeExport(), calls = [], mountLadwani = true } = {}, fn) {
+async function withHub({ approved = true, db = stubDb(approved), user = MEMBER, env = { LADWANI_DATABASE_URL: 'postgres://stand-in' }, webDir = fakeExport(), calls = [], mountLadwani = true } = {}, fn) {
   const saved = { EDU_ORIGIN: process.env.EDU_ORIGIN, LADWANI_ORIGIN: process.env.LADWANI_ORIGIN, APP_ENV: process.env.APP_ENV };
   Object.assign(process.env, { EDU_ORIGIN: '', LADWANI_ORIGIN: '', APP_ENV: '' });
   const extra = { getUser: async () => user };
   if (mountLadwani) extra.ladwani = { webDir, env, loadApi: fakeApi(calls), log: { error() {} } };
-  const { app, ladwaniTab } = createApp(stubDb(approved), extra);
+  const { app, ladwaniTab } = createApp(db, extra);
   if (ladwaniTab) await ladwaniTab.api;
   const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   try {
@@ -210,6 +210,27 @@ test('the API is told who the visitor is, and a browser cannot claim to be someo
     });
     assert.equal(env.LADWANI_VISITOR_HEADER, 'x-bkesari-visitor');
     assert.equal(calls[0].visitor, MEMBER.id, 'the signed-in person, from the hub-signed token');
+  });
+});
+
+test('a visitor header the browser sent never reaches the API, even when the gate names no one', async () => {
+  // A project the hub marks 'open' passes the gate with no token, so the hub
+  // names no visitor. The browser's own header must still not reach LadWani,
+  // whose rate limits would otherwise count that request against anyone it names.
+  const open = HUB_PROJECTS.map((p) => (p.key === 'ladwani' ? { ...p, visibility: 'open' } : p));
+  const db = new Proxy({}, { get: (_, k) => async (sql) => {
+    if (k === 'all' && /FROM hub_projects/.test(sql)) return open;
+    throw new Error(`unexpected db.${String(k)}(${String(sql).slice(0, 60)})`);
+  } });
+  await withHub({ db, user: null }, async ({ base, calls }) => {
+    const r = await fetch(`${base}/ladwani/api/v1/echo`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-bkesari-visitor': 'someone-else', 'x-bkesari-token': 'forged' },
+      body: '{}',
+    });
+    assert.equal(r.status, 200);
+    assert.equal(calls[0].visitor, null);
+    assert.equal(calls[0].token, null);
   });
 });
 
