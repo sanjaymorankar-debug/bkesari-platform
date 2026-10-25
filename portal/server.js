@@ -10,13 +10,16 @@ const proxy = require('./proxy');
 const neonAuth = require('./neon-auth');
 const storage = require('./storage');
 const realtime = require('./realtime');
+// Who may open which project: permissions, request/approve screens, signed tokens.
+const { createHub } = require('./hub');
 
 /* ============================================================
    bkesari.com
      /            -> welcome portal (public/index.html)
      /tasks/      -> Task Tracker UI (public/tasks/index.html)
      /tasks/api/  -> Task Tracker REST API
-     /atip/       -> read-only ATIP snapshot, menu rendered server-side
+     /ATIP/       -> read-only ATIP snapshot, owner only, menu rendered server-side
+     /environment/ -> Environmental Activities (/global-warming/ redirects here)
      other tabs   -> served here when static, else a "not on this tier" page
    ============================================================ */
 
@@ -177,7 +180,12 @@ function servesTrackerFile(rawPath) {
 
 // The whole site as an Express app, given an open database (db.js). Split
 // from main() so tests can drive it against a database of their own.
-function createApp(db) {
+//
+// `extra.hubDb` holds sign-in permissions and `extra.atipDb` the ATIP snapshots;
+// each defaults to `db`, so one database still runs the whole site (tests, local).
+function createApp(db, extra = {}) {
+  const hubDb = extra.hubDb || db;
+  const atipDb = extra.atipDb || db;
   const app = express();
   app.disable('x-powered-by');
 
@@ -213,7 +221,9 @@ function createApp(db) {
   // the visitor hangs until the proxy timeout hands them a 502. Every POST
   // into a proxied project would do it. tests/proxy.test.js shows both
   // orders on a copy; tests/server.test.js fails if this one moves.
+  const hub = createHub({ db: hubDb, getUser: extra.getUser || neonAuth.currentUser, envName: currentEnv });
   const proxied = proxy.mount(app, {
+    gates: { edu: hub.gate('edu'), ladwani: hub.gate('ladwani') },
     // The bar for the proxy's own error page. Takes the request so the tier
     // badge comes from the same place every other page gets it.
     renderMenu: (pathname, req) => menu.renderHtml({ pathname, env: currentEnv(req) }),
@@ -223,7 +233,7 @@ function createApp(db) {
   // be mounted before the body parsers. Without NEON_AUTH_BASE_URL, /tasks/
   // keeps its HTTP Basic login.
   const trackerLogin = neonAuth.enabled()
-    ? neonAuth.mount(app)
+    ? neonAuth.mount(app, { extraAllow: hub.allowsTasklist })
     : basicAuth('TRACKER_USER', 'TRACKER_PASSWORD', 'bkesari Task Tracker', false);
 
   // The ATIP snapshot is a full HTML page, so its route gets a larger limit.
@@ -234,6 +244,23 @@ function createApp(db) {
   // Naming both keeps old publishers working whatever that setting says.
   app.use(['/atip/api/snapshot', '/ATIP/api/snapshot'], express.json({ limit: '15mb' }));
   app.use(express.json({ limit: '1mb' }));
+  hub.mount(app);
+
+  // ATIP belongs to the owner. Signed-in non-owners and visitors alike get a 404.
+  // Without Neon Auth (local runs) the old ATIP_USER/ATIP_PASSWORD login stays.
+  const atipBasic = basicAuth('ATIP_USER', 'ATIP_PASSWORD', 'bkesari ATIP', true);
+  const atipOwner = neonAuth.enabled() || extra.getUser
+    ? wrap(async (req, res, next) => {
+        const user = await hub.whoami(req, res);
+        if (user && user.isOwner) return next();
+        res.status(404).type('text/plain').send('Not found');
+      })
+    : atipBasic;
+
+  // The renamed page. 301 so links and bookmarks to /global-warming keep working.
+  app.get(['/global-warming', '/global-warming/*'], (req, res) => {
+    res.redirect(301, req.path.replace(/^\/global-warming/i, '/environment') + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''));
+  });
 
   const api = express.Router();
 
@@ -449,7 +476,7 @@ function createApp(db) {
     if (typeof html !== 'string' || !/<html[\s>]/i.test(html)) return res.status(400).json({ error: 'html is required' });
     const now = nowUtc();
     // One statement: store the new page and drop every older one.
-    await db.run(`WITH latest AS (
+    await atipDb.run(`WITH latest AS (
         INSERT INTO atip_snapshots (html, trade_date, generated_at, received_at) VALUES ($1,$2,$3,$4) RETURNING id)
       DELETE FROM atip_snapshots WHERE id < (SELECT id FROM latest)`,
       [html, cleanText(trade_date, 20), cleanText(generated_at, 40), now]);
@@ -469,21 +496,21 @@ function createApp(db) {
 
   // The archive, newest first, each with a one-hour download link. Same login
   // as the viewer.
-  app.get(['/atip/api/archive', '/ATIP/api/archive'], basicAuth('ATIP_USER', 'ATIP_PASSWORD', 'bkesari ATIP', true), wrap(async (req, res) => {
+  app.get(['/atip/api/archive', '/ATIP/api/archive'], atipOwner, wrap(async (req, res) => {
     if (!storage.enabled()) return res.status(404).json({ error: 'Object storage is not configured' });
     res.set('Cache-Control', 'no-store');
     res.json({ bucket: storage.BUCKET, snapshots: await storage.listSnapshots() });
   }));
 
-  app.get(['/ATIP/', '/atip/'], basicAuth('ATIP_USER', 'ATIP_PASSWORD', 'bkesari ATIP', true), wrap(async (req, res) => {
+  app.get(['/ATIP/', '/atip/'], atipOwner, wrap(async (req, res) => {
     res.set('Content-Security-Policy', ATIP_CSP);
     res.set('Cache-Control', 'no-store');
     res.set('X-Robots-Tag', 'noindex');
-    const snap = await db.get('SELECT html, trade_date, generated_at, received_at FROM atip_snapshots ORDER BY id DESC LIMIT 1');
+    const snap = await atipDb.get('SELECT html, trade_date, generated_at, received_at FROM atip_snapshots ORDER BY id DESC LIMIT 1');
     if (!snap) {
       return res.send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ATIP</title>
         <body style="font:15px system-ui;background:#0f172a;color:#e2e8f0;min-height:100vh;margin:0">
-        ${menu.renderHtml({ pathname: '/ATIP/', env: currentEnv(req) })}
+        ${menu.renderHtml({ pathname: '/ATIP/', env: currentEnv(req), isOwner: true })}
         <div style="display:grid;place-items:center;padding:64px 16px;text-align:center">
         <div><h1 style="margin:0 0 8px">ATIP</h1><p>No dashboard snapshot has been published yet.</p></div></div>`);
     }
@@ -492,7 +519,7 @@ function createApp(db) {
     const banner = `<div id="bk-banner"><span><a href="/">← bkesari</a> &nbsp; <b>Read-only view</b> · trade date ${escapeHtml(snap.trade_date)} · built ${escapeHtml((snap.generated_at || '').slice(0, 16))} IST · uploaded ${age}</span><span>Orders can only be placed on the ATIP machine.</span></div>`;
     // Rendered here rather than by the browser script: this page's CSP allows
     // inline scripts but not 'self', so an external <script> would be blocked.
-    const top = menu.renderHtml({ pathname: '/ATIP/', env: currentEnv(req) }) + banner;
+    const top = menu.renderHtml({ pathname: '/ATIP/', env: currentEnv(req), isOwner: true }) + banner;
     // The stylesheet that hides the order controls goes in the head, after the
     // page's own styles. A page may have no </head> at all (it is optional in
     // HTML), and then the controls would show: put it at the top instead.
@@ -549,9 +576,31 @@ ${menu.renderHtml({ pathname: req.path, env: currentEnv(req) })}
   return { app, proxied };
 }
 
+/**
+ * One database per project (blueprint A-05). TASKLIST_DATABASE_URL and
+ * ATIP_DATABASE_URL name them; DATABASE_URL is the hub's own, holding only
+ * sign-in permissions. With neither set, DATABASE_URL carries everything, as
+ * it did before the split.
+ */
+async function openDatabases() {
+  const split = (prefix, schemaFile) => {
+    const url = process.env[`${prefix}_DATABASE_URL`];
+    if (!url) return null;
+    return createDb({
+      schemaFiles: [schemaFile],
+      env: { ...process.env, DATABASE_URL: url, DATABASE_URL_UNPOOLED: process.env[`${prefix}_DATABASE_URL_UNPOOLED`] || '' },
+    });
+  };
+  const tasklist = await split('TASKLIST', 'tasklist_schema.sql');
+  const atip = await split('ATIP', 'atip_schema.sql');
+  const hubFiles = ['hub_schema.sql', ...(tasklist ? [] : ['tasklist_schema.sql']), ...(atip ? [] : ['atip_schema.sql'])];
+  const hubDb = await createDb({ schemaFiles: hubFiles });
+  return { db: tasklist || hubDb, extra: { hubDb, atipDb: atip || hubDb } };
+}
+
 async function main() {
-  const db = await createDb();
-  const { app, proxied } = createApp(db);
+  const { db, extra } = await openDatabases();
+  const { app, proxied } = createApp(db, extra);
   const port = process.env.PORT || 3000;
   app.listen(port, () => {
     console.log(`bkesari portal running at http://localhost:${port}`);
@@ -568,7 +617,7 @@ async function main() {
       `report function ${process.env.NEON_FUNCTION_REPORT_BASE_URL && process.env.ORIGIN_SECRET ? 'on' : 'off'}`);
     for (const route of proxied) console.log(`${route.path} -> ${route.target}`);
     if (!proxied.length) {
-      console.log('No project origins set (MILK_ORIGIN, EDU_ORIGIN, LADWANI_ORIGIN);');
+      console.log('No project origins set (EDU_ORIGIN, LADWANI_ORIGIN);');
       console.log('those tabs will show the "not on this tier yet" page.');
     }
   });

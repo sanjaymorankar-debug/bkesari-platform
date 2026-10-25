@@ -95,10 +95,10 @@ test('a new project gets test and dev branches, and every database on each', asy
   assert.deepEqual(fake.state.branches.map((b) => b.name), ['production', 'test', 'dev']);
   for (const b of ['br-prod', 'br-dev']) {
     assert.deepEqual(fake.state.databases[b].map((d) => d.name).sort(),
-      ['bk_agtci', 'bk_atip', 'bk_edu', 'bk_ladwani', 'bk_milk', 'neondb']);
+      ['bk_agtci', 'bk_atip', 'bk_edu', 'bk_ladwani', 'bk_tasklist', 'neondb']);
   }
   assert.deepEqual(fake.state.databases['br-test'].map((d) => d.name).sort(),
-    ['bk_agtci', 'bk_atip', 'bk_edu', 'bk_edu_standalone', 'bk_ladwani', 'bk_milk', 'neondb']);
+    ['bk_agtci', 'bk_atip', 'bk_edu', 'bk_edu_standalone', 'bk_ladwani', 'bk_tasklist', 'neondb']);
   for (const d of fake.state.databases['br-prod']) {
     assert.equal(d.owner_name, d.name === 'neondb' ? 'neondb_owner' : `${d.name}_app`, d.name);
   }
@@ -113,9 +113,9 @@ test('the branches are made before any app role, so none is copied between tiers
   assert.equal(branchCreates.length, 2);
   assert.ok(fake.state.calls.lastIndexOf('POST /projects/p1/branches') < firstRole);
   assert.equal(fake.state.calls.filter((c) => c.endsWith('/reset_password')).length, 0);
-  const prod = fake.state.passwords['br-prod/bk_milk_app'];
-  assert.notEqual(prod, fake.state.passwords['br-dev/bk_milk_app']);
-  assert.notEqual(prod, fake.state.passwords['br-test/bk_milk_app']);
+  const prod = fake.state.passwords['br-prod/bk_tasklist_app'];
+  assert.notEqual(prod, fake.state.passwords['br-dev/bk_tasklist_app']);
+  assert.notEqual(prod, fake.state.passwords['br-test/bk_tasklist_app']);
 });
 
 test('a re-run creates nothing', async () => {
@@ -127,7 +127,7 @@ test('a re-run creates nothing', async () => {
 });
 
 test('a branch made now from a production that already has the roles gets new passwords for them', async () => {
-  const apps = ['bk_portal_app', 'bk_milk_app', 'bk_edu_app', 'bk_ladwani_app', 'bk_atip_app', 'bk_agtci_app'];
+  const apps = ['bk_portal_app', 'bk_tasklist_app', 'bk_edu_app', 'bk_ladwani_app', 'bk_atip_app', 'bk_agtci_app'];
   const dbsFor = (roles) => [{ name: 'neondb', owner_name: 'neondb_owner' },
     ...roles.filter((r) => r !== 'bk_portal_app').map((r) => ({ name: r.replace(/_app$/, ''), owner_name: r }))];
   const fake = fakeNeon({
@@ -170,7 +170,7 @@ test('each project gets the lines its app reads, pooled for the app and direct f
   const prod = files.production;
   assert.match(prod, /^DATABASE_URL=postgresql:\/\/bk_portal_app:[^@]+@ep-br-prod-pooler\.neon\.example\/neondb\?sslmode=require&channel_binding=require$/m);
   assert.match(prod, /^DATABASE_URL_UNPOOLED=postgresql:\/\/bk_portal_app:[^@]+@ep-br-prod\.neon\.example\/neondb\?/m);
-  assert.match(prod, /^DATABASE_URL=postgresql:\/\/bk_milk_app:[^@]+@ep-br-prod-pooler\.neon\.example\/bk_milk\?/m);
+  assert.match(prod, /^DATABASE_URL=postgresql:\/\/bk_tasklist_app:[^@]+@ep-br-prod-pooler\.neon\.example\/bk_tasklist\?/m);
   assert.match(prod, /^DB_CONNECTION=pgsql$/m);
   assert.match(prod, /^DB_URL=postgresql:\/\/bk_edu_app:[^@]+@ep-br-prod-pooler\.[^/]+\/bk_edu\?/m);
   assert.match(prod, /^DB_URL_UNPOOLED=postgresql:\/\/bk_edu_app:[^@]+@ep-br-prod\.neon/m);
@@ -184,7 +184,7 @@ test('each database gets the SQL that shuts other logins out, run as its owner',
   const fake = fakeNeon();
   const { sqlFiles } = await run(fake);
   const prod = sqlFiles.production;
-  for (const db of ['bk_milk', 'bk_edu', 'bk_ladwani', 'bk_atip', 'bk_agtci']) {
+  for (const db of ['bk_edu', 'bk_ladwani', 'bk_atip', 'bk_agtci']) {
     assert.match(prod, new RegExp(`as ${db}_app\\n` + `REVOKE CONNECT, TEMPORARY ON DATABASE "${db}" FROM PUBLIC;`), db);
   }
   // neondb stays with its owner: the hub's login is granted, and the PUBLIC
@@ -206,7 +206,7 @@ test('a database that already exists under another owner is reported, not taken 
   const edu = fake.state.databases['br-prod'].filter((d) => d.name === 'bk_edu');
   assert.deepEqual(edu, [{ name: 'bk_edu', owner_name: 'neondb_owner' }], 'not created again, owner unchanged');
   assert.doesNotMatch(sqlFiles.production, /"bk_edu"/, 'no SQL for a database the tool did not set up');
-  assert.match(sqlFiles.production, /"bk_milk"/);
+  assert.match(sqlFiles.production, /"bk_tasklist"/);
 });
 
 test('passwords reach only the output files, which only the owner can read', async () => {

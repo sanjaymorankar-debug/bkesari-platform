@@ -21,3 +21,7 @@ test('no MySQL syntax is left in the portal schema', () => {
     assert.doesNotMatch(sql, mysqlOnly);
   }
 });
+
+test('database/portal/02_hub_schema.sql carries portal/sql/hub_schema.sql unchanged', () => {
+  assert.ok(read('database/portal/02_hub_schema.sql').endsWith(read('portal/sql/hub_schema.sql')));
+});

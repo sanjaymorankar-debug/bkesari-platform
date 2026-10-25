@@ -4,7 +4,7 @@ The hub is the Node.js (Express) app behind **bkesari.com**, `test.bkesari.com` 
 `dev.bkesari.com`: the welcome page, the shared menu every project includes
 (`portal/public/shared/menu.js`), the static Global Warming and Driving Simulator pages, the
 **Task Tracker** at `/tasks/`, the read-only **ATIP viewer** at `/ATIP/` (and `/atip/`), and the
-proxy that serves `/milk/`, `/edu/` and `/ladwani/` from their own apps (`portal/proxy.js`). Its
+proxy that serves `/edu/` and `/ladwani/` from their own apps (`portal/proxy.js`). Its
 data is in **PostgreSQL on Neon** (database `neondb`, role `bk_portal_app`, one Neon branch per
 tier; [docs/NEON.md](docs/NEON.md)). This spec covers the hub and everything else in this
 repository outside `edu/` and `database/edu/`: the tests, the smoke and parity scripts, the CI
@@ -35,7 +35,7 @@ Out of scope, and why:
 - `edu/` and `database/edu/` — the `edu-tester` agent and `edu/TEST_SPEC.md`. Do not build,
   install or run anything there. (`deploy-dev-edu.yml` and the `edu` job in `ci.yml` are theirs
   too; this spec only parses their YAML.)
-- The apps behind `/milk/`, `/edu/` and `/ladwani/` — their own repositories. Only the hub's
+- The apps behind `/edu/` and `/ladwani/` — their own repositories. Only the hub's
   forwarding is tested here, against a throwaway upstream.
 - Neon itself. Nothing here connects to it: there are no credentials in the repository, and
   tests must never reach a hosted database. `tools/neon_provision.mjs` is tested against a fake
@@ -100,7 +100,7 @@ Any other machine: create a login role that is not a superuser, two databases it
 | `TRACKER_USER`, `TRACKER_PASSWORD` | `/tasks/` login (unset = open: fails open on purpose) | `smoke` / `smoke-local-only` |
 | `ATIP_USER`, `ATIP_PASSWORD` | `/ATIP/` login (unset = 503: fails closed) | `smoke` / `smoke-local-only` |
 | `ATIP_PUBLISH_TOKEN` | snapshot upload | `smoke-local-token` |
-| `MILK_ORIGIN`, `EDU_ORIGIN`, `LADWANI_ORIGIN` | the proxy | blank, except in S5's proxy step (`http://127.0.0.1:3111`) |
+| `EDU_ORIGIN`, `LADWANI_ORIGIN` | the proxy | blank, except in S5's proxy step (`http://127.0.0.1:3111`) |
 | `PARITY_POOLED_URL`, `PARITY_DIRECT_URL`, `PARITY_PORT`, `PARITY_IDLE_SECONDS` | `scripts/neon-parity.sh` | section 2.6 |
 | `NODE_EXTRA_CA_CERTS` | Node, S7 only | the local CA that signed the bed's certificate. Never turn verification off instead |
 
@@ -262,12 +262,12 @@ kill $HUB; wait $HUB 2>/dev/null
 # The proxy, with the real server.js: a throwaway upstream on 3111 that echoes what it got.
 node -e 'require("http").createServer((q,r)=>{let b="";q.on("data",c=>b+=c).on("end",()=>{r.setHeader("content-type","application/json");r.end(JSON.stringify({url:q.url,body:b}))})}).listen(3111,"127.0.0.1")' & UP=$!
 sleep 0.5
-start_hub MILK_ORIGIN=http://127.0.0.1:3111 EDU_ORIGIN=http://127.0.0.1:3111
-has "$(curl -s "$BASE/milk/orders?x=1")" '"url":"/milk/orders?x=1"'
+start_hub LADWANI_ORIGIN=http://127.0.0.1:3111 EDU_ORIGIN=http://127.0.0.1:3111
+has "$(curl -s "$BASE/ladwani/orders?x=1")" '"url":"/ladwani/orders?x=1"'
 has "$(curl -s "$BASE/edu/login")" '"url":"/login"'
-has "$(curl -s -H "$J" -d '{"qty":3}' "$BASE/milk/api/orders")" '"body":"{\"qty\":3}"'
+has "$(curl -s -H "$J" -d '{"qty":3}' "$BASE/ladwani/api/orders")" '"body":"{\"qty\":3}"'
 kill $UP; wait $UP 2>/dev/null; sleep 0.5
-want 502 "$BASE/milk/"
+want 502 "$BASE/ladwani/"
 E=$(curl -s "$BASE/edu/login"); has "$E" 'not responding'; has "$E" '<a href="/edu/" aria-current="page">Education</a>'
 kill $HUB; wait $HUB 2>/dev/null
 echo "S5 failures: $F"
@@ -323,7 +323,7 @@ fails on a skip.
 | PORTAL-CR-09 | A connection the server drops (Neon suspending a compute) never ends the process, idle or mid-transaction | `tracker.pg.test.js` :: an idle connection the server drops is replaced…; a connection dropped in the middle of a transaction…; S7 *Connections dropped while idle* |
 | PORTAL-CR-10 | A Neon URL works as pasted: TLS on and verified without `DB_SSL` (the URL's `sslmode` wins over db.js's `ssl: undefined`), channel binding honoured, a connect timeout long enough for a cold start | `db-config.test.js` (all 5); S7 |
 | PORTAL-CR-11 | The proxy is mounted before the body parsers, so a POST into a proxied app keeps its body | `server.test.js` :: the real server.js mounts the proxy before the body parsers; `proxy.test.js` :: a POST body reaches the app intact; mounting the parsers first makes a POST hang…; S5 proxy `"body"` line |
-| PORTAL-CR-12 | `/milk/` and `/ladwani/` keep their prefix; only `/edu/` has it stripped, query string intact | `proxy.test.js` :: only the tab that cannot own its prefix has it stripped; a stripping tab reaches its app at the root…; S5 proxy lines |
+| PORTAL-CR-12 | `/ladwani/` keeps its prefix; only `/edu/` has it stripped, query string intact | `proxy.test.js` :: only the tab that cannot own its prefix has it stripped; a stripping tab reaches its app at the root…; S5 proxy lines |
 | PORTAL-CR-13 | A proxy origin comes only from the environment and must be a bare http(s) origin (no open proxy) | `proxy.test.js` :: anything that is not a plain http origin is refused; an origin with a path is refused |
 | PORTAL-CR-14 | A down app gives a 502 page that still carries the menu, with its own tab current | `proxy.test.js` :: an app that is down gives a 502 that still carries the menu; a stripping tab's 502 page still marks that tab as current; S5 `want 502` and the Education line |
 | PORTAL-CR-15 | The hub states its tier (`X-Bkesari-Env`) and keeps non-production out of search; an unknown host is production | `smoke-dev.sh` *Tier identity*; `menu.test.js` :: an unknown hostname is treated as production, never as dev |
@@ -385,7 +385,7 @@ the `neondb` / `bk_*` naming change: S2 **67** pass, R1 **82**). R1 by file: `me
 
 Expected, and only these: in S2 the two PostgreSQL suites skip, because S2 runs without
 `TEST_DATABASE_URL` on purpose (node lists them as `# SKIP` lines under `# suites`, not
-`# skipped`); in S5 `smoke-dev.sh` warns that `/milk/`, `/edu/` and `/ladwani/` are not deployed,
+`# skipped`); in S5 `smoke-dev.sh` warns that `/edu/` and `/ladwani/` are not deployed,
 because the smoke run sets no origins. Anything else skipping or warning is a regression (R4).
 
 For reference, the suite as merged (before this spec, the same commit, clean tree): 80 tests,

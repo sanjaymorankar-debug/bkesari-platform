@@ -21,7 +21,6 @@
 #
 #   | Site                        | Database             | Settings file              |
 #   |-----------------------------|----------------------|----------------------------|
-#   | Milk & Dairy (bkesari repo) | bk_milk, bk_milk_test| bkesari/.env               |
 #   | Portal / Task Tracker       | bk_portal            | bkesari-platform/.env      |
 #   | Education (edu/)            | bk_edu               | bkesari-platform/edu/.env  |
 #   | LadWani                     | bk_ladwani           | (schema only: no app here) |
@@ -74,7 +73,6 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"     # bkesari-platform
 [[ -n "$PROJECTS" ]] || PROJECTS="$(dirname "$HERE")"
 PLATFORM="$PROJECTS/bkesari-platform"
 [[ -d "$PLATFORM/portal" ]] || PLATFORM="$HERE"
-MILK="$PROJECTS/bkesari"
 
 say()  { printf '\n==> %s\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
@@ -141,7 +139,6 @@ fi
 umask 077
 [[ -f "$CREDS" ]] && . "$CREDS"
 newpw() { openssl rand -hex 16; }
-: "${BK_MILK_PASS:=$(newpw)}"
 : "${BK_PORTAL_PASS:=$(newpw)}"
 : "${BK_EDU_PASS:=$(newpw)}"
 : "${BK_LADWANI_PASS:=$(newpw)}"
@@ -149,7 +146,6 @@ newpw() { openssl rand -hex 16; }
 cat > "$CREDS" <<EOF
 # Local PostgreSQL logins for the bkesari.com sites, made by setup_local_postgres.sh.
 # Host $PG_HOST, port $PG_PORT. Each role owns the database of the same name.
-BK_MILK_PASS=$BK_MILK_PASS
 BK_PORTAL_PASS=$BK_PORTAL_PASS
 BK_EDU_PASS=$BK_EDU_PASS
 BK_LADWANI_PASS=$BK_LADWANI_PASS
@@ -187,16 +183,14 @@ add_site() {   # role password database...
     done
 }
 # Counted before anything is created, so "fresh" really means fresh.
-MILK_FRESH=0; EDU_FRESH=0; LADWANI_FRESH=0
-[[ "$(table_count "${P}milk")" == 0 ]] && MILK_FRESH=1
+EDU_FRESH=0; LADWANI_FRESH=0
 [[ "$(table_count "${P}edu")" == 0 ]] && EDU_FRESH=1
 [[ "$(table_count "${P}ladwani")" == 0 ]] && LADWANI_FRESH=1
-add_site "${P}milk"    "$BK_MILK_PASS"    "${P}milk" "${P}milk_test"
 add_site "${P}portal"  "$BK_PORTAL_PASS"  "${P}portal" "${P}portal_test"
 add_site "${P}edu"     "$BK_EDU_PASS"     "${P}edu" "${P}edu_test"
 add_site "${P}ladwani" "$BK_LADWANI_PASS" "${P}ladwani"
 add_site "${P}atip"    "$BK_ATIP_PASS"    "${P}atip"
-for db in "${P}milk" "${P}milk_test" "${P}portal" "${P}portal_test" "${P}edu" "${P}edu_test" "${P}ladwani" "${P}atip"; do
+for db in "${P}portal" "${P}portal_test" "${P}edu" "${P}edu_test" "${P}ladwani" "${P}atip"; do
     info "$db ($(table_count "$db") tables)"
 done
 
@@ -245,35 +239,6 @@ prepare_env() { # file template; sets CREATED=1 when the file is new
 
 say "Pointing the apps at their databases"
 
-# --- Milk & Dairy (bkesari repo) -------------------------------------------
-MILK_ENV=""
-if [[ -f "$MILK/package.json" ]]; then
-    MILK_ENV="$MILK/.env"
-    prepare_env "$MILK_ENV" "$MILK/.env.example"
-    if [[ $CREATED == 1 ]]; then
-        # Local: served straight on localhost:3000, not behind the hub's /milk.
-        set_env "$MILK_ENV" APP_ENV dev
-        set_env "$MILK_ENV" BASE_URL http://localhost:3000
-        set_env "$MILK_ENV" BASE_PATH ""
-        set_env "$MILK_ENV" AUTH_URL http://localhost:3000
-    fi
-    set_env "$MILK_ENV" DB_HOST "$PG_HOST"
-    set_env "$MILK_ENV" DB_PORT "$PG_PORT"
-    set_env "$MILK_ENV" DB_NAME "${P}milk"
-    set_env "$MILK_ENV" DB_USER "${P}milk"
-    set_env "$MILK_ENV" DB_PASS "$BK_MILK_PASS"
-    # The migration reads DATABASE_URL, and it wins over DB_* everywhere, so
-    # it is set too (this also replaces an old mysql:// URL).
-    set_env "$MILK_ENV" DATABASE_URL "$(url "${P}milk" "$BK_MILK_PASS" "${P}milk")"
-    set_env "$MILK_ENV" TEST_DATABASE_URL "$(url "${P}milk" "$BK_MILK_PASS" "${P}milk_test")"
-    set_if_empty "$MILK_ENV" AUTH_SECRET "$(openssl rand -base64 32)"
-    set_if_empty "$MILK_ENV" CRON_SECRET "$(openssl rand -hex 32)"
-    set_if_empty "$MILK_ENV" PAN_ENCRYPTION_KEY "$(openssl rand -base64 32)"
-    info "bkesari/.env -> ${P}milk (tests: ${P}milk_test)"
-else
-    warn "no bkesari repo at $MILK: skipped (clone it next to bkesari-platform, or pass --projects)"
-fi
-
 # --- Portal (bkesari-platform) ---------------------------------------------
 PORTAL_ENV="$PLATFORM/.env"
 prepare_env "$PORTAL_ENV" ""
@@ -285,7 +250,7 @@ if [[ $CREATED == 1 ]]; then
     set_env "$PORTAL_ENV" ATIP_PASSWORD "$(openssl rand -hex 8)"
     set_env "$PORTAL_ENV" ATIP_PUBLISH_TOKEN "$(openssl rand -hex 32)"
 fi
-# Left over from the MySQL / SQLite days, or copied from a Neon .env: a local
+# Left over from older setups, or copied from a Neon .env: a local
 # setup uses the DB_* parts below, so neither URL may point anywhere else.
 unset_env "$PORTAL_ENV" DB_CLIENT
 unset_env "$PORTAL_ENV" SQLITE_PATH
@@ -323,22 +288,9 @@ info "edu/.env -> ${P}edu (tests on PostgreSQL: ${P}edu_test, see TESTING.md)"
 if [[ $MIGRATE == 1 ]]; then
     say "Creating tables"
 
-    if [[ -n "$MILK_ENV" ]]; then
-        if command -v npm >/dev/null 2>&1; then
-            ( cd "$MILK"
-              [[ -d node_modules ]] || { info "bkesari: npm ci (first time only, takes a minute)"; npm ci --silent; }
-              npm run --silent db:migrate
-              DATABASE_URL="$(url "${P}milk" "$BK_MILK_PASS" "${P}milk_test")" npm run --silent db:migrate
-              if [[ $MILK_FRESH == 1 ]]; then npm run --silent db:seed; fi )
-            info "${P}milk: $(table_count "${P}milk") tables, ${P}milk_test: $(table_count "${P}milk_test") tables"
-        else
-            warn "npm not found: run 'npm ci && npm run db:migrate && npm run db:seed' in bkesari"
-        fi
-    fi
-
     # The portal creates its tables itself when it starts; doing it now means
     # they exist before then, and are owned by the portal's own role.
-    site_sql "${P}portal" "$BK_PORTAL_PASS" "${P}portal" -f "$PLATFORM/portal/sql/schema.sql"
+    site_sql "${P}portal" "$BK_PORTAL_PASS" "${P}portal" -f "$PLATFORM/portal/sql/schema.sql" -f "$PLATFORM/portal/sql/hub_schema.sql"
     info "${P}portal: $(table_count "${P}portal") tables"
 
     if command -v php >/dev/null 2>&1; then
@@ -374,7 +326,6 @@ fi
 
 # ---------------------------------------------------------------- summary
 say "Done. Start each site with:"
-[[ -n "$MILK_ENV" ]] && info "Milk & Dairy  cd $MILK && npm run dev                       -> http://localhost:3000"
 info "Portal        cd $PLATFORM && node --env-file=.env portal/server.js -> http://localhost:3001"
 info "Education     cd $EDU && php artisan serve --port=8001     -> http://127.0.0.1:8001"
 info ""

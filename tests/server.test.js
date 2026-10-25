@@ -12,19 +12,34 @@ const http = require('node:http');
 const { createApp } = require('../portal/server.js');
 
 // Never called by the routes under test; a call would be a test bug.
-const noDb = new Proxy({}, { get: (_, k) => () => { throw new Error(`unexpected db.${String(k)}()`); } });
+// The hub's permission lookups are the exception: `approved` is the one person
+// the stand-in sign-in below knows, and holds every project's access.
+const HUB_PROJECTS = [
+  { key: 'ladwani', name: 'LadWani', path: '/ladwani/', visibility: 'approval', roles: 'member,karta,operator,admin', sort_order: 10 },
+  { key: 'atip', name: 'ATIP', path: '/ATIP/', visibility: 'owner', roles: 'owner', sort_order: 20 },
+  { key: 'edu', name: 'Education', path: '/edu/', visibility: 'approval', roles: 'parent,student,teacher,school_admin,admin', sort_order: 30 },
+  { key: 'tasklist', name: 'TaskList', path: '/tasks/', visibility: 'approval', roles: 'viewer,editor,owner', sort_order: 40 },
+];
+const stubDb = (approved) => new Proxy({}, { get: (_, k) => async (sql) => {
+  if (k === 'all' && /FROM hub_projects/.test(sql)) return HUB_PROJECTS;
+  if (k === 'all' && /FROM project_access/.test(sql)) return approved ? HUB_PROJECTS.map((p) => ({ project_key: p.key, role: p.roles.split(',')[0] })) : [];
+  if (k === 'get' && /FROM project_access/.test(sql)) return approved ? { ok: 1 } : null;
+  throw new Error(`unexpected db.${String(k)}(${String(sql).slice(0, 60)})`);
+} });
+const noDb = stubDb(false);
+const APPROVED_USER = { id: 'u-approved', email: 'member@example.com', emailVerified: true };
 
 const ENV = {
   TRACKER_USER: 'tracker', TRACKER_PASSWORD: 'tracker-pw',
   ATIP_USER: 'viewer', ATIP_PASSWORD: 'viewer-pw', ATIP_PUBLISH_TOKEN: 'token',
-  MILK_ORIGIN: '', EDU_ORIGIN: '', LADWANI_ORIGIN: '', APP_ENV: 'dev',
+  EDU_ORIGIN: '', LADWANI_ORIGIN: '', APP_ENV: 'dev',
 };
 
 /** Runs `fn(base)` against createApp with `env` applied to process.env, then puts it back. */
-async function withHub(env, fn) {
+async function withHub(env, fn, { db = noDb, extra = {} } = {}) {
   const saved = {};
   for (const k of Object.keys(env)) { saved[k] = process.env[k]; process.env[k] = env[k]; }
-  const { app } = createApp(noDb);
+  const { app } = createApp(db, extra);
   const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   try {
     return await fn(`http://127.0.0.1:${server.address().port}`, server.address().port);
@@ -108,14 +123,14 @@ test('the real server.js mounts the proxy before the body parsers', async () => 
   await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${upstream.address().port}`;
   try {
-    await withHub({ ...ENV, MILK_ORIGIN: origin }, async (base) => {
+    await withHub({ ...ENV, LADWANI_ORIGIN: origin }, async (base) => {
       const payload = JSON.stringify({ order: 'ghee', qty: 3 });
-      const res = await fetch(`${base}/milk/api/orders`, {
+      const res = await fetch(`${base}/ladwani/api/orders`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: payload, signal: AbortSignal.timeout(5000),
       });
       assert.equal(res.status, 200);
-      assert.deepEqual(await res.json(), { url: '/milk/api/orders', body: payload });
-    });
+      assert.deepEqual(await res.json(), { url: '/ladwani/api/orders', body: payload });
+    }, { db: stubDb(true), extra: { getUser: async () => APPROVED_USER } });
   } finally {
     await new Promise((resolve) => upstream.close(resolve));
   }

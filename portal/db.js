@@ -117,7 +117,10 @@ function helpers(client) {
   };
 }
 
-const SCHEMA_FILE = path.join(__dirname, 'sql', 'schema.sql');
+// Default: the whole portal schema in one database (tests, local use). In
+// production each project has its own database and server.js passes the files
+// that belong to it.
+const DEFAULT_SCHEMA_FILES = ['schema.sql', 'hub_schema.sql'];
 // Any constant works; it only has to be the same in every process.
 const SCHEMA_LOCK = 4823501;
 
@@ -170,7 +173,8 @@ module.exports = async function createDb(options = {}) {
   // table, and IF NOT EXISTS does not stop that race in PostgreSQL. The lock
   // is transaction-scoped, so it is safe even through PgBouncer, but with
   // DATABASE_URL_UNPOOLED set all of it goes over the direct connection.
-  const schema = fs.readFileSync(SCHEMA_FILE, 'utf8');
+  const schema = (options.schemaFiles || DEFAULT_SCHEMA_FILES)
+    .map((f) => fs.readFileSync(path.join(__dirname, 'sql', f), 'utf8')).join('\n');
   const applySchema = async (q) => {
     await q.run('SELECT pg_advisory_xact_lock($1)', [SCHEMA_LOCK]);
     await q.run(schema);

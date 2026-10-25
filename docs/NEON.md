@@ -20,7 +20,7 @@ that project's own login**:
 | Project | Database | Login | Repository |
 |---|---|---|---|
 | Hub: Task Tracker, ATIP viewer, Neon Auth | `neondb` | `bk_portal_app` | bkesari-platform (`portal/`) |
-| Milk & Dairy | `bk_milk` | `bk_milk_app` | bkesari |
+| TaskList | `bk_tasklist` | `bk_tasklist_app` | bkesari-platform (`portal/`) |
 | Education | `bk_edu` | `bk_edu_app` | bkesari-platform (`edu/`) |
 | LadWani | `bk_ladwani` | `bk_ladwani_app` | Ladwani |
 | ATIP | `bk_atip` | `bk_atip_app` | ATIP-DEV |
@@ -116,11 +116,11 @@ database refuses other logins. The API cannot do that; SQL can.
 
 Run each block of `<tier>.sql` once, connected to that database over its
 **direct** string as the login the block names (psql, or the SQL Editor in
-the console). For example, for Milk & Dairy on production:
+the console). For example, for TaskList on production:
 
 ```sql
--- as bk_milk_app, on bk_milk
-REVOKE CONNECT, TEMPORARY ON DATABASE "bk_milk" FROM PUBLIC;
+-- as bk_tasklist_app, on bk_tasklist
+REVOKE CONNECT, TEMPORARY ON DATABASE "bk_tasklist" FROM PUBLIC;
 ```
 
 and for the hub's `neondb`, as `neondb_owner`:
@@ -135,7 +135,7 @@ The file also carries, commented out, the matching `REVOKE … FROM PUBLIC` for
 CONNECT`. Until then, other logins can still reach `neondb`.
 
 Checked on a stand-in with the same privilege model: before the SQL, the hub's
-login could read Milk & Dairy's tables; afterwards it is refused at
+login could read TaskList's tables; afterwards it is refused at
 connection, while each project still uses its own database and the hub creates
 and owns its tables in `neondb`.
 
@@ -159,7 +159,7 @@ using each project's own command:
 | Project | Command, on the server or the Mac |
 |---|---|
 | Hub | none: the app creates its tables on start, over `DATABASE_URL_UNPOOLED` |
-| Milk & Dairy | `npm run db:migrate` (reads `DATABASE_URL_UNPOOLED`) |
+| TaskList, ATIP | none: the hub creates their tables on start, over `TASKLIST_DATABASE_URL_UNPOOLED` / `ATIP_DATABASE_URL_UNPOOLED` |
 | Education | `php artisan migrate --force` (goes over `DB_URL_UNPOOLED`; see `edu/DEPLOYMENT.md`) |
 | LadWani | `npx prisma migrate deploy` (Prisma's `directUrl`) |
 | ATIP | `python main.py --init` with `database.backend = "postgresql"` |
@@ -179,7 +179,6 @@ fixed:
 | App | Driver | Neon-specific handling |
 |---|---|---|
 | Hub | node-postgres | pool and per-transaction error listeners (a connection dropped mid-transaction used to end the process); 15 s connect timeout; `channel_binding` passed on; tables created over the direct URL |
-| Milk & Dairy | node-postgres + Drizzle | error listener on every client (the same mid-transaction crash); one pool per process; `channel_binding`; migrations over the direct URL without needing the app's secrets |
 | Education (both copies) | PHP pdo_pgsql | unnamed statements (PHP's named ones broke every transaction on the pooler, and a one-statement transaction was silently rolled back); no session `SET`s; `channel_binding` passed on; migrations over `DB_URL_UNPOOLED` |
 | LadWani | Prisma 5 | `directUrl`; idle connections retired after 30 s (otherwise each dead one failed once with P1017); 15 s connect timeout; `pgbouncer=true` not needed |
 | ATIP | psycopg 3 | direct endpoint; read transaction closed before a connection goes back, so a pooler can reuse it |
@@ -210,8 +209,7 @@ fixed:
 
 | Project | Existing data | How |
 |---|---|---|
-| LadWani | the live Hostinger MySQL `u879099820_miladwani` | `MIGRATION.md` in the Ladwani repo — back it up first |
-| Milk & Dairy | the MySQL dev database, if it holds anything worth keeping | `DEPLOYMENT.md` §7a in the bkesari repo |
+| LadWani | the old Hostinger database `u879099820_miladwani`, which Neon replaces | export it from hPanel (phpMyAdmin) before it is deleted; `MIGRATION.md` in the Ladwani repo |
 | Education | seeded demo data only | re-seed on dev and test; production loads `database/edu/02` and `04` only (`DEPLOY.md` Part 2) |
 | Hub (Task Tracker) | whatever the tracker holds | export from the old site's `/tasks/` before switching |
 | ATIP | the Mac's SQLite file | stays on SQLite until you switch it; `docs/POSTGRESQL_MIGRATION.md` in ATIP-DEV |

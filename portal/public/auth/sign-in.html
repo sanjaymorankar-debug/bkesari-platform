@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in — Task Tracker</title>
+<title>Sign in — bkesari</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✅</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -50,7 +50,7 @@
 </head>
 <body>
 <main>
-  <h1>Task Tracker</h1>
+  <h1>Sign in to bkesari</h1>
   <p class="sub" id="lead">Sign in to continue.</p>
 
   <!-- Sign in / create an account -->
@@ -100,6 +100,11 @@
 // Neon Auth, so the session cookies are first-party (portal/neon-auth.js).
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
+// Where to go after signing in: a path on this site only, never another origin.
+const NEXT = (() => {
+  const n = params.get('next') || '/';
+  return /^\/(?![\/\\])/.test(n) ? n : '/';
+})();
 let mode = 'signin';
 
 async function auth(path, body) {
@@ -141,7 +146,7 @@ async function refresh() {
     show('denied');
     return;
   }
-  location.replace('/tasks/');
+  location.replace(NEXT);
 }
 
 $('tabSignIn').onclick = () => setMode('signin');
@@ -159,7 +164,7 @@ $('credForm').onsubmit = async (e) => {
       await auth('sign-in/email', { email, password });
     }
     // The tracker decides what happens next (verify, no access, or in).
-    location.replace('/tasks/');
+    location.replace(NEXT);
   } catch (err) {
     msg.className = 'msg err'; msg.textContent = err.message;
   }
@@ -184,7 +189,7 @@ $('codeForm').onsubmit = async (e) => {
   btn.disabled = true; msg.className = 'msg'; msg.textContent = '';
   try {
     await auth('email-otp/verify-email', { email: $('verifyEmail').textContent, otp: $('code').value.trim() });
-    location.replace('/tasks/');
+    location.replace(NEXT);
   } catch (err) {
     msg.className = 'msg err'; msg.textContent = err.message;
   }

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>bkesari</title>
-<meta name="description" content="One home for the bkesari projects: dairy ordering, education, community, tasks and trading intelligence.">
+<meta name="description" content="One home for the bkesari projects: community, education, tasks and more.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🟠</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -25,6 +25,7 @@
   .card-tag{display:block;color:var(--ink-soft);font-size:13.5px;line-height:1.4}
   .card-path{display:block;color:var(--ink-faint);font-size:12px;margin-top:8px;
     font-family:ui-monospace,monospace}
+  .btn{display:inline-block;min-height:44px;line-height:44px;padding:0 18px;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;text-decoration:none}
   .noscript{background:var(--surface);border:1px solid var(--line);border-radius:12px;
     padding:16px;margin-bottom:24px}
   .noscript ul{margin:8px 0 0;padding-left:20px}
@@ -36,19 +37,18 @@
 
 <main>
   <h1>Welcome to bkesari</h1>
-  <p class="lead">One home for all of our projects. Pick a tab above, or choose from the list below.</p>
+  <p class="lead">One home for all of our projects. One bkesari ID signs you in; each project then decides what you may open.</p>
+  <p id="who" class="lead"></p>
 
   <noscript>
     <div class="noscript">
       <strong>The menu above needs JavaScript to appear.</strong> Every project is still reachable:
       <ul>
-        <li><a href="/milk/">Milk &amp; Dairy Products</a></li>
-        <li><a href="/edu/">Education</a></li>
-        <li><a href="/global-warming/">Global Warming</a></li>
         <li><a href="/ladwani/">LadWani</a></li>
+        <li><a href="/edu/">Education</a></li>
         <li><a href="/tasks/">TaskList</a></li>
-        <li><a href="/atip/">ATIP</a></li>
         <li><a href="/driving-simulator/">Driving Simulator</a></li>
+        <li><a href="/environment/">Environmental Activities</a></li>
       </ul>
     </div>
   </noscript>
@@ -61,20 +61,49 @@
 <script src="/shared/menu.js"></script>
 <script>
 // The cards are built from the menu's own TABS, so the welcome page and the bar
-// can never list different projects.
+// can never list different projects. /hub/api/me then says who is looking:
+// a visitor sees every open project plus "Sign in"; a signed-in person sees
+// whether each protected project is open to them, waiting, or needs a request.
 (function () {
   const menu = window.BKESARI_MENU;
   if (!menu) return; // the <noscript> list above already covers this
   const esc = menu.escapeHtml;
-  document.getElementById('cards').innerHTML = menu.TABS.map((tab) => `
-    <a class="card" href="${esc(tab.path)}">
+  const paint = (me) => {
+    const byPath = {};
+    ((me && me.projects) || []).forEach((p) => { byPath[p.path.toLowerCase()] = p; });
+    const tabs = menu.TABS.filter((t) => !t.ownerOnly || (me && me.owner));
+    document.getElementById('cards').innerHTML = tabs.map((tab) => {
+      const p = byPath[tab.path.toLowerCase()];
+      const state = p ? p.state : 'open';
+      const href = state === 'request' ? '/access/request?project=' + encodeURIComponent(p.key) : tab.path;
+      const badge = state === 'request' ? 'Request access' : state === 'pending' ? 'Waiting for approval'
+        : state === 'signin' ? 'Sign in required' : '';
+      return `
+    <a class="card" href="${esc(href)}">
       <span class="icon" aria-hidden="true">${esc(tab.icon || '•')}</span>
       <span>
         <span class="card-name">${esc(tab.name)}</span>
         <span class="card-tag">${esc(tab.tagline || '')}</span>
-        <span class="card-path">${esc(tab.path)}</span>
+        ${badge ? `<span class="card-path">${esc(badge)}</span>` : ''}
       </span>
-    </a>`).join('');
+    </a>`;
+    }).join('');
+    const who = document.getElementById('who');
+    if (me && me.user) {
+      who.innerHTML = `Signed in as <strong>${esc(me.user.email)}</strong>` +
+        (me.canAdmin ? ` · <a href="/admin/access">Access admin</a>` : '') +
+        ` · <a href="#" id="signout">Sign out</a>`;
+      document.getElementById('signout').onclick = async (e) => {
+        e.preventDefault();
+        await fetch('/api/auth/sign-out', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+        location.reload();
+      };
+    } else {
+      who.innerHTML = `<a class="btn" href="/auth/sign-in">Sign in</a>`;
+    }
+  };
+  paint(null);
+  fetch('/hub/api/me', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)).then((me) => { if (me) paint(me); }).catch(() => {});
   document.getElementById('year').textContent = new Date().getFullYear();
 })();
 </script>

@@ -23,7 +23,6 @@ is already established and your time is better spent on sections 2 and 4.
 | Repository | What runs | Covers |
 |---|---|---|
 | `bkesari-platform` | `ci.yml` | the server, proxy and shared menu parse; **19 menu unit tests**; **26 proxy tests**, including a real proxy against a real upstream; **3 tests of the assembled server** (the Task Tracker's login however a path is spelled, no stack trace for a malformed body, the proxy mounted before the body parsers); **15 Task Tracker / ATIP-snapshot / database tests against a real PostgreSQL 16** (every DB-backed route, the app creating its own tables, over `DATABASE_URL_UNPOOLED` when set, bad input answered 400/404 rather than 500, connections dropped by the server survived); **5 tests of the connection settings** a Neon URL produces; **12 tests of the Neon provisioning tool** against a stand-in for Neon's API (including the SQL that shuts other logins out of each database, and never taking over a database someone else owns); 2 checks that the portal schema and its `database/` copy agree; **32 deploy-guard cases**; a skipped test fails the job; the hub boots on PostgreSQL with `DATABASE_URL` and `DATABASE_URL_UNPOOLED` and passes the full smoke test; correct logins are accepted and wrong ones rejected. What CI cannot show (PgBouncer, TLS, dropped connections end to end) is `TEST_SPEC.md`'s Neon parity level |
-| `bkesari` (Milk & Dairy) | `ci.yml` | migrations apply to a real database server; typecheck; eslint; **281 unit and integration tests**; a production build; the deploy-guard cases. *That repository is moving from MySQL 8 to PostgreSQL on its own branch; its `ci.yml` says which it runs.* |
 | `Ladwani` | `ci.yml` | migrations apply to a real database server; reference and UAT data seed; typecheck; `prisma validate`; the test suite; a production build; the deploy-guard cases. *Moving from MySQL 8 to PostgreSQL on its own branch, as above.* |
 | `bkesari-platform/edu` | `ci.yml` (`edu` job) | **423 PHPUnit tests** **three times**: on in-memory sqlite (418 pass; the 5 that need a PostgreSQL server skip), on a real **PostgreSQL 16** (all 423, 1,241 assertions), and through **PgBouncer in transaction mode with TLS**, as a role that is not a superuser (all 423): the way `DB_URL` reaches Neon on every tier. They include 13 covering the app served under the hub's `/edu/` path (Livewire's signed upload URL among them) and 18 covering the Neon settings (`DB_URL` for the app, `DB_URL_UNPOOLED` for `migrate` and the other schema commands, `channel_binding` passed on, no named prepared statements, no session `SET`, and a suite that refuses to run against a hosted database); every migration and seeder from empty on PostgreSQL; `composer validate`; the Vite manifest matches the files on disk. What CI cannot show (dropped connections, concurrent complaint numbers, the app behind the hub in a browser) is `edu/TEST_SPEC.md`'s S5 and S7 |
 
@@ -46,13 +45,6 @@ npm ci && npm run test:pg && npm run check      # everything, nothing skipped
 TEST_DATABASE_URL='postgresql://bk_portal:pw@127.0.0.1:5432/bk_portal_test' npm test
 # The full standard and regression suites, the smoke run and the Neon parity
 # checks are TEST_SPEC.md.
-
-# bkesari (Milk & Dairy) — needs a database you don't mind being wiped; that
-# repository's README and ci.yml give the exact URL form for its current engine
-DATABASE_URL='postgresql://bk_milk:pw@127.0.0.1:5432/bk_milk_test' \
-TEST_DATABASE_URL='postgresql://bk_milk:pw@127.0.0.1:5432/bk_milk_test' \
-AUTH_SECRET=local CRON_SECRET=local \
-  npm ci && npm run db:migrate && npm test
 
 # Ladwani — the suite reads .env.test; ci.yml shows exactly what to put in it
 npm ci && npm run test:migrate && npm test
@@ -184,8 +176,9 @@ shows whether the page works.
 The brief requires the bar on **every page of every project**, so check it on
 more than the welcome page.
 
-- [ ] All **seven tabs** appear, in order: Milk & Dairy Products · Education ·
-      Global Warming · LadWani · TaskList · ATIP · Driving Simulator.
+- [ ] All **six tabs** appear for the owner, in order: LadWani · ATIP · Education ·
+      TaskList · Driving Simulator · Environmental Activities. Anyone else sees five:
+      ATIP is hidden from them and `/ATIP/` answers 404.
 - [ ] The **current tab is highlighted** on each page you visit — not just the
       welcome page.
 - [ ] The **brand** on the left returns you to the welcome page.
@@ -213,10 +206,10 @@ more than the welcome page.
 - [ ] **`/atip/`** — the login is accepted, and you see either a dashboard or
       *"No dashboard snapshot has been published yet."* Confirm the page is
       **view-only**: no order buttons, no broker banner.
-- [ ] **`/milk/`, `/edu/`, `/ladwani/`** — each either works or shows the
+- [ ] **`/edu/`, `/ladwani/`** — each either works or shows the
       "not on this tier yet" page **with the menu still usable**. A bare 404 or a
       server error is a fault.
-- [ ] For a tab with an origin set (`MILK_ORIGIN` and friends, `DEPLOY.md`
+- [ ] For a tab with an origin set (`EDU_ORIGIN` and `LADWANI_ORIGIN`, `DEPLOY.md`
       Part 7), check the **app's own assets load**: open it and confirm the page
       is styled and its links work, not just that it returns HTML. A page served
       with the prefix stripped comes back as unstyled markup, which a status
@@ -298,8 +291,7 @@ Honest list, so nothing here is mistaken for covered:
   `edu/tests/smoke/browser.cjs`). The app signs nothing else today
   (`MustVerifyEmail` is off on the `User` model), but email verification links,
   which are signed, will need the same treatment.
-- **The three tab paths are wired but unproven against Hostinger.** `/milk/`,
-  `/edu/` and `/ladwani/` have each been driven end to end against their real
+- **The three tab paths are wired but unproven against Hostinger.** `/edu/` and `/ladwani/` have each been driven end to end against their real
   app behind the real hub locally, including a browser sign-in through
   Livewire for Education. What has not happened is a run on the actual dev
   sites, because no tier is deployed yet. The smoke test reports an
@@ -316,8 +308,6 @@ Honest list, so nothing here is mistaken for covered:
 - **No end-to-end browser test runs anywhere in CI.** `bkesari` has Playwright
   configured and one acceptance spec (`tests/e2e/acceptance.spec.ts`), but no
   workflow runs it. Section 4 is manual for that reason.
-- **No load or concurrency testing.** The payment and stock guards in Milk & Dairy
-  have unit tests proving their compare-and-swap behaviour, but nothing has
-  exercised them under real parallel traffic.
-- **The Global Warming figures are not verified.** They carry sources and years;
+- **No load or concurrency testing.** Nothing has exercised the apps under real parallel traffic.
+- **The Environmental Activities figures are not verified.** They carry sources and years;
   somebody still has to check them against those sources.

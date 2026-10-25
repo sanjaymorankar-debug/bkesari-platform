@@ -1,7 +1,7 @@
 /**
  * Serves another project under one of the hub's tab paths.
  *
- * The menu's tabs are paths, not hostnames — `/milk/`, `/edu/`, `/ladwani/` —
+ * The menu's tabs are paths, not hostnames — `/edu/`, `/ladwani/` —
  * but each of those projects is its own application on its own Hostinger site.
  * This is what joins the two: the hub forwards those paths to the app behind
  * them, so one origin serves the whole estate and the same link works on dev,
@@ -12,7 +12,7 @@
  * changes nothing until a tier is actually configured.
  *
  * THE PREFIX IS FORWARDED UNCHANGED, UNLESS A TAB ASKS OTHERWISE.
- * `/milk/orders` is forwarded as `/milk/orders`, and the app behind it serves
+ * `/ladwani/orders` is forwarded as `/ladwani/orders`, and the app behind it serves
  * itself under that prefix (a Next.js `basePath`). Stripping it there would
  * make the app emit `/_next/...` asset URLs the hub does not serve, and the
  * apps would collide with each other at the root.
@@ -45,12 +45,11 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
  * `/tasks/`, `/atip/`, and the two static pages.
  */
 const PROXIED_TABS = [
-  { path: '/milk/', env: 'MILK_ORIGIN', name: 'Milk & Dairy Products' },
   // `strip`: Laravel matches routes against the request path and serves
   // `public/` from the origin's root, so it cannot own the prefix the way a
   // Next.js app does. It puts the prefix back on its own output instead.
-  { path: '/edu/', env: 'EDU_ORIGIN', name: 'Education', strip: true },
-  { path: '/ladwani/', env: 'LADWANI_ORIGIN', name: 'LadWani' },
+  { key: 'edu', path: '/edu/', env: 'EDU_ORIGIN', name: 'Education', strip: true },
+  { key: 'ladwani', path: '/ladwani/', env: 'LADWANI_ORIGIN', name: 'LadWani' },
 ];
 
 /**
@@ -61,7 +60,7 @@ const PROXIED_TABS = [
  * origin is refused rather than interpreted:
  *
  *   - a path (`https://host/app`) would be prepended to every forwarded
- *     request, giving `/app/milk/...`, which is not what anyone meant;
+ *     request, giving `/app/ladwani/...`, which is not what anyone meant;
  *   - a query or fragment is meaningless for an origin and signals a mistake;
  *   - embedded credentials would end up in logs and error pages.
  */
@@ -119,8 +118,8 @@ function readRoutes(env) {
  * True when this request belongs to `route`.
  *
  * Matches the tab's path with and without its trailing slash, because a
- * Next.js app with `basePath: '/milk'` serves its home page at `/milk` and
- * redirects `/milk/` to it. Were only `/milk/` forwarded, `/milk` would fall
+ * Next.js app with `basePath: '/ladwani'` serves its home page at `/ladwani` and
+ * redirects `/ladwani/` to it. Were only `/ladwani/` forwarded, `/ladwani` would fall
  * through to the hub's placeholder while the app sat there working.
  *
  * The same longest-prefix rule as the menu's active-tab logic, so a path can
@@ -192,6 +191,10 @@ function mount(app, {
   // route on shared hosting, short enough that a dead app does not hold a
   // visitor's browser open. Overridable so tests need not wait it out.
   timeoutMs = 30_000,
+  // Per-project access checks, keyed by route key ('edu', 'ladwani'). A gate
+  // is Express middleware that either answers (sign-in, request access, 404)
+  // or sets the signed X-Bkesari-Token header and calls next().
+  gates = {},
 } = {}) {
   const { routes, problems } = readRoutes(env);
 
@@ -200,9 +203,16 @@ function mount(app, {
   }
 
   for (const route of routes) {
+    app.use((req, res, next) => {
+      if (!matches(route, req.path)) return next();
+      // Whatever the browser sent under this name is forged: only a gate may set it.
+      delete req.headers['x-bkesari-token'];
+      const gate = gates[route.key];
+      return gate ? gate(req, res, next) : next();
+    });
     app.use(
       createProxyMiddleware({
-        // Mounted at the root with a filter, NOT as app.use('/milk', ...):
+        // Mounted at the root with a filter, NOT as app.use('/ladwani', ...):
         // Express strips a mount path from req.url, so a pass-through tab would
         // lose the prefix its app's own links are built on, and a stripping tab
         // would have the rewrite done for it where it can neither be seen nor

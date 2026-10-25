@@ -20,7 +20,6 @@ test('a tab is proxied for each project that can have its own app', () => {
   assert.deepEqual(
     proxy.PROXIED_TABS.map((t) => [t.path, t.env]),
     [
-      ['/milk/', 'MILK_ORIGIN'],
       ['/edu/', 'EDU_ORIGIN'],
       ['/ladwani/', 'LADWANI_ORIGIN'],
     ],
@@ -36,7 +35,6 @@ test('only the tab that cannot own its prefix has it stripped', () => {
   assert.deepEqual(
     proxy.PROXIED_TABS.map((t) => [t.path, t.strip === true]),
     [
-      ['/milk/', false],
       ['/edu/', true],
       ['/ladwani/', false],
     ],
@@ -55,9 +53,9 @@ test('every proxied path is a real tab in the menu', () => {
 test('a bare origin is accepted', () => {
   for (const value of [
     'http://127.0.0.1:3001',
-    'https://devmilk.bkesari.com',
-    'https://devmilk.bkesari.com/',
-    '  https://devmilk.bkesari.com  ',
+    'https://devladwani.bkesari.com',
+    'https://devladwani.bkesari.com/',
+    '  https://devladwani.bkesari.com  ',
   ]) {
     const got = proxy.parseOrigin(value);
     assert.ok(got.ok, `${value} was rejected: ${got.reason}`);
@@ -68,7 +66,7 @@ test('a bare origin is accepted', () => {
 test('an origin with a path is refused', () => {
   // The hub forwards the tab prefix unchanged, so a target path would be
   // prepended to it and every request would land somewhere unintended.
-  const got = proxy.parseOrigin('https://devmilk.bkesari.com/app');
+  const got = proxy.parseOrigin('https://devladwani.bkesari.com/app');
   assert.ok(!got.ok);
   assert.match(got.reason, /path/);
 });
@@ -77,7 +75,7 @@ test('anything that is not a plain http origin is refused', () => {
   const cases = {
     '': /empty/,
     '   ': /empty/,
-    'devmilk.bkesari.com': /not a URL/,
+    'devladwani.bkesari.com': /not a URL/,
     'file:///etc/passwd': /http/,
     'ftp://host': /http/,
     'https://user:pw@host': /username or password/,
@@ -100,43 +98,43 @@ test('no routes are configured by default', () => {
 });
 
 test('only the projects with an origin are routed', () => {
-  const { routes } = proxy.readRoutes({ MILK_ORIGIN: 'http://127.0.0.1:3001' });
+  const { routes } = proxy.readRoutes({ LADWANI_ORIGIN: 'http://127.0.0.1:3001' });
   assert.equal(routes.length, 1);
-  assert.equal(routes[0].path, '/milk/');
+  assert.equal(routes[0].path, '/ladwani/');
   assert.equal(routes[0].target, 'http://127.0.0.1:3001');
-  assert.equal(routes[0].base, '/milk');
+  assert.equal(routes[0].base, '/ladwani');
 });
 
 test('a blank origin is treated as unset, not as an error', () => {
-  const { routes, problems } = proxy.readRoutes({ MILK_ORIGIN: '   ', EDU_ORIGIN: '' });
+  const { routes, problems } = proxy.readRoutes({ LADWANI_ORIGIN: '   ', EDU_ORIGIN: '' });
   assert.deepEqual(routes, []);
   assert.deepEqual(problems, []);
 });
 
 test('one bad origin disables its own tab and leaves the others alone', () => {
   const { routes, problems } = proxy.readRoutes({
-    MILK_ORIGIN: 'http://127.0.0.1:3001',
+    LADWANI_ORIGIN: 'http://127.0.0.1:3001',
     EDU_ORIGIN: 'not a url',
   });
-  assert.deepEqual(routes.map((r) => r.path), ['/milk/']);
+  assert.deepEqual(routes.map((r) => r.path), ['/ladwani/']);
   assert.equal(problems.length, 1);
   assert.match(problems[0].problem, /^EDU_ORIGIN /);
 });
 
 test('a tab matches with and without its trailing slash', () => {
-  const [route] = proxy.readRoutes({ MILK_ORIGIN: 'http://x' }).routes;
-  // A Next.js app with basePath /milk serves its home page at /milk, so a
+  const [route] = proxy.readRoutes({ LADWANI_ORIGIN: 'http://x' }).routes;
+  // A Next.js app with basePath /ladwani serves its home page at /ladwani, so a
   // request there has to reach the app rather than the hub's placeholder.
-  assert.ok(proxy.matches(route, '/milk'));
-  assert.ok(proxy.matches(route, '/milk/'));
-  assert.ok(proxy.matches(route, '/milk/orders/42'));
-  assert.ok(proxy.matches(route, '/milk/_next/static/chunk.js'));
+  assert.ok(proxy.matches(route, '/ladwani'));
+  assert.ok(proxy.matches(route, '/ladwani/'));
+  assert.ok(proxy.matches(route, '/ladwani/orders/42'));
+  assert.ok(proxy.matches(route, '/ladwani/_next/static/chunk.js'));
 });
 
 test('a path that only looks like a tab is not proxied', () => {
-  const [route] = proxy.readRoutes({ MILK_ORIGIN: 'http://x' }).routes;
-  assert.ok(!proxy.matches(route, '/milkshake'));
-  assert.ok(!proxy.matches(route, '/milkshake/x'));
+  const [route] = proxy.readRoutes({ LADWANI_ORIGIN: 'http://x' }).routes;
+  assert.ok(!proxy.matches(route, '/ladwanishake'));
+  assert.ok(!proxy.matches(route, '/ladwanishake/x'));
   assert.ok(!proxy.matches(route, '/'));
   assert.ok(!proxy.matches(route, '/tasks/'));
   assert.ok(!proxy.matches(route, '/shared/menu.js'));
@@ -213,17 +211,17 @@ test('a configured tab is forwarded to its app, prefix intact', async () => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ url: req.url, host: req.headers.host }));
   });
-  const hub = await hubWith({ MILK_ORIGIN: upstream.origin });
+  const hub = await hubWith({ LADWANI_ORIGIN: upstream.origin });
   try {
-    for (const path of ['/milk', '/milk/', '/milk/orders/42', '/milk/_next/static/a.js']) {
+    for (const path of ['/ladwani', '/ladwani/', '/ladwani/orders/42', '/ladwani/_next/static/a.js']) {
       const res = await fetch(hub.origin + path);
       assert.equal(res.status, 200, `${path} did not reach the app`);
       const body = await res.json();
       assert.equal(body.url, path, `${path} arrived at the app as ${body.url}`);
     }
     // A query string is carried through untouched.
-    const withQuery = await (await fetch(hub.origin + '/milk/search?q=ghee&page=2')).json();
-    assert.equal(withQuery.url, '/milk/search?q=ghee&page=2');
+    const withQuery = await (await fetch(hub.origin + '/ladwani/search?q=ghee&page=2')).json();
+    assert.equal(withQuery.url, '/ladwani/search?q=ghee&page=2');
   } finally {
     await close(hub.server);
     await close(upstream.server);
@@ -238,7 +236,7 @@ test('a stripping tab reaches its app at the root, and only that tab', async () 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ url: req.url }));
   });
-  const hub = await hubWith({ EDU_ORIGIN: upstream.origin, MILK_ORIGIN: upstream.origin });
+  const hub = await hubWith({ EDU_ORIGIN: upstream.origin, LADWANI_ORIGIN: upstream.origin });
   try {
     const seen = async (path) => (await (await fetch(hub.origin + path)).json()).url;
 
@@ -250,7 +248,7 @@ test('a stripping tab reaches its app at the root, and only that tab', async () 
     assert.equal(await seen('/edu/courses?page=2'), '/courses?page=2');
 
     // ...while the tab that owns its prefix still keeps it.
-    assert.equal(await seen('/milk/orders/42'), '/milk/orders/42');
+    assert.equal(await seen('/ladwani/orders/42'), '/ladwani/orders/42');
   } finally {
     await close(hub.server);
     await close(upstream.server);
@@ -291,9 +289,9 @@ test("a Livewire update reaches the app stripped, with its body", async () => {
 });
 
 test('an unconfigured tab still gets the hub placeholder', async () => {
-  const hub = await hubWith({ MILK_ORIGIN: '' });
+  const hub = await hubWith({ LADWANI_ORIGIN: '' });
   try {
-    const res = await fetch(hub.origin + '/milk/');
+    const res = await fetch(hub.origin + '/ladwani/');
     assert.equal(res.status, 404);
     assert.match(await res.text(), /not on this tier yet/);
   } finally {
@@ -314,10 +312,10 @@ test('a POST body reaches the app intact', async () => {
       res.end(JSON.stringify({ method: req.method, received: body }));
     });
   });
-  const hub = await hubWith({ MILK_ORIGIN: upstream.origin });
+  const hub = await hubWith({ LADWANI_ORIGIN: upstream.origin });
   try {
     const payload = JSON.stringify({ order: 'ghee', qty: 3 });
-    const res = await fetch(hub.origin + '/milk/api/orders', {
+    const res = await fetch(hub.origin + '/ladwani/api/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: payload,
@@ -346,7 +344,7 @@ test('mounting the parsers first makes a POST hang, not merely lose its body', a
     req.on('end', () => { res.writeHead(200); res.end('ok'); });
   });
   const hub = await hubWith(
-    { MILK_ORIGIN: upstream.origin },
+    { LADWANI_ORIGIN: upstream.origin },
     { parsersFirst: true, timeoutMs: 300 },
   );
   try {
@@ -357,7 +355,7 @@ test('mounting the parsers first makes a POST hang, not merely lose its body', a
     // are bad, and this one is harder to diagnose from the outside, which is
     // the whole reason the mount order is pinned by a test.
     await assert.rejects(
-      fetch(hub.origin + '/milk/api/orders', {
+      fetch(hub.origin + '/ladwani/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ order: 'ghee' }),
@@ -378,9 +376,9 @@ test('the app is told which origin it is being viewed under', async () => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(req.headers));
   });
-  const hub = await hubWith({ MILK_ORIGIN: upstream.origin });
+  const hub = await hubWith({ LADWANI_ORIGIN: upstream.origin });
   try {
-    const headers = await (await fetch(hub.origin + '/milk/')).json();
+    const headers = await (await fetch(hub.origin + '/ladwani/')).json();
     assert.ok(headers['x-forwarded-host'], 'no X-Forwarded-Host');
     assert.ok(headers['x-forwarded-proto'], 'no X-Forwarded-Proto');
     assert.ok(headers['x-forwarded-for'], 'no X-Forwarded-For');
@@ -398,9 +396,9 @@ test('response headers and status from the app are passed through', async () => 
     res.writeHead(201, { 'Content-Type': 'text/plain', 'X-From-App': 'yes' });
     res.end('created');
   });
-  const hub = await hubWith({ MILK_ORIGIN: upstream.origin });
+  const hub = await hubWith({ LADWANI_ORIGIN: upstream.origin });
   try {
-    const res = await fetch(hub.origin + '/milk/api/thing', { method: 'POST' });
+    const res = await fetch(hub.origin + '/ladwani/api/thing', { method: 'POST' });
     assert.equal(res.status, 201);
     assert.equal(res.headers.get('x-from-app'), 'yes');
     assert.equal(await res.text(), 'created');
@@ -414,14 +412,14 @@ test("a redirect to the app's own origin is rewritten onto the hub", async () =>
   // autoRewrite. Without it the browser would be sent to the app's private
   // hostname, leaving the hub's path behind.
   const upstream = await listen((req, res) => {
-    res.writeHead(302, { Location: `${upstream.origin}/milk/signin` });
+    res.writeHead(302, { Location: `${upstream.origin}/ladwani/signin` });
     res.end();
   });
-  const hub = await hubWith({ MILK_ORIGIN: upstream.origin });
+  const hub = await hubWith({ LADWANI_ORIGIN: upstream.origin });
   try {
-    const res = await fetch(hub.origin + '/milk/account', { redirect: 'manual' });
+    const res = await fetch(hub.origin + '/ladwani/account', { redirect: 'manual' });
     assert.equal(res.status, 302);
-    assert.equal(res.headers.get('location'), `${hub.origin}/milk/signin`);
+    assert.equal(res.headers.get('location'), `${hub.origin}/ladwani/signin`);
   } finally {
     await close(hub.server);
     await close(upstream.server);
@@ -430,9 +428,9 @@ test("a redirect to the app's own origin is rewritten onto the hub", async () =>
 
 test('an app that is down gives a 502 that still carries the menu', async () => {
   // Nothing is listening on this port, so the proxy's error path runs.
-  const hub = await hubWith({ MILK_ORIGIN: 'http://127.0.0.1:1' });
+  const hub = await hubWith({ LADWANI_ORIGIN: 'http://127.0.0.1:1' });
   try {
-    const res = await fetch(hub.origin + '/milk/');
+    const res = await fetch(hub.origin + '/ladwani/');
     assert.equal(res.status, 502);
     const html = await res.text();
     assert.match(html, /not responding/);
@@ -470,9 +468,9 @@ test('a large response body streams through', async () => {
     for (let i = 0; i < 16; i += 1) res.write(chunk);
     res.end();
   });
-  const hub = await hubWith({ MILK_ORIGIN: upstream.origin });
+  const hub = await hubWith({ LADWANI_ORIGIN: upstream.origin });
   try {
-    const text = await (await fetch(hub.origin + '/milk/big')).text();
+    const text = await (await fetch(hub.origin + '/ladwani/big')).text();
     assert.equal(text.length, chunk.length * 16);
   } finally {
     await close(hub.server);

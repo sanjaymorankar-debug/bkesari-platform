@@ -46,7 +46,7 @@ export const PROJECTS = [
   // lives there too. neondb stays with the project owner (neondb_owner); the
   // hub's login is granted what it needs instead of owning it.
   { project: 'portal', database: 'neondb', role: 'bk_portal_app', env: 'DATABASE_URL', shared: true },
-  { project: 'milk', database: 'bk_milk', role: 'bk_milk_app', env: 'DATABASE_URL' },
+  { project: 'tasklist', database: 'bk_tasklist', role: 'bk_tasklist_app', env: 'TASKLIST_DATABASE_URL' },
   { project: 'edu', database: 'bk_edu', role: 'bk_edu_app', env: 'DB_URL' },
   { project: 'ladwani', database: 'bk_ladwani', role: 'bk_ladwani_app', env: 'DATABASE_URL' },
   { project: 'atip', database: 'bk_atip', role: 'bk_atip_app', env: 'ATIP_DATABASE_URL' },

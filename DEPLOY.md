@@ -289,7 +289,7 @@ array. Adding, renaming or reordering a tab is an edit to that one file — ther
 no second list to keep in step, including the cards on the welcome page, which are
 built from the same array.
 
-Tabs are **paths**, not hostnames (`/milk/`, `/edu/`, …). Each tier serves every
+Tabs are **paths**, not hostnames (`/ladwani/`, `/edu/`, …). Each tier serves every
 project under one origin, so the same link is correct on dev, test and production
 with no substitution. The tier only affects the badge beside the brand, and is read
 from the hostname (`dev.` / `test.` / bare) or from an explicit `window.BKESARI_ENV`
@@ -324,15 +324,16 @@ and server-rendering keeps that page's policy untouched.
 
 | Path | Served by |
 |---|---|
-| `/`, `/tasks/`, `/atip/` | this repo (`portal/`) |
-| `/global-warming/`, `/driving-simulator/` | this repo, static — still to be added |
-| `/milk/`, `/edu/`, `/ladwani/` | their own apps, reached through the hub |
+| `/`, `/tasks/`, `/ATIP/` (owner only) | this repo (`portal/`) |
+| `/environment/` (`/global-warming/` redirects to it), `/driving-simulator/` | this repo, static |
+| `/access/request`, `/admin/access`, `/hub/api/*`, `/.well-known/jwks.json` | this repo: sign-in permissions (Part 8) |
+| `/edu/`, `/ladwani/` | their own apps, reached through the hub |
 
 A tab whose destination is not deployed on a tier yet answers with a short
 "not available on this tier" page rather than a bare 404, so the menu never
 dead-ends while the estate is still being assembled.
 
-How `/milk/`, `/edu/` and `/ladwani/` get served is Part 7.
+How `/edu/` and `/ladwani/` get served is Part 7.
 
 ---
 
@@ -434,7 +435,6 @@ afford.
 |---|---|---|---|
 | `bkesari-platform` | `deploy-dev-portal.yml` | `portal/` (the hub, Node) | `dev.bkesari.com` |
 | `bkesari-platform` | `deploy-dev-edu.yml` | `edu/` (Laravel) | `devedu.bkesari.com` |
-| `bkesari` | `deploy-dev.yml` | Milk & Dairy (Next.js) | `devmilk.bkesari.com` |
 | `Ladwani` | `deploy-dev.yml` | LadWani (Next.js) | `devladwani.bkesari.com` |
 
 **LadWani: that workflow deploys the wrong app.** It lives on the Ladwani
@@ -460,8 +460,7 @@ That has one visible consequence worth knowing about: for the two Next.js apps,
 anything named `NEXT_PUBLIC_*` is baked into the bundle **at build time**, in CI,
 so the server's `.env` is read too late to supply it. Nothing public is set in CI
 at the moment, which means `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is empty on dev and
-Milk & Dairy falls back to manual address entry — which is what its `.env.example`
-already describes as the intended dev behaviour. If you want Maps working on dev,
+LadWani falls back to manual address entry on dev. If you want Maps working on dev,
 add that one key as a repository **variable** (it is domain-restricted and public
 by design) and pass it to the `Build` step. Never the server-side key.
 
@@ -525,7 +524,6 @@ property rather than a comment.
    |---|---|---|
    | `bkesari-platform` | `DEV_PORTAL_PATH` | `/home/u879099820/domains/dev.bkesari.com/app` |
    | `bkesari-platform` | `DEV_EDU_PATH` | `/home/u879099820/domains/devedu.bkesari.com/app` |
-   | `bkesari` | `DEV_DEPLOY_PATH` | `/home/u879099820/domains/devmilk.bkesari.com/app` |
    | `Ladwani` | `DEV_DEPLOY_PATH` | `/home/u879099820/domains/devladwani.bkesari.com/app` |
 
 4. **Optional repository variables** (Settings → Secrets and variables → Actions
@@ -544,7 +542,7 @@ property rather than a comment.
 By design: a deploy ships code and never alters a database. Each deploy's
 summary lists any migration files the push brought, with a warning, so you can
 apply them yourself — over SSH with `php artisan migrate --force` (edu),
-`npm run db:migrate` (Milk & Dairy) or `npx prisma migrate deploy` (LadWani), or
+`npx prisma migrate deploy` (LadWani), or
 with `psql` and the hand-run scripts under `database/`.
 
 ### Repositories that deliberately have no deploy workflow
@@ -577,13 +575,13 @@ None of it is verified against a real server, because none of the dev sites
 exists yet. In order:
 
 1. Create the hPanel sites and DNS records: `dev.bkesari.com`,
-   `devedu.bkesari.com`, `devmilk.bkesari.com`, `devladwani.bkesari.com`.
+   `devedu.bkesari.com`, `devladwani.bkesari.com`.
 2. Create each project's dev database and fill in that site's `.env`.
 3. Do the one-time setup above in each repository.
 4. Push to `dev` and read the workflow's summary.
 
 One design question is still open and is not a deployment detail. The menu's tabs
-are **paths** (`/milk/`, `/edu/`, `/ladwani/`), but each app above is its own
+are **paths** (`/edu/`, `/ladwani/`), but each app above is its own
 Hostinger site on its own subdomain. Serving them under the hub's paths needs
 either the hub proxying those paths to each app, or each app being given a
 `basePath` — neither is built, and until one is, those three tabs will keep
@@ -595,47 +593,22 @@ each app's config rather than to these workflows.
 
 ## Part 7: Serving a project under one of the hub's paths
 
-The menu's tabs are **paths** — `/milk/`, `/edu/`, `/ladwani/` — but each of
+The menu's tabs are **paths** — `/edu/`, `/ladwani/` — but each of
 those projects is its own application on its own Hostinger site. The hub closes
 that gap: it forwards those paths to the app behind them, so one origin serves
 the whole estate and the same link is right on dev, test and production.
 
-### Turn it on for Milk & Dairy
+### Turn it on for a project
 
-Two settings, one on each side.
+Two settings, one on each side. On the hub (Node.js Web App → Environment
+variables) set `LADWANI_ORIGIN` or `EDU_ORIGIN` to the app's own origin, e.g.
+`https://devladwani.bkesari.com`; the startup log then prints
+`/ladwani/ -> https://devladwani.bkesari.com`. On a Next.js app set `BASE_PATH`
+(`/ladwani`) in **both** its build and its server `.env`: a build made with it but
+started without it serves unstyled markup with a 200 status, which
+`scripts/smoke-dev.sh` reports by name.
 
-**1. On the hub** (dev.bkesari.com → Node.js Web App → Environment variables):
-
-| Variable | Value |
-|---|---|
-| `MILK_ORIGIN` | the Milk & Dairy site's own origin, e.g. `https://devmilk.bkesari.com` |
-
-That is all. Restart, and `/milk/` stops showing the placeholder and starts
-serving the app. The startup log prints `/milk/ -> https://devmilk.bkesari.com`
-so you can see it took.
-
-**2. On the Milk & Dairy app** (devmilk.bkesari.com → Environment variables):
-
-| Variable | Value |
-|---|---|
-| `BASE_PATH` | `/milk` |
-
-`BASE_PATH` has to be set in **two** places, and missing either one is the
-mistake worth warning about:
-
-- in the **build**, which `bkesari`'s deploy workflow already does, because
-  Next inlines the value into its client bundles;
-- in the **server's `.env`**, as above, because `next start` reads the config
-  again to decide how to route.
-
-A build made with it but started without it serves the app at its root while
-every asset URL in the HTML points at `/milk/...`, so every page arrives as
-unstyled markup with broken navigation — and the HTTP status is still 200, so
-nothing looks wrong until you open it. `scripts/smoke-dev.sh` reports this case
-by name.
-
-The same two settings, for the other two projects, are `EDU_ORIGIN` and
-`LADWANI_ORIGIN`. Each tab is independent: an origin that is not set leaves
+The settings are `EDU_ORIGIN` and `LADWANI_ORIGIN`. Each tab is independent: an origin that is not set leaves
 that tab on its placeholder, so you can bring them up one at a time.
 
 ### Two ways to live under a prefix
@@ -644,8 +617,8 @@ There are two arrangements, and which one a tab uses is a fact about the
 framework behind it, not about the tier. `portal/proxy.js` marks the difference
 with `strip` on the tab, and `tests/proxy.test.js` pins it.
 
-**Next.js keeps the prefix** (`/milk/`, `/ladwani/`). The hub forwards
-`/milk/orders` as `/milk/orders` and the app serves itself there, via
+**Next.js keeps the prefix** (`/ladwani/`). The hub forwards
+`/ladwani/orders` as `/ladwani/orders` and the app serves itself there, via
 `basePath`:
 
 - strip it, and the app answers as if it were at the root, so its pages come
@@ -673,7 +646,6 @@ story is not obvious.
 
 | Project | Hub side | App side |
 |---|---|---|
-| **Milk & Dairy** | `MILK_ORIGIN` | ✅ built for it — `BASE_PATH=/milk` in its deploy build; set it in that site's `.env` too |
 | **LadWani** | `LADWANI_ORIGIN` | ✅ built for it — `BASE_PATH=/ladwani` in its deploy build; set it in that site's `.env` too |
 | **Education** | `EDU_ORIGIN` | ✅ built for it — set `APP_URL=https://dev.bkesari.com/edu` in that site's `.env`; nothing else, and no change to its document root |
 
@@ -688,8 +660,7 @@ costs a day if you find it in production. Next's `basePath` covers `next/link`,
 `useRouter` and asset URLs. It does **not** rewrite `fetch()`, because the
 argument is an ordinary runtime string the compiler never looks inside.
 
-Milk & Dairy happened to have no absolute `fetch('/api/...')` calls, so
-`basePath` really was the whole change there. LadWani had **100 of them across
+LadWani had **100 of them across
 42 files**, every one of which would have called the hub's root instead of the
 app — returning the hub's own 404 page while the app's pages looked perfectly
 fine. They now read `` `${BASE_PATH}/api/...` ``, and
@@ -795,7 +766,7 @@ present, so a site configured as in Parts 1–7 behaves exactly as before.
 
 The databases, their logins and the per-tier isolation SQL are in
 **docs/NEON.md**: `neondb` for the portal (also home to Neon Auth's
-`neon_auth` schema), then `bk_edu`, `bk_ladwani`, `bk_milk`, `bk_atip`,
+`neon_auth` schema), then `bk_edu`, `bk_ladwani`, `bk_tasklist`, `bk_atip`,
 `bk_agtci`, each owned by its own `bk_*_app` login. `bk_env` (Environment
 Activities, no app yet) is added the same way.
 
@@ -859,3 +830,30 @@ its count rises after a posted update, also live; an ATIP upload is archived
 to the bucket, listed, and downloads byte-for-byte; a verified account not on
 the list gets 403; sign-out ends the session. The emailed code itself was not
 read (no mailbox access); the test account was marked verified directly.
+
+---
+
+## Part 8: The access layer (one bkesari ID, a permission per project)
+
+Sign-in is **Neon Auth** on the hub (`NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`).
+What a signed-in person may open is decided by the hub's own tables
+(`portal/sql/hub_schema.sql`): `hub_projects`, `project_access`, `access_requests`
+and `audit_log`.
+
+| Setting | Meaning |
+|---|---|
+| `HUB_OWNER_EMAILS` | comma-separated owner emails (default `agtcipl@gmail.com`). The owner reaches ATIP, may decide every request, and needs a **verified** email |
+| `HUB_TOKEN_PRIVATE_KEY` | RSA private key (PEM, `\n` escapes allowed) that signs the project token. Set it on every tier; without it a key is made at start-up and tokens die on restart |
+| `TASKLIST_DATABASE_URL` / `ATIP_DATABASE_URL` | the `bk_tasklist` and `bk_atip` databases. `DATABASE_URL` is then the hub's own, holding only sign-in permissions. Unset, one database carries everything (local use) |
+
+* `/ladwani/` and `/edu/`: not signed in -> `/auth/sign-in?next=...`; signed in without
+  permission -> `/access/request?project=...`; permitted -> the request is forwarded
+  with `X-Bkesari-Token`, an RS256 JWT valid 60 seconds with `sub` (user id), `email`,
+  `role`, `aud` (the project). Apps verify it against `/.well-known/jwks.json` and map
+  `sub` to a `hub_user_id` column on their own `users` table. A token for one project
+  is refused by another (`aud`). A client-sent `X-Bkesari-Token` is always discarded.
+* `/ATIP/`: owner only. Everyone else, signed in or not, gets a plain 404.
+* `/tasks/`: the existing `TRACKER_ALLOWED_EMAILS` list, plus anyone with a
+  `tasklist` row in `project_access`.
+* `/admin/access`: the owner (all projects) and each project's admin approve or
+  decline requests and revoke access. Every decision lands in `audit_log`.

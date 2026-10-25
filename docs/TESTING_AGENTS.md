@@ -9,7 +9,6 @@ everything again, and writes a report.
 |---|---|---|---|
 | bkesari.com hub (welcome page, menu, Task Tracker, ATIP viewer, tab proxy) | `bkesari-platform` | `portal-tester` | `TEST_SPEC.md` |
 | Education (`/edu/`) | `bkesari-platform` | `edu-tester` | `edu/TEST_SPEC.md` |
-| Milk & Dairy (`/milk/`) | `bkesari` | `milk-tester` | `TEST_SPEC.md` |
 | LadWani (`/ladwani/`) | `Ladwani` | `ladwani-tester` | `TEST_SPEC.md` |
 | ATIP (`/ATIP/` snapshot; the platform itself runs on the Mac) | `ATIP-DEV` | `atip-tester` | `TEST_SPEC.md` |
 | Education, standalone copy (edutest.agtci.com, superseded) | `edu` | `edu-standalone-tester` | `TEST_SPEC.md` |
@@ -117,7 +116,7 @@ gate recognises it.
 
 ## By hand
 
-- Ask Claude: *"run the milk-tester agent"* (or several at once).
+- Ask Claude: *"run the ladwani-tester agent"* (or several at once).
 - `python3 .claude/hooks/test_gate.py status` — each project, tested or not,
   and the last verdict.
 - `python3 .claude/hooks/test_gate.py accept` — sign off the current code

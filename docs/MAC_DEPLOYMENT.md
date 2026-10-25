@@ -32,7 +32,6 @@ Each app gets its own port, so all four can run at the same time.
 | App | Folder | Address on the Mac | Database |
 |---|---|---|---|
 | ATIP dashboard + scheduler | `ATIP-DEV/` | http://localhost:8000 | SQLite file `atip_data/atip.db` |
-| Bkesari shop & milk marketplace | `bkesari/` | http://localhost:3000 | PostgreSQL `bk_milk` (tests: `bk_milk_test`) |
 | bkesari.com portal (Task Tracker, ATIP viewer) | `bkesari-platform/` | http://localhost:3001 | PostgreSQL `bk_portal` (tests: `bk_portal_test`) |
 | Education platform (Laravel) | `bkesari-platform/edu/` | http://127.0.0.1:8001 | PostgreSQL `bk_edu` (tests: in memory, or `bk_edu_test`) |
 
@@ -132,7 +131,7 @@ tools/setup_local_postgres.sh
 
 It logs in to PostgreSQL as you (Homebrew's default), so it asks for nothing. Then it:
 
-1. creates `bk_milk`, `bk_milk_test`, `bk_portal`, `bk_portal_test`, `bk_edu`, `bk_edu_test`,
+1. creates `bk_portal`, `bk_portal_test`, `bk_edu`, `bk_edu_test`,
    `bk_ladwani` and `bk_atip`, each owned by its own login role. No other role may connect to a
    site's database;
 2. writes the logins into `bkesari/.env`, `bkesari-platform/.env` and `bkesari-platform/edu/.env`.
@@ -228,7 +227,7 @@ source .env
 curl -X POST http://localhost:3000/api/cron/daily-orders -H "Authorization: Bearer $CRON_SECRET"
 ```
 
-**Tests:** `npm test` (on `bk_milk_test`).
+**Tests:** `npm test`.
 
 Production-style run: `npm run build && npm start`.
 
@@ -303,10 +302,9 @@ Every pull request that was open on 2026-10-08 is now merged:
 | PR | What it added |
 |---|---|
 | ATIP-DEV#8 | MySQL runtime fixes for ATIP. SQLite stays the default. |
-| bkesari#9 | The marketplace moved from PostgreSQL to **MySQL**, is served under `/milk` on bkesari.com, and gained a dev-only deploy workflow and `.env.example`. |
 | bkesari#10 | A README notice that this repo and GoKesari have diverged. |
 | bkesari-platform#1 | The dev tier, ATIP at `/ATIP/`, the stale `atip/` copy removed, and the Ladwani SQL fixed. |
-| bkesari-platform#2 | A shared menu, Global Warming and Driving Simulator pages, dev deploys and CI, and the app tabs (`/milk/`, `/edu/`, `/ladwani/`) served through the hub. |
+| bkesari-platform#2 | A shared menu, Global Warming and Driving Simulator pages, dev deploys and CI, and the app tabs (`/edu/`, `/ladwani/`) served through the hub. |
 
 Merged on 2026-10-09:
 

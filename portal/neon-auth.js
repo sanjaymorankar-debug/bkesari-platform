@@ -124,7 +124,7 @@ async function getSession(req, { fresh = false } = {}) {
  * Mounts /api/auth/* and returns the guard for /tasks. Must be called before
  * any body parser is registered on the app.
  */
-function mount(app) {
+function mount(app, { extraAllow } = {}) {
   const { baseUrl, cookieSecret } = config();
   if (!cookieSecret || cookieSecret.length < 32) {
     throw new Error('NEON_AUTH_BASE_URL is set, so NEON_AUTH_COOKIE_SECRET must be too (32+ characters; `openssl rand -base64 32`).');
@@ -151,7 +151,9 @@ function mount(app) {
       // turning a verified user away. Costs a round trip for unverified users only.
       if (decide(user, allowedEmails()) === 'verify') ({ user, cookies } = await getSession(req, { fresh: true }));
       if (cookies.length) res.append('Set-Cookie', cookies);
-      const verdict = decide(user, allowedEmails());
+      let verdict = decide(user, allowedEmails());
+      // Not on the list: the hub's permission table can still admit them.
+      if (verdict === 'denied' && extraAllow && await extraAllow(user)) verdict = 'allow';
       if (verdict === 'allow') {
         req.trackerUser = { email: user.email, name: user.name || null };
         return next();
@@ -167,9 +169,18 @@ function mount(app) {
           error: verdict === 'verify' ? 'Verify your email address first' : 'Sign in required',
         });
       }
-      res.redirect(302, verdict === 'verify' ? `${LOGIN_PATH}?verify=1` : LOGIN_PATH);
+      res.redirect(302, verdict === 'verify' ? `${LOGIN_PATH}?verify=1&next=%2Ftasks%2F` : `${LOGIN_PATH}?next=%2Ftasks%2F`);
     } catch (err) { next(err); }
   };
 }
 
-module.exports = { enabled, mount, decide, allowedEmails, toFetchRequest, writeFetchResponse, LOGIN_PATH };
+/** The signed-in user (verified or not) for this request, or null. Passes refreshed cookies on. */
+async function currentUser(req, res) {
+  if (!enabled()) return null;
+  let { user, cookies } = await getSession(req);
+  if (user && !user.emailVerified) ({ user, cookies } = await getSession(req, { fresh: true }));
+  if (cookies.length && res) res.append('Set-Cookie', cookies);
+  return user;
+}
+
+module.exports = { currentUser, enabled, mount, decide, allowedEmails, toFetchRequest, writeFetchResponse, LOGIN_PATH };
