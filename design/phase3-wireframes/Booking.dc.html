@@ -1,0 +1,84 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#F7F5F0; --surface:#FFFFFF; --ink:#1B1F2E; --ink-muted:#5C6070; --border:#E4E0D6; --primary:#1E2A5A; --accent:#E0902C; --success:#2F8F5B; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:'Work Sans',-apple-system,sans-serif; background:var(--bg); color:var(--ink); }
+    h1,h2,.font-display { font-family:'Fraunces',Georgia,serif; }
+    .mono { font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:10px; }
+    .checkitem { display:flex; align-items:center; gap:10px; padding:12px; border:1px solid var(--border); border-radius:8px; }
+    .checkbox { width:18px; height:18px; border-radius:5px; border:2px solid var(--border); flex-shrink:0; }
+    .checkbox.checked { background:var(--accent); border-color:var(--accent); }
+  </style>
+</helmet>
+
+<div style="width:1440px; min-height:960px; padding:32px 0;">
+  <div style="max-width:900px; margin:0 auto;">
+
+    <!-- Step indicator -->
+    <div style="display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:28px;">
+      <div style="display:flex; align-items:center; gap:8px;"><div style="width:26px; height:26px; border-radius:999px; background:var(--success); color:#fff; display:flex; align-items:center; justify-content:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg></div><span style="font-size:13px; font-weight:600;">Date &amp; Slot</span></div>
+      <div style="width:40px; height:1px; background:var(--border);"></div>
+      <div style="display:flex; align-items:center; gap:8px;"><div style="width:26px; height:26px; border-radius:999px; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700;">2</div><span style="font-size:13px; font-weight:600;">Services</span></div>
+      <div style="width:40px; height:1px; background:var(--border);"></div>
+      <div style="display:flex; align-items:center; gap:8px;"><div style="width:26px; height:26px; border-radius:999px; background:var(--border); color:var(--ink-muted); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700;">3</div><span style="font-size:13px; color:var(--ink-muted);">Confirm &amp; Pay</span></div>
+    </div>
+
+    <h1 style="font-size:22px; text-align:center; margin:0 0 4px;">Book Shubh Mangal Karyalay</h1>
+    <p style="text-align:center; color:var(--ink-muted); font-size:13px; margin:0 0 28px;">7 November 2026 · Full Day</p>
+
+    <div style="display:grid; grid-template-columns:2fr 1fr; gap:24px;">
+
+      <div class="card" style="padding:24px;">
+        <h2 style="font-size:15px; margin:0 0 14px;">Guest Count</h2>
+        <div style="display:flex; align-items:center; gap:16px; margin-bottom:24px;">
+          <div style="width:36px; height:36px; border-radius:8px; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:18px;">−</div>
+          <span class="mono" style="font-size:18px; font-weight:600; width:50px; text-align:center;">250</span>
+          <div style="width:36px; height:36px; border-radius:8px; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:18px;">+</div>
+          <span style="font-size:13px; color:var(--ink-muted);">Capacity: 500 guests</span>
+        </div>
+
+        <h2 style="font-size:15px; margin:0 0 14px;">Additional Services</h2>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div class="checkitem"><div class="checkbox checked"></div><div style="flex:1;"><p style="margin:0; font-size:14px; font-weight:600;">Catering</p><p style="margin:0; font-size:12px; color:var(--ink-muted);">Full course meal, per plate</p></div><span class="mono" style="font-size:14px; font-weight:600;">₹450 × 250</span></div>
+          <div class="checkitem"><div class="checkbox checked"></div><div style="flex:1;"><p style="margin:0; font-size:14px; font-weight:600;">Stage Decoration</p><p style="margin:0; font-size:12px; color:var(--ink-muted);">Floral, traditional theme</p></div><span class="mono" style="font-size:14px; font-weight:600;">₹35,000</span></div>
+          <div class="checkitem"><div class="checkbox"></div><div style="flex:1;"><p style="margin:0; font-size:14px; font-weight:600;">Photography &amp; Videography</p><p style="margin:0; font-size:12px; color:var(--ink-muted);">Full day coverage</p></div><span class="mono" style="font-size:14px; font-weight:600;">₹45,000</span></div>
+          <div class="checkitem"><div class="checkbox"></div><div style="flex:1;"><p style="margin:0; font-size:14px; font-weight:600;">DJ &amp; Sound</p><p style="margin:0; font-size:12px; color:var(--ink-muted);">Evening reception</p></div><span class="mono" style="font-size:14px; font-weight:600;">₹18,000</span></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card" style="padding:22px;">
+          <h2 style="font-size:15px; margin:0 0 16px;">Price Breakdown</h2>
+          <div style="display:flex; flex-direction:column; gap:10px; font-size:13px;">
+            <div style="display:flex; justify-content:space-between;"><span style="color:var(--ink-muted);">Venue (full day)</span><span class="mono">₹85,000</span></div>
+            <div style="display:flex; justify-content:space-between;"><span style="color:var(--ink-muted);">Catering (250 guests)</span><span class="mono">₹1,12,500</span></div>
+            <div style="display:flex; justify-content:space-between;"><span style="color:var(--ink-muted);">Stage Decoration</span><span class="mono">₹35,000</span></div>
+            <div style="display:flex; justify-content:space-between; color:var(--success);"><span>Community discount (5%)</span><span class="mono">−₹11,625</span></div>
+            <div style="display:flex; justify-content:space-between;"><span style="color:var(--ink-muted);">Taxes (GST 18%)</span><span class="mono">₹39,915</span></div>
+            <div style="display:flex; justify-content:space-between; padding-top:12px; border-top:1px solid var(--border); font-weight:700; font-size:16px;"><span>Total</span><span class="mono" style="color:var(--primary);">₹2,60,790</span></div>
+            <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--ink-muted);"><span>Security deposit (refundable)</span><span class="mono">₹20,000</span></div>
+          </div>
+          <div style="background:var(--accent); color:#fff; border-radius:8px; padding:13px; text-align:center; font-weight:600; font-size:15px; margin-top:20px;">Continue to Payment →</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

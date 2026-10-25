@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#F7F5F0; --surface:#FFFFFF; --ink:#1B1F2E; --ink-muted:#5C6070; --border:#E4E0D6; --primary:#1E2A5A; --accent:#E0902C; --success:#2F8F5B; --warning:#C97A22; --danger:#B23A3A; --nav-active-bg:#EAEEF7; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:'Work Sans',-apple-system,sans-serif; background:var(--bg); color:var(--ink); }
+    h1,h2,.font-display { font-family:'Fraunces',Georgia,serif; }
+    .mono { font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:10px; }
+    .navitem { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; font-size:14px; }
+    .navitem.active { background:var(--nav-active-bg); color:var(--primary); font-weight:600; }
+    .navitem.inactive { color:var(--ink-muted); font-weight:500; }
+    .pill { display:inline-flex; align-items:center; padding:3px 10px; border-radius:999px; font-size:11px; font-weight:600; }
+  </style>
+</helmet>
+
+<div style="width:1440px; height:1040px; display:flex;">
+  <div style="width:236px; background:#fff; border-right:1px solid var(--border); display:flex; flex-direction:column; padding:18px 12px; flex-shrink:0;">
+    <div style="display:flex; align-items:center; gap:10px; padding:6px 10px 22px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1E2A5A" stroke-width="1.6"><path d="M12 3v6M12 21v-4M6 21v-8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8M4 9h4M16 9h4M9 9V6a3 3 0 0 1 6 0v3"/></svg><span class="font-display" style="font-size:16px; font-weight:600;">Mi Samaj</span></div>
+    <div style="display:flex; flex-direction:column; gap:2px; flex:1;">
+      <div class="navitem inactive"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11.5 12 4l9 7.5M5 10v10h14V10"/></svg>Dashboard</div>
+      <div class="navitem inactive"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6"/></svg>My Family</div>
+    </div>
+    <div style="border-top:1px solid var(--border); padding-top:10px; display:flex; flex-direction:column; gap:2px;">
+      <div class="navitem active"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/></svg>Admin Panel</div>
+    </div>
+  </div>
+
+  <div style="flex:1; overflow-y:auto; padding:28px 32px;">
+    <div style="max-width:1200px; margin:0 auto;">
+
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:22px;">
+        <div>
+          <h1 style="font-size:22px; margin:0; display:flex; align-items:center; gap:10px;"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1E2A5A" stroke-width="1.8"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/></svg>Admin Dashboard</h1>
+          <p style="margin:4px 0 0; font-size:13px; color:var(--ink-muted);">Community platform management</p>
+        </div>
+        <div style="background:#FBF0DE; color:#C97A22; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:600; display:flex; align-items:center; gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C97A22" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>14 pending approvals</div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(6,1fr); gap:14px; margin-bottom:24px;">
+        <div class="card" style="padding:16px;"><div style="width:32px; height:32px; border-radius:8px; background:#FBF0DE; display:flex; align-items:center; justify-content:center; margin-bottom:10px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C97A22" stroke-width="1.8"><path d="M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6"/></svg></div><p class="mono" style="margin:0; font-size:20px; font-weight:700;">1,240</p><p style="margin:0; font-size:12px; color:var(--ink-muted);">Families</p></div>
+        <div class="card" style="padding:16px;"><div style="width:32px; height:32px; border-radius:8px; background:#EAEEF7; display:flex; align-items:center; justify-content:center; margin-bottom:10px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1E2A5A" stroke-width="1.8"><circle cx="9" cy="7" r="3.2"/><path d="M2 21v-1c0-3 3-5 7-5s7 2 7 5v1"/></svg></div><p class="mono" style="margin:0; font-size:20px; font-weight:700;">6,842</p><p style="margin:0; font-size:12px; color:var(--ink-muted);">Members</p></div>
+        <div class="card" style="padding:16px;"><div style="width:32px; height:32px; border-radius:8px; background:#F0EBE3; display:flex; align-items:center; justify-content:center; margin-bottom:10px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8C7A5B" stroke-width="1.8"><path d="M12 20s-7-4.4-9.5-9A5 5 0 0 1 12 6a5 5 0 0 1 9.5 5c-2.5 4.6-9.5 9-9.5 9Z"/></svg></div><p class="mono" style="margin:0; font-size:20px; font-weight:700;">184</p><p style="margin:0; font-size:12px; color:var(--ink-muted);">Matrimonial</p></div>
+        <div class="card" style="padding:16px;"><div style="width:32px; height:32px; border-radius:8px; background:#F0EBE3; display:flex; align-items:center; justify-content:center; margin-bottom:10px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5C6070" stroke-width="1.8"><path d="M12 2c-2 3-3 5-3 7a3 3 0 0 0 6 0c0-2-1-4-3-7Z"/></svg></div><p class="mono" style="margin:0; font-size:20px; font-weight:700;">96</p><p style="margin:0; font-size:12px; color:var(--ink-muted);">Deceased</p></div>
+        <div class="card" style="padding:16px;"><div style="width:32px; height:32px; border-radius:8px; background:#E6F3EC; display:flex; align-items:center; justify-content:center; margin-bottom:10px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2F8F5B" stroke-width="1.8"><path d="M4 4h16v4H4zM4 12h10v8H4zM17 12h3v8h-3z"/></svg></div><p class="mono" style="margin:0; font-size:20px; font-weight:700;">2,318</p><p style="margin:0; font-size:12px; color:var(--ink-muted);">Posts</p></div>
+        <div class="card" style="padding:16px;"><div style="width:32px; height:32px; border-radius:8px; background:#EAEEF7; display:flex; align-items:center; justify-content:center; margin-bottom:10px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1E2A5A" stroke-width="1.8"><rect x="3" y="6" width="18" height="13" rx="2"/></svg></div><p class="mono" style="margin:0; font-size:20px; font-weight:700;">₹18.4L</p><p style="margin:0; font-size:12px; color:var(--ink-muted);">Fees Collected</p></div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px;">
+        <div class="card" style="padding:20px;">
+          <h2 style="font-size:15px; margin:0 0 14px; display:flex; align-items:center; gap:8px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C97A22" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Pending Actions</h2>
+          <div style="display:flex; flex-direction:column;">
+            <div style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); font-size:13px;"><span style="color:var(--ink-muted);">Family approvals</span><span class="mono" style="font-weight:700; color:var(--warning);">6</span></div>
+            <div style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); font-size:13px;"><span style="color:var(--ink-muted);">Member change requests</span><span class="mono" style="font-weight:700; color:var(--warning);">5</span></div>
+            <div style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); font-size:13px;"><span style="color:var(--ink-muted);">Asset verifications</span><span class="mono" style="font-weight:700; color:var(--warning);">2</span></div>
+            <div style="display:flex; justify-content:space-between; padding:10px 0; font-size:13px;"><span style="color:var(--ink-muted);">Offline payment verifications</span><span class="mono" style="font-weight:700; color:var(--warning);">1</span></div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:20px;">
+          <h2 style="font-size:15px; margin:0 0 14px; display:flex; align-items:center; gap:8px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2F8F5B" stroke-width="1.8"><path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="m9 11 3 3L22 4"/></svg>Quick Actions</h2>
+          <div style="display:flex; flex-direction:column;">
+            <div style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); font-size:13px; color:var(--accent); font-weight:600;"><span>Review Approvals</span><span>→</span></div>
+            <div style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); font-size:13px; color:var(--accent); font-weight:600;"><span>Family Join Requests</span><span>→</span></div>
+            <div style="display:flex; justify-content:space-between; padding:10px 0; font-size:13px; color:var(--accent); font-weight:600;"><span>Verify Assets</span><span>→</span></div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:20px;">
+          <h2 style="font-size:15px; margin:0 0 14px; display:flex; align-items:center; gap:8px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B23A3A" stroke-width="1.8"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>Admin Only</h2>
+          <div style="display:flex; flex-direction:column;">
+            <div style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); font-size:13px; color:var(--primary); font-weight:600;"><span>User Management</span><span>→</span></div>
+            <div style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); font-size:13px; color:var(--primary); font-weight:600;"><span>Audit Logs</span><span>→</span></div>
+            <div style="display:flex; justify-content:space-between; padding:10px 0; font-size:13px; color:var(--primary); font-weight:600;"><span>System Settings</span><span>→</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>
