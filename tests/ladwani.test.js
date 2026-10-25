@@ -48,9 +48,11 @@ function fakeExport() {
 function fakeApi(calls) {
   return () => async () => {
     const inner = express();
-    inner.use(express.json());
+    // Keeps the raw bytes as NestFactory.create(AppModule, { rawBody: true })
+    // does. Like Nest's, this parser does nothing if the body was parsed before.
+    inner.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
     inner.all('/api/v1/echo', (req, res) => {
-      calls.push({ method: req.method, body: req.body, token: req.headers['x-bkesari-token'] || null });
+      calls.push({ method: req.method, body: req.body, rawBody: req.rawBody ? req.rawBody.toString('utf8') : null, token: req.headers['x-bkesari-token'] || null, visitor: req.headers['x-bkesari-visitor'] || null });
       res.json({ ok: true, body: req.body });
     });
     return { init: async () => {}, getHttpAdapter: () => ({ getInstance: () => inner }) };
@@ -111,13 +113,19 @@ test('no static export: nothing is mounted and the tab keeps its placeholder', a
 });
 
 test('a visitor is sent to sign in; build assets are served without the gate', async () => {
-  await withHub({ user: null }, async ({ base }) => {
+  await withHub({ user: null }, async ({ base, port }) => {
     const page = await get(`${base}/ladwani/family/7/`);
     assert.equal(page.status, 302);
     assert.equal(page.headers.get('location'), '/auth/sign-in?next=%2Fladwani%2Ffamily%2F7%2F');
     const asset = await get(`${base}/ladwani/_next/static/chunks/app.js`);
     assert.equal(asset.status, 200);
     assert.match(asset.headers.get('cache-control'), /immutable/);
+    // Nothing but an asset without the gate: a miss there is a bare 404, not the app's own page.
+    for (const p of ['/ladwani/_next/static/chunks/missing.js', '/ladwani/_next/static/%2e%2e/%2e%2e/index.html', '/ladwani/_next/static/../../login/']) {
+      const r = await raw(port, p);
+      assert.equal(r.status, 404, p);
+      assert.doesNotMatch(r.text, /<p>/, p);
+    }
     const api = await get(`${base}/ladwani/api/v1/echo`, { accept: 'application/json' });
     assert.equal(api.status, 401);
   });
@@ -171,12 +179,37 @@ test('the API runs in-process with the body intact and only the hub-signed token
   });
 });
 
+test('the API is mounted before the hub\'s body parsers, so it gets the raw body itself', async () => {
+  // LadWani's payment webhook checks its signature over req.rawBody, which only
+  // Nest's own parser keeps. Mounted after the hub's express.json(), the hub
+  // parses first, Nest's parser skips, and the real API answers every webhook
+  // "Missing request body." while ordinary JSON still looks fine.
+  await withHub({}, async ({ base, calls }) => {
+    const payload = '{"event":"payment.captured",  "amount": 100}';
+    const r = await fetch(`${base}/ladwani/api/v1/echo`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: payload });
+    assert.equal(r.status, 200);
+    assert.equal(calls[0].rawBody, payload, 'portal/server.js must mount LadWani above express.json()');
+  });
+});
+
 test('the token reaching the API verifies against the key set LadWani is given', async () => {
   await withHub({}, async ({ base, calls, env }) => {
     await fetch(`${base}/ladwani/api/v1/echo`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     const claims = verifyToken(JSON.parse(env.LADWANI_HUB_JWKS), calls[0].token, { audience: 'ladwani' });
     assert.equal(claims.sub, MEMBER.id);
     assert.equal(claims.role, 'member');
+  });
+});
+
+test('the API is told who the visitor is, and a browser cannot claim to be someone else', async () => {
+  await withHub({}, async ({ base, calls, env }) => {
+    await fetch(`${base}/ladwani/api/v1/echo`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-bkesari-visitor': 'someone-else' },
+      body: '{}',
+    });
+    assert.equal(env.LADWANI_VISITOR_HEADER, 'x-bkesari-visitor');
+    assert.equal(calls[0].visitor, MEMBER.id, 'the signed-in person, from the hub-signed token');
   });
 });
 

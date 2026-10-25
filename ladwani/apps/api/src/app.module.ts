@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
+import { ThrottlerModule } from '@nestjs/throttler'
+import { VisitorThrottlerGuard } from './common/visitor-throttler.guard'
 import { PrismaModule } from './prisma/prisma.module'
 import { AuthModule } from './auth/auth.module'
 import { FamilyModule } from './family/family.module'
@@ -44,7 +45,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor'
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 20 }]),
   ],
   providers: [
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: VisitorThrottlerGuard },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
   ],
 })

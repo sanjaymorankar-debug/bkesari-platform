@@ -26,6 +26,9 @@ const crypto = require('crypto');
  */
 
 const BASE = '/ladwani';
+// Names the signed-in person to LadWani's rate limits (its VisitorThrottlerGuard),
+// so each person gets their own budget whatever proxies stand in front.
+const VISITOR_HEADER = 'x-bkesari-visitor';
 const PLACEHOLDER = '_';
 const ROOT = path.join(__dirname, '..', 'ladwani');
 const DEFAULT_WEB_DIR = path.join(ROOT, 'apps', 'web', 'out');
@@ -85,10 +88,20 @@ async function startApi({ env, keys, loadApi }) {
   // LadWani reads these through its own env() helper (ladwani/apps/api/src/common/env.ts).
   env.LADWANI_JWT_SECRET = sessionSecret(env, keys);
   env.LADWANI_HUB_JWKS = JSON.stringify(keys.jwks);
+  env.LADWANI_VISITOR_HEADER = VISITOR_HEADER;
   const createApi = loadApi();
   const nest = await createApi();
   await nest.init();
   return nest.getHttpAdapter().getInstance();
+}
+
+/** The `sub` of a token this process just signed (the gate's), without checking it again. */
+function tokenSubject(token) {
+  try {
+    return String(JSON.parse(Buffer.from(String(token).split('.')[1], 'base64url').toString()).sub || '') || null;
+  } catch {
+    return null;
+  }
 }
 
 const sendPlain = (res, status, text) => res.status(status).type('text/plain').set('Cache-Control', 'no-store').send(text);
@@ -131,28 +144,32 @@ function mount(app, {
   app.use(BASE, (req, res, next) => {
     // Whatever the browser sent under this name is forged: only the gate may set it.
     delete req.headers['x-bkesari-token'];
+    delete req.headers[VISITOR_HEADER];
 
     // The build's own JS and CSS carry no one's data, and a page loads dozens
     // of them; asking Neon Auth about each would slow every page for nothing.
-    if (req.path.startsWith('/_next/static/')) return serveStatic(req, res);
+    if (req.path.startsWith('/_next/static/')) return serveStatic(req, res, { gated: false });
 
     gate(req, res, async (err) => {
       if (err) return next(err);
       if (req.path === '/api' || req.path.startsWith('/api/')) {
         await apiReady;
         if (!api) return res.status(503).set('Cache-Control', 'no-store').json({ error: 'LadWani is not available', reason: apiProblem });
+        const visitor = tokenSubject(req.headers['x-bkesari-token']);
+        if (visitor) req.headers[VISITOR_HEADER] = visitor;
         return api(req, res, next);
       }
-      return serveStatic(req, res);
+      return serveStatic(req, res, { gated: true });
     });
   });
 
-  function serveStatic(req, res) {
+  function serveStatic(req, res, { gated }) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return sendPlain(res, 405, 'Method not allowed');
     const file = resolveStatic(webDir, req.path);
     if (!file) {
+      // The app's own 404 page only past the gate: ungated, only build assets are served.
       const notFound = path.join(webDir, '404.html');
-      return isFile(notFound) ? res.status(404).sendFile(notFound) : sendPlain(res, 404, 'Not found');
+      return gated && isFile(notFound) ? res.status(404).sendFile(notFound) : sendPlain(res, 404, 'Not found');
     }
     const immutable = req.path.startsWith('/_next/static/');
     res.set('Cache-Control', immutable ? 'public, max-age=31536000, immutable' : 'private, no-cache');
@@ -162,4 +179,4 @@ function mount(app, {
   return { api: apiReady };
 }
 
-module.exports = { BASE, PLACEHOLDER, resolveStatic, sessionSecret, mount };
+module.exports = { BASE, PLACEHOLDER, VISITOR_HEADER, resolveStatic, sessionSecret, mount };

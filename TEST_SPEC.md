@@ -3,12 +3,15 @@
 The hub is the Node.js (Express) app behind **bkesari.com**, `test.bkesari.com` and
 `dev.bkesari.com`: the welcome page, the shared menu every project includes
 (`portal/public/shared/menu.js`), the static Global Warming and Driving Simulator pages, the
-**Task Tracker** at `/tasks/`, the read-only **ATIP viewer** at `/ATIP/` (and `/atip/`), and the
-proxy that serves `/edu/` and `/ladwani/` from their own apps (`portal/proxy.js`). Its
+**Task Tracker** at `/tasks/`, the read-only **ATIP viewer** at `/ATIP/` (and `/atip/`), the
+proxy that serves `/edu/` from its own app (`portal/proxy.js`), and **LadWani** at `/ladwani/`,
+which the hub serves itself (`portal/ladwani.js`: the static export of `ladwani/apps/web` and
+LadWani's NestJS API, in the hub's process). Its
 data is in **PostgreSQL on Neon** (database `neondb`, role `bk_portal_app`, one Neon branch per
 tier; [docs/NEON.md](docs/NEON.md)). This spec covers the hub and everything else in this
 repository outside `edu/` and `database/edu/`: the tests, the smoke and parity scripts, the CI
-and deploy workflows and their guard, the hand-run SQL under `database/`, and `tools/`. What a
+and deploy workflows and their guard, the hand-run SQL under `database/`, `tools/`, and
+`ladwani/` through LadWani's own checks (#6a–#6c, #9a) and the hub's serving of it. What a
 deployed tier needs on top (hPanel, SSH, a browser) is [TESTING.md](TESTING.md); this file does
 not repeat it.
 
@@ -23,6 +26,8 @@ portal-tester agent".
 | Hub server, routes, logins | `portal/server.js` | Node 22, Express 4 |
 | Database layer and schema | `portal/db.js`, `portal/sql/schema.sql`, `database/portal/01_portal_schema.sql` | node-postgres 8, PostgreSQL 16 |
 | Proxy to the project tabs | `portal/proxy.js` | http-proxy-middleware 4 |
+| LadWani served by the hub (static export, in-process API, gate) | `portal/ladwani.js` | Node 22, Express 4 |
+| LadWani itself (subtree of the Ladwani repository) | `ladwani/` (`apps/api`, `apps/web`, `packages/shared-types`) | NestJS 10 + Prisma 5, Next.js 14, npm workspaces |
 | Shared menu, static pages, Task Tracker UI | `portal/public/**` | browser JS, HTML, CSS |
 | Smoke and Neon-parity scripts | `scripts/smoke-dev.sh`, `scripts/neon-parity.sh` | bash, curl, psql |
 | CI, dev deploy, deploy guard | `.github/workflows/*.yml`, `.github/deploy/guard.sh` | GitHub Actions, bash |
@@ -35,8 +40,12 @@ Out of scope, and why:
 - `edu/` and `database/edu/` — the `edu-tester` agent and `edu/TEST_SPEC.md`. Do not build,
   install or run anything there. (`deploy-dev-edu.yml` and the `edu` job in `ci.yml` are theirs
   too; this spec only parses their YAML.)
-- The apps behind `/edu/` and `/ladwani/` — their own repositories. Only the hub's
-  forwarding is tested here, against a throwaway upstream.
+- The app behind `/edu/` — the `edu-tester`. Only the hub's forwarding is tested here, against
+  a throwaway upstream (and `/ladwani/` the same way, for the proxy route LadWani still has when
+  its export is not built).
+- LadWani's behaviour beyond what its own suites check (#6a–#6c, #9a): its integration tests
+  (`npm run test:integration`, which need their own database) and its screens. The hub's tests
+  use a stand-in export and API (`tests/ladwani.test.js`); S5 runs the real export and API.
 - Neon itself. Nothing here connects to it: there are no credentials in the repository, and
   tests must never reach a hosted database. `tools/neon_provision.mjs` is tested against a fake
   Neon API; the app's Neon behaviour is tested against a Neon-like local bed (S7).
@@ -58,13 +67,14 @@ Out of scope, and why:
 
 ### 2.2 The scratch databases
 
-Two throwaway PostgreSQL databases, both **owned by one non-superuser login role**. Nothing
+Three throwaway PostgreSQL databases, all **owned by one non-superuser login role**. Nothing
 else may use them:
 
 | Name in this spec | Used by | What happens to it | Mac | This repo's CI |
 |---|---|---|---|---|
 | suite database (`TEST_DATABASE_URL`) | S3 / R1 | **the tests DROP and recreate the four tracker tables** | `bk_portal_test` | `bk_portal_test` in the service container |
 | smoke database (`SMOKE_DATABASE_URL`) | S4, S5, S7 | **S7 drops the tracker tables**; S5 writes rows | `bk_portal_smoke` | not used (CI's smoke runs on the suite database) |
+| LadWani smoke database (`LADWANI_SMOKE_DATABASE_URL`) | S5's LadWani step | LadWani's schema (`prisma migrate deploy`) and reference data (its seed); S5 signs in through the hub, which adds a LadWani user, and stores a webhook event | `bk_ladwani_smoke` | not used |
 
 Never a Neon database, a `_dev`/`_test`/`_prod` database on a server, or anything an app
 uses. The tests read only `TEST_DATABASE_URL`, never `DATABASE_URL` or `DB_*`, so a developer's
@@ -81,10 +91,14 @@ createdb -O bk_portal bk_portal_smoke
 psql -d postgres -c 'REVOKE CONNECT ON DATABASE bk_portal_smoke FROM PUBLIC'
 . ~/.bkesari_local_postgres.env                    # BK_PORTAL_PASS, written by the setup script
 export SMOKE_DATABASE_URL="postgresql://bk_portal:$BK_PORTAL_PASS@127.0.0.1:5432/bk_portal_smoke"
+createdb -O bk_portal bk_ladwani_smoke
+psql -d postgres -c 'REVOKE CONNECT ON DATABASE bk_ladwani_smoke FROM PUBLIC'
+export LADWANI_SMOKE_DATABASE_URL="postgresql://bk_portal:$BK_PORTAL_PASS@127.0.0.1:5432/bk_ladwani_smoke"
 ```
 
-Any other machine: create a login role that is not a superuser, two databases it owns, and set
-`TEST_DATABASE_URL` (in `.env.test`) and `SMOKE_DATABASE_URL` to them.
+Any other machine: create a login role that is not a superuser, three databases it owns, and set
+`TEST_DATABASE_URL` (in `.env.test`), `SMOKE_DATABASE_URL` and `LADWANI_SMOKE_DATABASE_URL` to
+them. LadWani's schema goes into its database once per run (2.5).
 
 ### 2.3 Environment variables
 
@@ -100,7 +114,11 @@ Any other machine: create a login role that is not a superuser, two databases it
 | `TRACKER_USER`, `TRACKER_PASSWORD` | `/tasks/` login (unset = open: fails open on purpose) | `smoke` / `smoke-local-only` |
 | `ATIP_USER`, `ATIP_PASSWORD` | `/ATIP/` login (unset = 503: fails closed) | `smoke` / `smoke-local-only` |
 | `ATIP_PUBLISH_TOKEN` | snapshot upload | `smoke-local-token` |
-| `EDU_ORIGIN`, `LADWANI_ORIGIN` | the proxy | blank, except in S5's proxy step (`http://127.0.0.1:3111`). Blank while `APP_ENV` names a tier means that tier's live site (`TIER_ORIGINS` in `portal/proxy.js`): S5's first hub therefore has gated routes to the dev sites, which no anonymous request gets past. A hub with a signed-in stand-in (`server.test.js`, `tests/support/signed-in-hub.js`) must set both to a local upstream or leave `APP_ENV` blank |
+| `EDU_ORIGIN`, `LADWANI_ORIGIN` | the proxy | blank, except in S5's proxy step (`http://127.0.0.1:3111`). Blank `EDU_ORIGIN` while `APP_ENV` names a tier means that tier's live Education site (`TIER_ORIGINS` in `portal/proxy.js`): S5's first hub therefore has a gated route to the dev site, which no anonymous request gets past. LadWani has no tier default, and `LADWANI_ORIGIN` is ignored while its export is built (server.js serves it itself); it still reaches the proxy in `tests/support/signed-in-hub.js`'s default mode. A hub with a signed-in stand-in (`server.test.js`, `tests/support/signed-in-hub.js`) must set both to a local upstream or leave `APP_ENV` blank |
+| `LADWANI_DATABASE_URL` | LadWani's API in the hub (`portal/ladwani.js`) | unset (the pages are served and the API answers 503), except in S5's LadWani step: `$LADWANI_SMOKE_DATABASE_URL`. Never a Neon branch |
+| `LADWANI_JWT_SECRET`, `LADWANI_TRUST_PROXY` | LadWani's API in the hub | unset (the secret is then derived from the hub's key) |
+| `LADWANI_SMOKE_DATABASE_URL` | this spec's 2.5 and S5 commands | the LadWani smoke database |
+| `SIGNED_IN_HUB_LADWANI` | `tests/support/signed-in-hub.js` | unset (LadWani through the proxy), or `embedded` in S5's LadWani step (LadWani in the process, as `main()` does) |
 | `PARITY_POOLED_URL`, `PARITY_DIRECT_URL`, `PARITY_PORT`, `PARITY_IDLE_SECONDS` | `scripts/neon-parity.sh` | section 2.6 |
 | `NODE_EXTRA_CA_CERTS` | Node, S7 only | the local CA that signed the bed's certificate. Never turn verification off instead |
 
@@ -113,8 +131,15 @@ Stop every process you start; check with `lsof -nP -iTCP:3101 -iTCP:3111 -sTCP:L
 ### 2.5 One-time setup per run
 
 ```bash
-npm ci                         # root only; never inside edu/
+npm ci                         # the hub; never inside edu/
+npm --prefix ladwani ci --include=dev    # LadWani's workspaces (its own lockfile)
 test -f .env.test || echo "create .env.test (2.2) first"
+# LadWani's shared types and Prisma client (#6a-#6c need them), then its schema and reference
+# data into its smoke database (idempotent):
+npm --prefix ladwani run build --workspace=packages/shared-types >/dev/null
+( cd ladwani/apps/api && npm run db:generate >/dev/null && \
+  DATABASE_URL="$LADWANI_SMOKE_DATABASE_URL" DATABASE_URL_UNPOOLED="$LADWANI_SMOKE_DATABASE_URL" npx prisma migrate deploy && \
+  DATABASE_URL="$LADWANI_SMOKE_DATABASE_URL" npm run db:seed )
 ```
 
 ### 2.6 The Neon-like bed (S7)
@@ -163,12 +188,16 @@ Record each command's exit code, counts and duration.
 | 4 | S1 static | `python3 -c "import sys,yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" .github/workflows/*.yml` | exit 0 |
 | 5 | S1 static | the inline-script parse below | `inline scripts parsed: 4`, exit 0 |
 | 6 | S2 unit | `set -o pipefail; env -u TEST_DATABASE_URL npm test 2>&1 \| tee /tmp/portal-s2.txt` | exit 0; exactly three `# SKIP` lines, the three PostgreSQL suites (node counts them under `# suites`, not `# skipped`); guard `32 passed, 0 failed` |
+| 6a | S2 LadWani unit | `npm --prefix ladwani test` (Jest, `ladwani/apps/api`; no database) | exit 0; `Tests:` 0 failed, 0 skipped, count at or above section 5 |
+| 6b | S2 LadWani types | `npm --prefix ladwani run typecheck` (api, then web) | exit 0 |
+| 6c | S2 LadWani lint | `npm --prefix ladwani run lint --workspace=apps/web` | exit 0, no `Error:` line; list the warnings in the report (section 5 has the expected ones) |
 | 7 | S3 integration | `set -o pipefail; npm run test:pg 2>&1 \| tee /tmp/portal-r1.txt && grep -c '# SKIP' /tmp/portal-r1.txt` | the tests exit 0, `grep` prints **0** (it then exits 1, which is the good case), guard 32/32 |
 | 8 | S3 integration | the hand-run SQL load below | exit 0 |
 | 9 | S4 build | the deploy-bundle boot below | `bundle boots: 200` |
-| 10 | S5 smoke | the smoke run below | smoke-dev.sh `0 failed` (the one warning, `/edu/ Livewire checks skipped`, is expected: `APP_ENV=dev` fills in the dev sites, so both tabs answer with the sign-in page); every probe `ok`; `S5 failures: 0` |
+| 9a | S4 LadWani build | the LadWani build below (`build:embedded` without its `npm install`) | exit 0; `ladwani/apps/web/out/index.html` and `ladwani/apps/api/dist/main.js` exist; the route list shows the ten `[param]` pages each built once, as `/…/_` |
+| 10 | S5 smoke | the smoke run below (needs #9a's export) | smoke-dev.sh `0 failed` (the one warning, `/edu/ Livewire checks skipped`, is expected: `APP_ENV=dev` fills in the Education dev site and the hub serves LadWani, so both tabs answer with the sign-in page); every probe `ok`; `S5 failures: 0` |
 | 11 | S6 security | the security checks below | `S6 failures: 0` |
-| 12 | S6 hygiene | `npm audit --omit=dev` | report only: list advisories in the report; fix only if trivial |
+| 12 | S6 hygiene | `npm audit --omit=dev`; `npm --prefix ladwani audit --omit=dev` | report only: list advisories in the report; fix only if trivial. LadWani's run in the hub's process (Nest, Prisma); its Next.js only builds the export |
 | 13 | S7 Neon parity | `bash scripts/neon-parity.sh` (2.6) | `Neon parity passed.`, exit 0 |
 
 **#5, inline scripts** (the Task Tracker UI is about 350 lines of inline JS nothing else
@@ -221,6 +250,20 @@ echo "bundle boots: $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:31
 kill $BUNDLE; wait $BUNDLE 2>/dev/null; rm -rf "$B"
 ```
 
+(The bundle has no `ladwani/`, so its `/ladwani/` is the "not on this tier yet" page: the dev
+deploy does not ship LadWani; `build:hostinger` on the hub site does.)
+
+**#9a, the LadWani build**, what `npm run build:hostinger` builds after `check`, minus its
+`npm install` (2.5 did that). S5 serves this export:
+
+```bash
+npm --prefix ladwani run build --workspace=packages/shared-types && \
+npm --prefix ladwani run db:generate --workspace=apps/api && \
+npm --prefix ladwani run build --workspace=apps/api && \
+( cd ladwani/apps/web && BASE_PATH=/ladwani NEXT_OUTPUT=export NEXT_BUILD_CPUS=1 npx next build ) && \
+test -f ladwani/apps/web/out/index.html && test -f ladwani/apps/api/dist/main.js && echo "LadWani built"
+```
+
 **#10, the smoke run.** The hub from the working tree, on the smoke database, on 3101, with
 throwaway logins, then `scripts/smoke-dev.sh` (what CI and the dev deploy run), then the probes
 it cannot make without credentials, then the proxy with a throwaway upstream:
@@ -264,6 +307,8 @@ kill $HUB; wait $HUB 2>/dev/null
 # and a local run has no Neon Auth to sign in with. So: signed out against server.js itself,
 # then the forwarding with tests/support/signed-in-hub.js (server.js's createApp with the
 # owner, verified, standing in for Neon Auth's session; gates, token and proxy unchanged).
+# With #9a's export built, server.js serves /ladwani/ itself and ignores LADWANI_ORIGIN; the
+# signed-in hub keeps LadWani on the proxy (its default), which is what the LadWani lines check.
 node -e 'require("http").createServer((q,r)=>{let b="";q.on("data",c=>b+=c).on("end",()=>{r.setHeader("content-type","application/json");r.end(JSON.stringify({url:q.url,body:b}))})}).listen(3111,"127.0.0.1")' & UP=$!
 sleep 0.5
 start_hub LADWANI_ORIGIN=http://127.0.0.1:3111 EDU_ORIGIN=http://127.0.0.1:3111
@@ -280,6 +325,28 @@ has "$(curl -s -H "$J" -d '{"qty":3}' "$BASE/ladwani/api/orders")" '"body":"{\"q
 kill $UP; wait $UP 2>/dev/null; sleep 0.5
 want 502 "$BASE/ladwani/"
 E=$(curl -s "$BASE/edu/login"); has "$E" 'not responding'; has "$E" '<a href="/edu/" aria-current="page">Education</a>'
+kill $HUB; wait $HUB 2>/dev/null
+
+# LadWani served by the hub itself (portal/ladwani.js), from #9a's export: no LadWani process
+# and no proxy. Signed out against server.js (no LADWANI_DATABASE_URL: its API is off), then
+# signed in with SIGNED_IN_HUB_LADWANI=embedded and LadWani's real API in the hub's process, on
+# the LadWani smoke database. The webhook line is the one that needs the API mounted before the
+# hub's body parsers: it checks its signature over the raw body, which only its own parser keeps.
+# (A new event id each run: LadWani answers 500 to an unsigned event id it already holds.)
+A=$(cd ladwani/apps/web/out && ls _next/static/chunks/*.js | head -1)
+start_hub
+has "$(curl -sI "$BASE/ladwani/$A" | tr -d '\r')" 'Cache-Control: public, max-age=31536000, immutable'
+has "$(curl -sI "$BASE/ladwani/family/7/" | tr -d '\r')" 'Location: /auth/sign-in?next=%2Fladwani%2Ffamily%2F7%2F'
+has "$(curl -sI "$BASE/ladwani?x=1" | tr -d '\r')" 'Location: /ladwani/?x=1'
+want 401 -H 'accept: application/json' "$BASE/ladwani/api/v1/health"
+kill $HUB; wait $HUB 2>/dev/null
+HUB_JS=tests/support/signed-in-hub.js start_hub SIGNED_IN_HUB_LADWANI=embedded LADWANI_DATABASE_URL="$LADWANI_SMOKE_DATABASE_URL"
+has "$(curl -s "$BASE/ladwani/")" 'app/page-'
+has "$(curl -s "$BASE/ladwani/family/cmv7x2/")" 'app/family/%5Bid%5D/page-'
+has "$(curl -s "$BASE/ladwani/api/v1/health")" '"database":"ok"'
+has "$(curl -s -H 'x-bkesari-token: forged' -X POST "$BASE/ladwani/api/v1/auth/hub")" '"accessToken"'
+has "$(curl -s -H "$J" -H 'x-webhook-signature: s5' -d "{\"id\":\"evt_s5_$(date +%s%N)\",\"event\":\"payment.captured\"}" "$BASE/ladwani/api/v1/webhooks/payments")" '"received":true'
+want 404 --path-as-is "$BASE/ladwani/%2e%2e/%2e%2e/%2e%2e/package.json"
 kill $HUB; wait $HUB 2>/dev/null
 echo "S5 failures: $F"
 ```
@@ -304,6 +371,16 @@ done
 # No certificate checks switched off, and no local CA baked into the app (Neon uses a public CA).
 grep -rnE "rejectUnauthorized: *false|NODE_TLS_REJECT_UNAUTHORIZED|/etc/neonlike|sslmode=no-verify" portal/ \
   | grep -vF "if (v === 'no-verify') return { rejectUnauthorized: false };" && { echo "FAIL TLS weakened"; F=$((F+1)); }
+# LadWani (portal/ladwani.js, #9a's export): its pages and API need the sign-in however the path
+# is spelled, only build assets skip it, and no spelling reaches a file outside the export. A page
+# of the app loads /ladwani/_next/static/; the API's data has "database"; package.json has "name".
+for p in /ladwani/ /LADWANI/ /LadWani/login/ /ladwani/index.html /ladwani/index.txt /ladwani/family/7/ /ladwani/./ \
+         /ladwani/api/v1/health /LADWANI/api/v1/health /ladwani//api/v1/health '/ladwani/%2e%2e/%2e%2e/package.json' \
+         '/ladwani/_next/static/missing.js' '/ladwani/_next/static/%2e%2e/%2e%2e/index.html' '/ladwani/_next/static/../../login/' \
+         '/ladwani/_next/static/chunks/..%2f..%2f..%2findex.html'; do
+  b=$(curl -s --path-as-is -w '\n%{http_code}' --max-time 10 "$BASE$p")
+  case "$b" in *'/ladwani/_next/static/'*|*'"database"'*|*'"name":'*) echo "FAIL  $p served LadWani without the sign-in (${b##*$'\n'})"; F=$((F+1));;
+    *) echo "ok    $p not served without the sign-in (${b##*$'\n'})";; esac; done
 kill $HUB; wait $HUB 2>/dev/null
 echo "S6 failures: $F"
 ```
@@ -333,24 +410,27 @@ fails on a skip.
 | PORTAL-CR-08 | The app creates its own tables: idempotent, safe for two processes at once, over `DATABASE_URL_UNPOOLED` when set | `tracker.pg.test.js` :: the schema is the PostgreSQL one…; the tables are set up over DATABASE_URL_UNPOOLED…; S7 *Tables created over the direct URL* |
 | PORTAL-CR-09 | A connection the server drops (Neon suspending a compute) never ends the process, idle or mid-transaction | `tracker.pg.test.js` :: an idle connection the server drops is replaced…; a connection dropped in the middle of a transaction…; S7 *Connections dropped while idle* |
 | PORTAL-CR-10 | A Neon URL works as pasted: TLS on and verified without `DB_SSL` (the URL's `sslmode` wins over db.js's `ssl: undefined`), channel binding honoured, a connect timeout long enough for a cold start | `db-config.test.js` (all 5); S7 |
-| PORTAL-CR-11 | The proxy is mounted before the body parsers, so a POST into a proxied app keeps its body | `server.test.js` :: the real server.js mounts the proxy before the body parsers; `proxy.test.js` :: a POST body reaches the app intact; mounting the parsers first makes a POST hang…; S5 proxy `"body"` line |
-| PORTAL-CR-12 | `/ladwani/` keeps its prefix; only `/edu/` has it stripped, query string intact | `proxy.test.js` :: only the tab that cannot own its prefix has it stripped; a stripping tab reaches its app at the root…; S5 proxy lines |
-| PORTAL-CR-13 | A proxy origin comes only from the environment (its variable, or for an unset one the `TIER_ORIGINS` entry of the tier `APP_ENV` names, read as the same tier the hub reports), never from the request, and must be a bare http(s) origin (no open proxy); a tier default meets the same gate | `proxy.test.js` :: anything that is not a plain http origin is refused; an origin with a path is refused; APP_ENV fills in the tier origins…; the proxy reads APP_ENV as the same tier the hub reports…; a tier default meets its gate like any other origin… |
-| PORTAL-CR-14 | A down app gives a 502 page that still carries the menu, with its own tab current | `proxy.test.js` :: an app that is down gives a 502 that still carries the menu; a stripping tab's 502 page still marks that tab as current; S5 `want 502` and the Education line |
+| PORTAL-CR-11 | The proxy is mounted before the body parsers, so a POST into a proxied app keeps its body; so is LadWani's in-process API, which reads the raw body itself (its payment webhook checks a signature over it) | `server.test.js` :: the real server.js mounts the proxy before the body parsers; `proxy.test.js` :: a POST body reaches the app intact; mounting the parsers first makes a POST hang…; `ladwani.test.js` :: the API is mounted before the hub's body parsers…; the API runs in-process with the body intact…; S5 proxy `"body"` line; S5 LadWani `"received":true` line |
+| PORTAL-CR-12 | `/ladwani/` keeps its prefix; only `/edu/` has it stripped, query string intact. (LadWani is proxied only when its export is not built and `LADWANI_ORIGIN` is set; served by the hub, its pages resolve under `/ladwani/` and its API sees `/api/v1/…`) | `proxy.test.js` :: only the tab that cannot own its prefix has it stripped; a stripping tab reaches its app at the root…; S5 proxy lines |
+| PORTAL-CR-13 | A proxy origin comes only from the environment (its variable, or for an unset one the `TIER_ORIGINS` entry of the tier `APP_ENV` names, read as the same tier the hub reports), never from the request, and must be a bare http(s) origin (no open proxy); a tier default meets the same gate. LadWani has no tier default on any tier (the hub serves it) | `proxy.test.js` :: anything that is not a plain http origin is refused; an origin with a path is refused; APP_ENV fills in the tier origins… (including no LadWani default); the proxy reads APP_ENV as the same tier the hub reports…; a tier default meets its gate like any other origin… |
+| PORTAL-CR-14 | A down app gives a 502 page that still carries the menu, with its own tab current. (LadWani served by the hub has no app to be down: see CR-21) | `proxy.test.js` :: an app that is down gives a 502 that still carries the menu; a stripping tab's 502 page still marks that tab as current; S5 `want 502` and the Education line |
 | PORTAL-CR-15 | The hub states its tier (`X-Bkesari-Env`) and keeps non-production out of search; an unknown host is production | `smoke-dev.sh` *Tier identity*; `menu.test.js` :: an unknown hostname is treated as production, never as dev |
 | PORTAL-CR-16 | The menu: six tabs in the specified order (ATIP shown to the owner only), a checkbox (not `<details>`) disclosure, the `<noscript>` list matching `TABS`, on every static page | `menu.test.js` :: the six tabs are present…; renderHtml lists every tab to the owner and hides ATIP from everyone else; the mobile disclosure is a checkbox…; the welcome page's <noscript> list matches the tabs; every static hub page includes the shared bar |
 | PORTAL-CR-17 | Nothing private is served: `/.env`, `/.git/config`, the server source, stack traces | `smoke-dev.sh` *Nothing private is served*; `server.test.js` :: a malformed JSON body is a 400 that gives nothing away; S6 malformed-body loop |
 | PORTAL-CR-18 | The dev deploy refuses every target but dev (branch, path, host, smoke URL, empty secrets) | `.github/deploy/guard.test.sh` (32 cases) |
 | PORTAL-CR-19 | Neon provisioning: one Singapore PostgreSQL 16 project per app with its tier branches, each app's login owning its database, a new password on every branch the run made (and a failed run naming any branch it made that still has the copied one), other projects (another site's) never touched, re-run creates nothing, dry run writes nothing, duplicate names refused, passwords only in 0600 files, an existing database under another owner never taken over | `neon-provision.test.js` (all 11) |
 | PORTAL-CR-20 | `database/portal/01_portal_schema.sql` stays the schema the app applies | `schema-copy.test.js` (both); S3 #8 |
+| PORTAL-CR-21 | LadWani served by the hub (`portal/ladwani.js`): its pages and API sit behind the `ladwani` gate however the path is spelled (case, dot segments, repeated or encoded slashes); only `/ladwani/_next/static/` build assets skip it, and a miss there is a bare 404, not the app's page; no path, however encoded (`..`, `%2e`, `%2f`, backslash, NUL, overlong UTF-8), reaches a file outside the export; any id is answered by its `_` page; only the gate's own `X-Bkesari-Token` reaches the API; the API off (no `LADWANI_DATABASE_URL`) or failing to start is a 503 while the hub and the pages stay up; without the export nothing is mounted and the tab keeps its placeholder | `ladwani.test.js` (all 13); S5 LadWani step; S6 LadWani loop |
 
 ### R3 — change-area map
 
 | When this changes | Emphasise |
 |---|---|
-| `portal/server.js` | all of R1 (`server.test.js` first); S5; S6; CR-01 to CR-07, CR-11, CR-17 |
+| `portal/server.js` | all of R1 (`server.test.js` first); S5; S6; CR-01 to CR-07, CR-11, CR-17, CR-21 (it mounts LadWani) |
 | `portal/db.js`, `portal/sql/**`, `database/portal/**`, `package.json`, `package-lock.json` | R1; S3 #8; S4; **S7**; CR-07 to CR-10, CR-20 |
 | `portal/proxy.js` | `proxy.test.js`; S5 proxy step; CR-11 to CR-14 |
+| `portal/ladwani.js` | `ladwani.test.js`; S5 LadWani step; S6 LadWani loop; CR-11, CR-21 |
+| `ladwani/**` | #6a–#6c, #9a; S5 LadWani step; CR-21. A change to its settings (`apps/api/src/common/env.ts`, `next.config.js`) also: DEPLOY.md Part 7 read against it |
 | `portal/public/shared/menu.js`, `portal/public/**/*.html`, `page.css` | `menu.test.js`; S1 #5; S5; CR-04, CR-14 to CR-16 |
 | `portal/public/tasks/**` | S1 #5; S5; S6 path loop; CR-01 |
 | `scripts/smoke-dev.sh` | S5 (it is the smoke); CR-15, CR-17 |
@@ -424,10 +504,25 @@ warnings and the tier-badge bonus check go, and `/edu/ Livewire checks skipped` 
 probes ok; S6 16 ok; S7 17 passed. `smoke-dev.sh` counts a 404 from `/atip/` as the viewer hidden (owner
 only, under Neon Auth): `https://bkesari.com --env prod` went from 22 / 0 / 3 to 23 / 0 / 2.
 
+LadWani in the hub (same branch, measured 2026-10-25 on `b17fee0` plus the portal-tester fixes:
+`ladwani/` imported, `portal/ladwani.js` serving it, LadWani's tier origins gone from `TIER_ORIGINS`).
+S2 **111** pass, three suites skipped; R1 **138**: `ladwani` **13** (new: 12 from `b17fee0`, +1 from
+portal-tester, the API's place before the body parsers), every other file as above, plus **32** guard
+cases. New rows: #6a LadWani Jest **222** pass in **28** suites; #6b clean; #6c 0 errors, **2** warnings
+(both `react-hooks/exhaustive-deps`, `assets/[id]/view.tsx` and `assets/page.tsx`, imported with the
+code); #9a 41 static pages, the ten `[param]` pages each once as `_`. S5: smoke-dev.sh **25 / 0 / 1**
+(unchanged count, but `/ladwani/` now answers with the sign-in from the hub's own gate rather than a
+tier-default route to devladwani.bkesari.com), **42** probes ok (32 + the 10 of the new LadWani step;
+the LadWani proxy lines stay, run through `signed-in-hub.js`'s proxy mode); S6 **31** ok (16 + the 15 of
+the LadWani loop); #12 root 0 vulnerabilities, LadWani 11 (4 moderate, 5 high, 2 critical; report only);
+S7 17 passed. Measured with the LadWani smoke database on the same local cluster as the other two, and
+the S7 bed's direct endpoint on `:5433` (a PostgreSQL already held `:5432`).
+
 Expected, and only these: in S2 the three PostgreSQL suites skip, because S2 runs without
 `TEST_DATABASE_URL` on purpose (node lists them as `# SKIP` lines under `# suites`, not
 `# skipped`); in S5 `smoke-dev.sh` warns that the `/edu/` Livewire checks were skipped, because
-the smoke run has no signed-in session. Anything else skipping or warning is a regression (R4).
+the smoke run has no signed-in session; #6c (and #9a's build) print LadWani's two lint warnings named
+above. Anything else skipping or warning is a regression (R4).
 (A hub with no `APP_ENV` and no origins still gives the old 23 / 0 / 2, the two warnings being
 `/edu/` and `/ladwani/` not deployed.)
 
@@ -440,10 +535,10 @@ PostgreSQL left behind; its assertions now live in `tracker.pg.test.js`.
 - **PASS**: every row of section 3 ran and passed, R1 has no failure and no skip, every R2 row's
   check passed, the counts are at or above section 5, and nothing above S4 is left open.
 - **FAIL**: a defect above S4 is still open after the fix loop (three rounds at most).
-- **BLOCKED**: something in section 3 could not run: no PostgreSQL, no `.env.test` or
-  `SMOKE_DATABASE_URL`, a missing tool, or no Neon-like bed for S7. A level that did not run is
+- **BLOCKED**: something in section 3 could not run: no PostgreSQL, no `.env.test`,
+  `SMOKE_DATABASE_URL` or `LADWANI_SMOKE_DATABASE_URL`, a missing tool, or no Neon-like bed for S7. A level that did not run is
   never reported as passed; name what would unblock it. Also BLOCKED: any database setting that
-  names Neon (`*.neon.tech`), a server, or a `_dev`/`_test`/`_prod` database other than the two
+  names Neon (`*.neon.tech`), a server, or a `_dev`/`_test`/`_prod` database other than the
   scratch databases of section 2.2.
 
 ## 7. Defect handling
@@ -492,7 +587,7 @@ Written to `.claude/test-runs/<UTC yyyymmdd-hhmmss>-portal-tester.md` and copied
 | ID | Result | Evidence |
 |---|---|---|
 | PORTAL-CR-01 | PASS | <test name or probe line> |
-| ... all 20 ... |
+| ... all 21 ... |
 
 ## Defects
 
@@ -538,6 +633,15 @@ VERDICT: PASS | FAIL | BLOCKED
   secrets and a server; only its guard and YAML are tested.
 - **The proxied apps** are stand-ins: a real Next.js `basePath` or Laravel `APP_URL` is checked
   by `smoke-dev.sh` against a deployed tier and by TESTING.md section 4.
+- **LadWani on a real tier.** Inside the hub, LadWani's API counts its rate limits per visitor only
+  when `LADWANI_TRUST_PROXY` matches the hops in front of the hub, and keeps its sign-up code and
+  cookie production-safe only with `NODE_ENV=production` (DEPLOY.md Part 7). A local run has one
+  loopback hop and cannot prove Hostinger's front end; the check in DEPLOY.md, on the tier, does.
+- **LadWani's own depth.** Its integration tests (`npm run test:integration` in `ladwani/apps/api`,
+  a database of their own) and its screens in a browser are not part of this suite.
+- **LadWani's payment webhook is behind the hub's gate**, so a payment gateway cannot reach it.
+  Harmless while `PAYMENT_GATEWAY_PROVIDER` is the dev gateway; real payments need a gate exception
+  for that one route (its signature check is its authentication).
 - **Draft PR sanjaymorankar-debug/bkesari-platform#10** (Neon services) is not on this branch.
   If it lands, update sections 2 and 5. Its `neon.ts`, `hello.ts`, `@neon/config` and
   `@neon/env` set up Neon services nobody asked for and are not wanted; its two good ideas

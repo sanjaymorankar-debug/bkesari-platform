@@ -69,7 +69,8 @@ hPanel → Websites → create/select **dev.bkesari.com** (Node.js Web App) → 
 
 - Repository: `sanjaymorankar-debug/bkesari-platform`
 - Branch: `dev`
-- Build command: *(leave empty)*
+- Build command: `npm run build:hostinger` (builds LadWani, which the hub serves at `/ladwani/`;
+  Part 7, "LadWani inside the hub")
 - Start command: `npm start`
 - Node version: 20 or 22
 
@@ -625,6 +626,8 @@ Settings on the hub site (hPanel → the site → Node.js → Environment variab
 |---|---|
 | `LADWANI_DATABASE_URL` | Neon project **bkesari-ladwani**, the tier's branch (`production` / `test`), database **`bk_ladwani`**, role `bk_ladwani_app`, **pooled** connection string. Without it the pages load and the API answers 503. |
 | `LADWANI_JWT_SECRET` | Optional. Unset, LadWani's session secret is derived from `HUB_TOKEN_PRIVATE_KEY`. |
+| `LADWANI_TRUST_PROXY` | Not needed here. LadWani rate-limits per visitor (20 API calls a minute, 5 sign-ins per 15 minutes). Inside the hub every API call has passed the hub's sign-in, so the hub names the signed-in person in `X-Bkesari-Visitor` (dropping any value the browser sent) and LadWani counts per person (`VisitorThrottlerGuard`), whatever proxies are in front. Check after a deploy: two people signed in at once each keep their own budget. |
+| `NODE_ENV` | `production`. LadWani's API reads it from the hub's process: otherwise its sign-up answer carries the one-time code (`devOtp`) and its session cookie is not `Secure`. The hub's own code does not read it. |
 
 The hub site's build script must be **`build:hostinger`** (it runs `check`, then
 builds LadWani). LadWani's own variables carry the `LADWANI_` prefix

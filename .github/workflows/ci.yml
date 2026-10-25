@@ -265,3 +265,33 @@ jobs:
                        + ', '.join(missing))
           print(f'{len(manifest)} manifest entries, all present')
           PY
+
+  # LadWani (ladwani/), which the hub serves at /ladwani/: its unit tests, type
+  # checks and the static export the hub serves. No database: its unit tests
+  # use stand-ins, and the hub's side is covered by the `test` job above.
+  ladwani:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ladwani
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ladwani/package-lock.json
+
+      - run: npm ci --include=dev --no-audit --no-fund
+      - run: npm run build --workspace=packages/shared-types
+      - run: npm run db:generate --workspace=apps/api
+      - run: npm test
+      - run: npm run typecheck
+      - name: Static export, as bkesari.com serves it
+        run: BASE_PATH=/ladwani NEXT_OUTPUT=export NEXT_BUILD_CPUS=1 npm run build --workspace=apps/web
+      - name: Every [param] page exists once, as "_"
+        run: |
+          for d in assets/_ bookings/_ community/_ family/_ family/_/fees family/_/fees/_ family/_/members/new family/_/tree matrimony/_ members/_; do
+            test -f "apps/web/out/$d/index.html" || { echo "missing out/$d/index.html"; exit 1; }
+          done
