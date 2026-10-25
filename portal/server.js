@@ -539,7 +539,15 @@ function createApp(db, extra = {}) {
   // The tracker's page, however its path is spelled, goes through the same
   // login as /tasks/ above (see servesTrackerFile).
   app.use((req, res, next) => (servesTrackerFile(req.path) ? trackerLogin(req, res, next) : next()));
-  app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
+  app.use(express.static(path.join(__dirname, 'public'), {
+    extensions: ['html'],
+    // The service worker must be re-checked on every visit, or a fix to it
+    // could take a day to reach phones that installed the app.
+    setHeaders: (res, file) => {
+      if (file.endsWith(`${path.sep}sw.js`)) res.set('Cache-Control', 'no-cache');
+      if (file.endsWith('.webmanifest')) res.type('application/manifest+json');
+    },
+  }));
 
   // A tab whose destination is not deployed on this tier yet. Answer with a
   // short page carrying the menu, so navigation continues instead of

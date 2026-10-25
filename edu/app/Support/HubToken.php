@@ -52,15 +52,36 @@ class HubToken
         return $claims;
     }
 
-    /** The hub's key set, cached for five minutes. */
+    /**
+     * The hub's key set: HUB_JWKS (the JSON itself) when set, else fetched from
+     * HUB_JWKS_URL and cached for five minutes. Inline is preferred on shared
+     * hosting, where an outbound lookup can hang on DNS; a failed fetch is
+     * remembered for a minute so it cannot stall every request.
+     */
     public static function jwks(): array
     {
+        $inline = config('services.hub.jwks');
+        if ($inline) {
+            $keys = json_decode($inline, true);
+            if (! is_array($keys) || empty($keys['keys'])) {
+                throw new RuntimeException('HUB_JWKS is not a JSON key set');
+            }
+
+            return $keys;
+        }
         $url = config('services.hub.jwks_url');
         if (! $url) {
-            throw new RuntimeException('HUB_JWKS_URL is not set');
+            throw new RuntimeException('Neither HUB_JWKS nor HUB_JWKS_URL is set');
         }
-
-        return Cache::remember('hub-jwks', 300, fn () => Http::timeout(5)->get($url)->throw()->json());
+        if (Cache::get('hub-jwks-failed')) {
+            throw new RuntimeException('the hub key set was unreachable a moment ago');
+        }
+        try {
+            return Cache::remember('hub-jwks', 300, fn () => Http::timeout(5)->get($url)->throw()->json());
+        } catch (\Throwable $e) {
+            Cache::put('hub-jwks-failed', true, 60);
+            throw new RuntimeException('the hub key set could not be fetched: '.$e->getMessage());
+        }
     }
 
     private static function b64(string $v): string

@@ -98,4 +98,26 @@ class HubSignInTest extends TestCase
         $this->expectExceptionMessage('bad signature');
         HubToken::verify("$h.$forged.$s", $this->jwks);
     }
+
+    public function test_an_inline_key_set_needs_no_fetch(): void
+    {
+        config(['services.hub.jwks' => json_encode($this->jwks), 'services.hub.jwks_url' => null]);
+        Http::fake(fn () => throw new \RuntimeException('no fetch expected'));
+        $this->get('/', [HubToken::HEADER => $this->token($this->asha)])->assertOk();
+        $this->assertAuthenticated();
+    }
+
+    public function test_an_unreachable_key_set_is_not_retried_on_every_request(): void
+    {
+        Cache::flush();
+        $calls = 0;
+        Http::fake(function () use (&$calls) {
+            $calls++;
+            throw new \Illuminate\Http\Client\ConnectionException('Resolving timed out');
+        });
+        $this->get('/', [HubToken::HEADER => $this->token($this->asha)]);
+        $this->get('/', [HubToken::HEADER => $this->token($this->asha)]);
+        $this->assertGuest();
+        $this->assertSame(1, $calls);
+    }
 }

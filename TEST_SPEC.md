@@ -246,7 +246,7 @@ start_hub
 bash scripts/smoke-dev.sh "$BASE" --env dev || F=$((F+1))
 has "$(curl -sI "$BASE/" | tr -d '\r')" 'X-Bkesari-Env: dev'
 want 200 -u $U:$PW "$BASE/tasks/";   want 401 -u $U:wrong "$BASE/tasks/";   want 401 "$BASE/tasks/api/overview"
-want 302 "$BASE/tasks";  want 302 "$BASE/ATIP";  want 401 "$BASE/ATIP/";  want 200 -u $U:$PW "$BASE/ATIP/"
+want 302 "$BASE/tasks";  want 401 "$BASE/ATIP";  want 302 -u $U:$PW "$BASE/ATIP";  want 401 "$BASE/ATIP/";  want 200 -u $U:$PW "$BASE/ATIP/"
 P=$(curl -s -u $U:$PW -H "$J" -d '{"name":"S5 smoke","planned_start":"2026-10-01"}' "$BASE/tasks/api/projects")
 PID=$(printf '%s' "$P" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).id))')
 want 201 -u $U:$PW -H "$J" -d "{\"title\":\"S5 task\",\"project_id\":$PID}" "$BASE/tasks/api/tasks"
@@ -405,6 +405,14 @@ S2 **89** pass with **three** suites skipped (`hub.pg` joined the two PostgreSQL
 `menu` 19, `proxy` 27, `server` 6, `db-config` 5, `tracker.pg` 15, `hub.pg` 12, `hub` 5, `neon` 11,
 `schema-copy` 4, `neon-provision` 12, plus **32** guard cases. S5: smoke-dev.sh 23 / 0 / **2**
 warnings (Milk & Dairy is gone), 31 probes ok; S6 16 ok; S7 17 passed.
+
+Installable PWA (branch `claude/hub-v1-fixes`, measured 2026-10-25 on `1d31a4a` plus the portal-tester
+fixes): S2 **93** pass, three suites skipped; R1 **120**: `menu` 19, `proxy` 27, `server` 7 (+1, the PWA
+test), `sw` 4 (new: what the service worker may store), `db-config` 5, `tracker.pg` 15, `hub.pg` 12,
+`hub` 5, `neon` 11, `schema-copy` 4, `neon-provision` **11** (12 to 11 by the one-project-per-app rewrite
+`159b505`, merged in `cb04992`; see above), plus **32** guard cases. S5: smoke-dev.sh 23 / 0 / 2, 32 probes
+ok (`/ATIP` without the slash is now gated like `/ATIP/`, `9e63a60`: 401 anonymous, 302 signed in); S6 16
+ok; S7 17 passed.
 
 Expected, and only these: in S2 the three PostgreSQL suites skip, because S2 runs without
 `TEST_DATABASE_URL` on purpose (node lists them as `# SKIP` lines under `# suites`, not

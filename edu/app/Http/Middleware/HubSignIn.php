@@ -29,7 +29,7 @@ class HubSignIn
     public function handle(Request $request, Closure $next): Response
     {
         $token = $request->header(HubToken::HEADER);
-        if ($token && config('services.hub.jwks_url')) {
+        if ($token && (config('services.hub.jwks') || config('services.hub.jwks_url'))) {
             try {
                 $this->signIn(HubToken::verify($token, HubToken::jwks()), $request);
             } catch (Throwable $e) {
