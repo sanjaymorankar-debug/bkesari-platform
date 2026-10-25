@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useState, type MouseEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { useAuth } from '../lib/auth-context'
 import { api } from '../lib/api-client'
 
@@ -17,6 +17,15 @@ export function TopBar() {
   const [unreadCount, setUnreadCount] = useState(0)
   // On a phone the links fold behind a Menu button (see .topbar-toggle in globals.css).
   const [menuOpen, setMenuOpen] = useState(false)
+  const toggleRef = useRef<HTMLButtonElement>(null)
+  const navRef = useRef<HTMLElement>(null)
+
+  // Closing the list hides whatever had the keyboard focus in it: hand that focus back to the
+  // Menu button rather than losing it to the page. (Hidden on a desktop, the button takes none.)
+  const closeMenu = useCallback(() => {
+    if (navRef.current?.contains(document.activeElement)) toggleRef.current?.focus()
+    setMenuOpen(false)
+  }, [])
 
   useEffect(() => {
     if (!user) return
@@ -30,14 +39,14 @@ export function TopBar() {
 
   useEffect(() => {
     if (!menuOpen) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false)
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && closeMenu()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [menuOpen])
+  }, [menuOpen, closeMenu])
 
   // A link to the page already open changes no path, so close the menu on any link click too.
   function closeOnLink(e: MouseEvent<HTMLElement>) {
-    if ((e.target as HTMLElement).closest('a')) setMenuOpen(false)
+    if ((e.target as HTMLElement).closest('a')) closeMenu()
   }
 
   async function handleLogout() {
@@ -52,6 +61,7 @@ export function TopBar() {
       </Link>
       {user && (
         <button
+          ref={toggleRef}
           type="button"
           className="btn btn-outline topbar-toggle"
           aria-expanded={menuOpen}
@@ -63,7 +73,7 @@ export function TopBar() {
         </button>
       )}
       {user && (
-        <nav id="topbar-nav" aria-label="Main" className={menuOpen ? 'open' : undefined} onClick={closeOnLink}>
+        <nav id="topbar-nav" ref={navRef} aria-label="Main" className={menuOpen ? 'open' : undefined} onClick={closeOnLink}>
           <Link href="/dashboard">Dashboard</Link>
           <Link href="/community">Feed</Link>
           <Link href="/matrimony">Matrimony</Link>
