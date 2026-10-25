@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "allow": [
+      "mcp__Neon__run_sql",
+      "mcp__Neon__run_sql_transaction"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
