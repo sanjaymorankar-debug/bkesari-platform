@@ -32,6 +32,18 @@ describe('verifyHubToken', () => {
   })
 })
 
+describe('HubJwks', () => {
+  it('uses an inline key set without fetching (LadWani inside the hub process)', async () => {
+    const fetchImpl = jest.fn()
+    const hub = new HubJwks(undefined, fetchImpl as never, JSON.stringify(jwks))
+    expect(await hub.get()).toEqual(jwks)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+  it('refuses an inline key set that is not JSON', async () => {
+    await expect(new HubJwks(undefined, fetch, '{not json').get()).rejects.toThrow(HubTokenError)
+  })
+})
+
 describe('AuthService.hubLogin', () => {
   let prisma: any
   let service: AuthService

@@ -4,12 +4,13 @@ import { PrismaService } from '../prisma/prisma.service'
 import { AssetsService } from '../assets/assets.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { CreateBookingDto } from './dto/create-booking.dto'
+import { env } from '../common/env'
 
 const PAYMENT_WINDOW_HOURS = 24
 
 @Injectable()
 export class BookingsService {
-  private readonly qrSecret = process.env.JWT_SECRET ?? 'dev-secret-change-in-production'
+  private readonly qrSecret = env('JWT_SECRET') ?? 'dev-secret-change-in-production'
 
   constructor(
     private prisma: PrismaService,

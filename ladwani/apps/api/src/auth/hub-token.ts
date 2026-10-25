@@ -1,4 +1,5 @@
 import { createPublicKey, verify } from 'crypto'
+import { env } from '../common/env'
 
 /**
  * The hub (bkesari.com) forwards each request with `X-Bkesari-Token`, an RS256
@@ -52,13 +53,28 @@ export function verifyHubToken(
   return claims
 }
 
-/** The hub's key set, fetched from HUB_JWKS_URL and kept for five minutes. */
+/**
+ * The hub's key set: HUB_JWKS when set (the hub passes its own keys that way
+ * when LadWani runs inside its process), otherwise fetched from HUB_JWKS_URL
+ * and kept for five minutes.
+ */
 export class HubJwks {
   private cached: { at: number; jwks: Jwks } | null = null
 
-  constructor(private readonly url = process.env.HUB_JWKS_URL, private readonly fetchImpl: typeof fetch = fetch) {}
+  constructor(
+    private readonly url = env('HUB_JWKS_URL'),
+    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly inline = env('HUB_JWKS'),
+  ) {}
 
   async get(): Promise<Jwks> {
+    if (this.inline) {
+      try {
+        return JSON.parse(this.inline) as Jwks
+      } catch {
+        throw new HubTokenError('HUB_JWKS is not a JSON key set')
+      }
+    }
     if (!this.url) throw new HubTokenError('HUB_JWKS_URL is not set')
     if (this.cached && Date.now() - this.cached.at < 5 * 60 * 1000) return this.cached.jwks
     const res = await this.fetchImpl(this.url)

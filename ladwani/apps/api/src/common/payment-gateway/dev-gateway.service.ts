@@ -11,6 +11,7 @@ import type {
   VerificationResult,
   VerifyPaymentInput,
 } from './payment-gateway.interface'
+import { env } from '../env'
 
 /**
  * Dev-only stand-in for a real gateway (same honest pattern as OTP delivery
@@ -25,8 +26,8 @@ import type {
 export class DevGatewayService implements PaymentGateway {
   readonly code = 'DEV'
 
-  private readonly keySecret = process.env.DEV_GATEWAY_SECRET ?? 'dev-gateway-secret-do-not-use-in-production'
-  private readonly webhookSecret = process.env.DEV_GATEWAY_WEBHOOK_SECRET ?? 'dev-gateway-webhook-secret'
+  private readonly keySecret = env('DEV_GATEWAY_SECRET') ?? 'dev-gateway-secret-do-not-use-in-production'
+  private readonly webhookSecret = env('DEV_GATEWAY_WEBHOOK_SECRET') ?? 'dev-gateway-webhook-secret'
   private readonly orders = new Map<string, { amount: number; status: string }>()
 
   async createOrder(input: CreateOrderInput): Promise<GatewayOrder> {

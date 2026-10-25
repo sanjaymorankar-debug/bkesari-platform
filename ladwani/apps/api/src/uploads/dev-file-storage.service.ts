@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { Injectable } from '@nestjs/common'
 import type { FileStorage } from './file-storage.interface'
+import { env } from '../common/env'
 
 const STORAGE_ROOT = join(process.cwd(), 'uploads-dev')
 
@@ -20,7 +21,7 @@ export class DevFileStorageService implements FileStorage {
   readonly code = 'DEV'
 
   private get secret(): string {
-    return process.env.DEV_UPLOAD_SIGNING_SECRET ?? 'dev-upload-signing-secret'
+    return env('DEV_UPLOAD_SIGNING_SECRET') ?? 'dev-upload-signing-secret'
   }
 
   async getUploadUrl(key: string): Promise<{ url: string }> {

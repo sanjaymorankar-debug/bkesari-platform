@@ -20,7 +20,8 @@
     "start:api": "npm run start --workspace=apps/api",
     "start:web": "npm run start --workspace=apps/web",
     "build:hostinger": "npm install --include=dev --no-audit --no-fund && npm run build --workspace=packages/shared-types && npm run db:generate --workspace=apps/api && npm run build --workspace=apps/api && NEXT_OUTPUT=standalone NEXT_BUILD_CPUS=1 npm run build --workspace=apps/web && cp -a apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static && (test -d apps/web/public && cp -a apps/web/public apps/web/.next/standalone/apps/web/public || true)",
-    "start:hostinger": "node scripts/hostinger-start.js"
+    "start:hostinger": "node scripts/hostinger-start.js",
+    "build:embedded": "npm install --include=dev --no-audit --no-fund && npm run build --workspace=packages/shared-types && npm run db:generate --workspace=apps/api && npm run build --workspace=apps/api && BASE_PATH=/ladwani NEXT_OUTPUT=export NEXT_BUILD_CPUS=1 npm run build --workspace=apps/web"
   },
   "devDependencies": {
     "typescript": "^5.5.3"

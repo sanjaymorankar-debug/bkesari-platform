@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser'
 import helmet from 'helmet'
 import { AppModule } from './app.module'
 import { trustProxySetting } from './common/trust-proxy'
+import { env } from './common/env'
 
 /**
  * The configured API, initialised but not listening. scripts/hostinger-start.js
@@ -14,7 +15,7 @@ import { trustProxySetting } from './common/trust-proxy'
 export async function createApi(): Promise<NestExpressApplication> {
   // Fail fast rather than silently sign every session token with a secret checked into source
   // control — the dev fallback below (auth.module.ts, jwt.strategy.ts) exists only for local dev.
-  if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production' && !env('JWT_SECRET')) {
     throw new Error('JWT_SECRET must be set in production — refusing to start with the dev default secret.')
   }
 
@@ -23,12 +24,12 @@ export async function createApi(): Promise<NestExpressApplication> {
   // global JSON parser for every other route.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true })
   // Per-visitor rate limits behind a proxy -- see common/trust-proxy.ts.
-  const trustProxy = trustProxySetting(process.env.TRUST_PROXY)
+  const trustProxy = trustProxySetting(env('TRUST_PROXY'))
   if (trustProxy !== undefined) app.set('trust proxy', trustProxy)
   app.use(helmet())
   app.use(cookieParser())
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
-  app.enableCors({ origin: process.env.WEB_ORIGIN ?? 'http://localhost:3000', credentials: true })
+  app.enableCors({ origin: env('WEB_ORIGIN') ?? 'http://localhost:3000', credentials: true })
   app.setGlobalPrefix('api/v1')
   return app
 }

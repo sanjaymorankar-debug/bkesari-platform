@@ -336,6 +336,14 @@ How `/edu/` and `/ladwani/` get served is Part 7.
 
 ## Part 5: Ladwani (full rebuild — NestJS + Next.js)
 
+> **Current layout (25 Oct 2026).** LadWani now lives in this repository as
+> `ladwani/`, like `edu/`, and has **no website or Node.js process of its own**.
+> The bkesari.com build (`npm run build:hostinger`) builds it, and the hub serves
+> it at `/ladwani/` (`portal/ladwani.js`): the web app as a static export, the
+> API in the hub's own process. See "LadWani inside the hub" in Part 7. The
+> separate `ladwani.bkesari.com` / `testladwani.bkesari.com` sites described
+> below are retired; the history below is kept for the Mac setup.
+
 The app behind `ladwani.bkesari.com` / `testladwani.bkesari.com` is the full rebuild: branch
 **`rebuild`** of **github.com/sanjaymorankar-debug/Ladwani**. On the Mac that tree is at
 `/Users/agtci/Documents/Project_Documents/Projects/community-platform`.
@@ -594,6 +602,34 @@ The menu's tabs are **paths** — `/edu/`, `/ladwani/` — but each of
 those projects is its own application on its own Hostinger site. The hub closes
 that gap: it forwards those paths to the app behind them, so one origin serves
 the whole estate and the same link is right on dev, test and production.
+
+### LadWani inside the hub
+
+LadWani is the exception to the proxying below: the hub serves it itself, so it
+needs no Hostinger site and no Node.js process of its own (a Business plan has no
+room for one more). `portal/ladwani.js` mounts it when the static export exists:
+
+- **Web:** `ladwani/apps/web/out`, built with `NEXT_OUTPUT=export` and
+  `BASE_PATH=/ladwani`. Every page is a client component. Each page with an id
+  in its path (`/family/[id]` and nine more) is built once, for the placeholder
+  `_`; the hub answers every id with that page, which reads the real id from the
+  path (`ladwani/apps/web/src/lib/route-params.ts`).
+- **API:** LadWani's NestJS app, started in the hub process without `listen()`
+  and mounted at `/ladwani/api/v1`.
+- **Gate:** both sit behind the hub's `ladwani` gate (sign-in, access, the signed
+  `X-Bkesari-Token`); only `/ladwani/_next/static/` build assets skip it.
+
+Settings on the hub site (hPanel → the site → Node.js → Environment variables):
+
+| Variable | Value |
+|---|---|
+| `LADWANI_DATABASE_URL` | Neon project **bkesari-ladwani**, the tier's branch (`production` / `test`), database **`bk_ladwani`**, role `bk_ladwani_app`, **pooled** connection string. Without it the pages load and the API answers 503. |
+| `LADWANI_JWT_SECRET` | Optional. Unset, LadWani's session secret is derived from `HUB_TOKEN_PRIVATE_KEY`. |
+
+The hub site's build script must be **`build:hostinger`** (it runs `check`, then
+builds LadWani). LadWani's own variables carry the `LADWANI_` prefix
+(`ladwani/apps/api/src/common/env.ts`) so they cannot collide with the hub's.
+`LADWANI_ORIGIN`, if set, is ignored while the embedded build is present.
 
 ### Turn it on for a project
 

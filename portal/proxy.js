@@ -60,12 +60,12 @@ const PROXIED_TABS = [
  * just to add one URL. Keyed by APP_ENV only: a local run without APP_ENV gets
  * no defaults and keeps the "not on this tier yet" page.
  *
- * LadWani production is not deployed yet, so it has no default; set
- * LADWANI_ORIGIN (or add it here) once ladwani.bkesari.com serves the app.
+ * LadWani has none: the hub serves it itself (portal/ladwani.js). An explicit
+ * LADWANI_ORIGIN still proxies it, for running it as a separate app locally.
  */
 const TIER_ORIGINS = {
-  dev: { edu: 'https://devedu.bkesari.com', ladwani: 'https://devladwani.bkesari.com' },
-  test: { edu: 'https://testedu.bkesari.com', ladwani: 'https://testladwani.bkesari.com' },
+  dev: { edu: 'https://devedu.bkesari.com' },
+  test: { edu: 'https://testedu.bkesari.com' },
   prod: { edu: 'https://edu.bkesari.com' },
 };
 

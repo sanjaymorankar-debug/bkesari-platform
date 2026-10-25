@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { DevGatewayService } from './dev-gateway.service'
 import { RazorpayGatewayService } from './razorpay-gateway.service'
 import { PAYMENT_GATEWAY } from './payment-gateway.interface'
+import { env } from '../env'
 
 /**
  * The active gateway is a deployment setting (PAYMENT_GATEWAY_PROVIDER env
@@ -17,7 +18,7 @@ import { PAYMENT_GATEWAY } from './payment-gateway.interface'
     {
       provide: PAYMENT_GATEWAY,
       useFactory: (dev: DevGatewayService, razorpay: RazorpayGatewayService) => {
-        return process.env.PAYMENT_GATEWAY_PROVIDER === 'RAZORPAY' ? razorpay : dev
+        return env('PAYMENT_GATEWAY_PROVIDER') === 'RAZORPAY' ? razorpay : dev
       },
       inject: [DevGatewayService, RazorpayGatewayService],
     },

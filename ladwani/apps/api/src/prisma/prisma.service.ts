@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common'
 import { PrismaClient } from '@prisma/client'
+import { env } from '../common/env'
 
 /**
  * Neon suspends an idle compute after five minutes and closes its connections.
@@ -31,7 +32,7 @@ export function withConnectionDefaults(url: string | undefined): string | undefi
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   constructor() {
-    const url = withConnectionDefaults(process.env.DATABASE_URL)
+    const url = withConnectionDefaults(env('DATABASE_URL'))
     super(url ? { datasources: { db: { url } } } : undefined)
   }
 
