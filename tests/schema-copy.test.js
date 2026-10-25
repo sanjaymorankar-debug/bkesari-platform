@@ -25,3 +25,11 @@ test('no MySQL syntax is left in the portal schema', () => {
 test('database/portal/02_hub_schema.sql carries portal/sql/hub_schema.sql unchanged', () => {
   assert.ok(read('database/portal/02_hub_schema.sql').endsWith(read('portal/sql/hub_schema.sql')));
 });
+
+test('portal/sql/schema.sql is exactly tasklist_schema.sql plus atip_schema.sql', () => {
+  // The app applies the per-project files (server.js openDatabases); the hand-run
+  // copy and the tests use schema.sql. Comments aside, they must be the same DDL.
+  const ddl = (s) => s.split('\n').filter((l) => l.trim() && !l.trim().startsWith('--')).join('\n');
+  assert.equal(ddl(read('portal/sql/schema.sql')),
+    ddl(read('portal/sql/tasklist_schema.sql') + '\n' + read('portal/sql/atip_schema.sql')));
+});

@@ -477,3 +477,42 @@ test('a large response body streams through', async () => {
     await close(upstream.server);
   }
 });
+
+test('a path spelled with dot segments cannot reach an app past its gate', async () => {
+  // The gate decides on the path as sent; http-proxy-middleware's pathFilter
+  // is handed a WHATWG-normalised one, where /./ladwani/ and /x/../ladwani/
+  // are /ladwani/ and /ladwani/%2e%2e/edu/ is /edu/. Whatever is forwarded
+  // must have been through the gate of the tab it is forwarded to.
+  const reached = [];
+  const upstream = await listen((req, res) => { reached.push(req.url); res.end('app'); });
+  const app = express();
+  const gated = [];
+  const refuse = (key) => (req, res) => { gated.push(key); res.status(403).end('gate'); };
+  proxy.mount(app, {
+    env: { EDU_ORIGIN: upstream.origin, LADWANI_ORIGIN: upstream.origin },
+    gates: { edu: refuse('edu'), ladwani: refuse('ladwani') },
+    log: { error: () => {} },
+  });
+  app.use((req, res) => res.status(404).end('hub'));
+  const hub = await listen(app);
+  // fetch() would normalise these itself, so send the request line as written.
+  const raw = (path) => new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port: hub.server.address().port, path }, (res) => {
+      res.resume(); res.on('end', () => resolve(res.statusCode));
+    }).on('error', reject);
+  });
+  try {
+    for (const path of ['/./ladwani/', '/x/../ladwani/orders', '/%2e/ladwani/', '/ladwani/%2e%2e/edu/', '/edu/../ladwani/', '/./edu/login']) {
+      const status = await raw(path);
+      assert.notEqual(status, 200, `${path} reached the app (${status})`);
+    }
+    assert.deepEqual(reached, [], `forwarded without passing the gate: ${reached.join(', ')}`);
+    // The plain spellings still meet their gate.
+    assert.equal(await raw('/ladwani/'), 403);
+    assert.equal(await raw('/edu/login'), 403);
+    assert.deepEqual(gated.slice(-2), ['ladwani', 'edu']);
+  } finally {
+    await close(hub.server);
+    await close(upstream.server);
+  }
+});

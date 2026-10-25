@@ -459,7 +459,13 @@ function createApp(db, extra = {}) {
   });
 
   // Express treats /tasks and /tasks/ as the same route, so check the raw path.
-  app.get(['/tasks', '/atip', '/ATIP'], (req, res, next) => {
+  app.get('/tasks', (req, res, next) => {
+    if (req.path.endsWith('/')) return next();
+    res.redirect(302, req.path + '/');
+  });
+  // ATIP decides who it is for before anything else, so even the slash
+  // redirect gives nothing away: a non-owner gets the same 404 as for /ATIP/.
+  app.get(['/atip', '/ATIP'], atipOwner, (req, res, next) => {
     if (req.path.endsWith('/')) return next();
     res.redirect(302, req.path + '/');
   });

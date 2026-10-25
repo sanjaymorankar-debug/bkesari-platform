@@ -90,7 +90,7 @@ Any other machine: create a login role that is not a superuser, two databases it
 
 | Variable | Read by | Safe local value |
 |---|---|---|
-| `TEST_DATABASE_URL` | `tests/tracker.pg.test.js` | the suite database. Unset: its two suites (15 tests) skip, which is a failure at S3 |
+| `TEST_DATABASE_URL` | `tests/tracker.pg.test.js`, `tests/hub.pg.test.js` | the suite database. Unset: their three suites skip, which is a failure at S3 |
 | `SMOKE_DATABASE_URL` | this spec's S4/S5 commands | the smoke database |
 | `DATABASE_URL` | the app | S4/S5: `$SMOKE_DATABASE_URL`. On Neon the pooled string |
 | `DATABASE_URL_UNPOOLED` | the app, schema setup only | blank is fine (S5 leaves it unset; S7 sets it) |
@@ -162,11 +162,11 @@ Record each command's exit code, counts and duration.
 | 3 | S1 static | `for f in scripts/*.sh .github/deploy/*.sh tools/*.sh; do bash -n "$f" \|\| echo "FAIL $f"; done` | prints nothing |
 | 4 | S1 static | `python3 -c "import sys,yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" .github/workflows/*.yml` | exit 0 |
 | 5 | S1 static | the inline-script parse below | `inline scripts parsed: 4`, exit 0 |
-| 6 | S2 unit | `set -o pipefail; env -u TEST_DATABASE_URL npm test 2>&1 \| tee /tmp/portal-s2.txt` | exit 0; exactly two `# SKIP` lines, the two PostgreSQL suites (node counts them under `# suites`, not `# skipped`); guard `32 passed, 0 failed` |
+| 6 | S2 unit | `set -o pipefail; env -u TEST_DATABASE_URL npm test 2>&1 \| tee /tmp/portal-s2.txt` | exit 0; exactly three `# SKIP` lines, the three PostgreSQL suites (node counts them under `# suites`, not `# skipped`); guard `32 passed, 0 failed` |
 | 7 | S3 integration | `set -o pipefail; npm run test:pg 2>&1 \| tee /tmp/portal-r1.txt && grep -c '# SKIP' /tmp/portal-r1.txt` | the tests exit 0, `grep` prints **0** (it then exits 1, which is the good case), guard 32/32 |
 | 8 | S3 integration | the hand-run SQL load below | exit 0 |
 | 9 | S4 build | the deploy-bundle boot below | `bundle boots: 200` |
-| 10 | S5 smoke | the smoke run below | smoke-dev.sh `0 failed` (the 3 tab warnings are expected); every probe `ok`; `S5 failures: 0` |
+| 10 | S5 smoke | the smoke run below | smoke-dev.sh `0 failed` (the 2 tab warnings are expected); every probe `ok`; `S5 failures: 0` |
 | 11 | S6 security | the security checks below | `S6 failures: 0` |
 | 12 | S6 hygiene | `npm audit --omit=dev` | report only: list advisories in the report; fix only if trivial |
 | 13 | S7 Neon parity | `bash scripts/neon-parity.sh` (2.6) | `Neon parity passed.`, exit 0 |
@@ -180,7 +180,7 @@ const fs=require("fs"),vm=require("vm");let n=0;
 for (const f of process.argv.slice(1)) { const html=fs.readFileSync(f,"utf8");
   for (const m of html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)) { new vm.Script(m[1],{filename:f}); n++; } }
 console.log("inline scripts parsed:", n);' portal/public/index.html portal/public/tasks/index.html \
-  portal/public/global-warming/index.html portal/public/driving-simulator/index.html
+  portal/public/environment/index.html portal/public/driving-simulator/index.html
 ```
 
 **#8, hand-run SQL**, as the non-superuser owner, inside a transaction that is rolled back, so
@@ -233,7 +233,7 @@ start_hub() {  # extra VAR=value pairs are passed to the hub
   env -u DB_HOST -u DB_PORT -u DB_NAME -u DB_USER -u DB_PASSWORD -u DB_SSL -u DATABASE_URL_UNPOOLED \
     DATABASE_URL="$SMOKE_DATABASE_URL" PORT=3101 APP_ENV=dev \
     TRACKER_USER=$U TRACKER_PASSWORD=$PW ATIP_USER=$U ATIP_PASSWORD=$PW ATIP_PUBLISH_TOKEN=$TOKEN \
-    "$@" node portal/server.js >"$HUBLOG" 2>&1 & HUB=$!
+    "$@" node "${HUB_JS:-portal/server.js}" >"$HUBLOG" 2>&1 & HUB=$!
   for i in $(seq 1 40); do curl -fsS -o /dev/null "$BASE/" 2>/dev/null && return; sleep 0.5; done; echo "FAIL hub did not start"; F=$((F+1))
 }
 code() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@"; }
@@ -260,9 +260,20 @@ has "$V" "connect-src 'none'";  has "$V" 'S5 snapshot';  has "$V" 'class="bk-men
 kill $HUB; wait $HUB 2>/dev/null
 
 # The proxy, with the real server.js: a throwaway upstream on 3111 that echoes what it got.
+# LadWani and Education sit behind the hub's sign-in and permission check (portal/hub.js),
+# and a local run has no Neon Auth to sign in with. So: signed out against server.js itself,
+# then the forwarding with tests/support/signed-in-hub.js (server.js's createApp with the
+# owner, verified, standing in for Neon Auth's session; gates, token and proxy unchanged).
 node -e 'require("http").createServer((q,r)=>{let b="";q.on("data",c=>b+=c).on("end",()=>{r.setHeader("content-type","application/json");r.end(JSON.stringify({url:q.url,body:b}))})}).listen(3111,"127.0.0.1")' & UP=$!
 sleep 0.5
 start_hub LADWANI_ORIGIN=http://127.0.0.1:3111 EDU_ORIGIN=http://127.0.0.1:3111
+has "$(curl -sI "$BASE/ladwani/orders?x=1" | tr -d '\r')" 'Location: /auth/sign-in?next=%2Fladwani%2Forders%3Fx%3D1'
+has "$(curl -sI "$BASE/edu/login" | tr -d '\r')" 'Location: /auth/sign-in?next=%2Fedu%2Flogin'
+want 401 -H 'accept: application/json' "$BASE/ladwani/api/orders"
+for p in '/./ladwani/' '/x/../ladwani/orders' '/ladwani/%2e%2e/edu/' '/./edu/login'; do
+  b=$(curl -s --path-as-is "$BASE$p"); case "$b" in *'"url":'*) echo "FAIL  $p reached the app past its gate"; F=$((F+1));; *) echo "ok    $p does not reach the app";; esac; done
+kill $HUB; wait $HUB 2>/dev/null
+HUB_JS=tests/support/signed-in-hub.js start_hub LADWANI_ORIGIN=http://127.0.0.1:3111 EDU_ORIGIN=http://127.0.0.1:3111
 has "$(curl -s "$BASE/ladwani/orders?x=1")" '"url":"/ladwani/orders?x=1"'
 has "$(curl -s "$BASE/edu/login")" '"url":"/login"'
 has "$(curl -s -H "$J" -d '{"qty":3}' "$BASE/ladwani/api/orders")" '"body":"{\"qty\":3}"'
@@ -327,7 +338,7 @@ fails on a skip.
 | PORTAL-CR-13 | A proxy origin comes only from the environment and must be a bare http(s) origin (no open proxy) | `proxy.test.js` :: anything that is not a plain http origin is refused; an origin with a path is refused |
 | PORTAL-CR-14 | A down app gives a 502 page that still carries the menu, with its own tab current | `proxy.test.js` :: an app that is down gives a 502 that still carries the menu; a stripping tab's 502 page still marks that tab as current; S5 `want 502` and the Education line |
 | PORTAL-CR-15 | The hub states its tier (`X-Bkesari-Env`) and keeps non-production out of search; an unknown host is production | `smoke-dev.sh` *Tier identity*; `menu.test.js` :: an unknown hostname is treated as production, never as dev |
-| PORTAL-CR-16 | The menu: seven tabs in the specified order, a checkbox (not `<details>`) disclosure, the `<noscript>` list matching `TABS`, on every static page | `menu.test.js` :: the seven tabs are present…; the mobile disclosure is a checkbox…; the welcome page's <noscript> list matches the tabs; every static hub page includes the shared bar |
+| PORTAL-CR-16 | The menu: six tabs in the specified order (ATIP shown to the owner only), a checkbox (not `<details>`) disclosure, the `<noscript>` list matching `TABS`, on every static page | `menu.test.js` :: the six tabs are present…; renderHtml lists every tab to the owner and hides ATIP from everyone else; the mobile disclosure is a checkbox…; the welcome page's <noscript> list matches the tabs; every static hub page includes the shared bar |
 | PORTAL-CR-17 | Nothing private is served: `/.env`, `/.git/config`, the server source, stack traces | `smoke-dev.sh` *Nothing private is served*; `server.test.js` :: a malformed JSON body is a 400 that gives nothing away; S6 malformed-body loop |
 | PORTAL-CR-18 | The dev deploy refuses every target but dev (branch, path, host, smoke URL, empty secrets) | `.github/deploy/guard.test.sh` (32 cases) |
 | PORTAL-CR-19 | Neon provisioning: branches before roles, new passwords on copied roles, re-run creates nothing, dry run writes nothing, passwords only in 0600 files, each owned database's `REVOKE … FROM PUBLIC` and the hub's `neondb` GRANTs written (its PUBLIC revoke commented), an existing database under another owner never taken over | `neon-provision.test.js` (all 12) |
@@ -383,7 +394,13 @@ the `neondb` / `bk_*` naming change: S2 **67** pass, R1 **82**). R1 by file: `me
 `server` 3, `db-config` 5, `tracker.pg` 15 (8 tracker + 7 db.js), `schema-copy` 2,
 `neon-provision` 12 = **82**, plus **32** guard cases.
 
-Expected, and only these: in S2 the two PostgreSQL suites skip, because S2 runs without
+Hub v1 (branch `claude/hub-v1`, measured 2026-10-25 on `10e99d5` plus the portal-tester fixes):
+S2 **89** pass with **three** suites skipped (`hub.pg` joined the two PostgreSQL suites); R1 **116**:
+`menu` 19, `proxy` 27, `server` 6, `db-config` 5, `tracker.pg` 15, `hub.pg` 12, `hub` 5, `neon` 11,
+`schema-copy` 4, `neon-provision` 12, plus **32** guard cases. S5: smoke-dev.sh 23 / 0 / **2**
+warnings (Milk & Dairy is gone), 31 probes ok; S6 16 ok; S7 17 passed.
+
+Expected, and only these: in S2 the three PostgreSQL suites skip, because S2 runs without
 `TEST_DATABASE_URL` on purpose (node lists them as `# SKIP` lines under `# suites`, not
 `# skipped`); in S5 `smoke-dev.sh` warns that `/edu/` and `/ladwani/` are not deployed,
 because the smoke run sets no origins. Anything else skipping or warning is a regression (R4).

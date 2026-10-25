@@ -28,6 +28,9 @@ const TOKEN_HEADER = 'x-bkesari-token';
 // The role that may decide requests for a project, besides the owner.
 const PROJECT_ADMIN_ROLE = { ladwani: 'admin', edu: 'admin', tasklist: 'owner' };
 
+// A row id from the URL: digits only and within BIGINT, else 0 (matches no row).
+// Number() alone let 1.5, 1e400 and 20-digit ids through to PostgreSQL as a 500.
+const rowId = (v) => (/^\d{1,15}$/.test(String(v ?? '')) ? Number(v) : 0);
 const b64u = (buf) => Buffer.from(buf).toString('base64url');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -267,11 +270,11 @@ const d=await r.json().catch(()=>({}));if(r.ok){f.outerHTML='<p class="ok"><stro
     app.post('/hub/api/admin/requests/:id', wrap(async (req, res) => {
       if (!sameOrigin(req)) return res.status(403).json({ error: 'Cross-site request refused' });
       const a = await adminUser(req, res); if (!a) return;
-      const id = Number(req.params.id);
+      const id = rowId(req.params.id);
       const { decision, role } = req.body || {};
       if (!['approve', 'decline'].includes(decision)) return res.status(400).json({ error: 'decision must be approve or decline' });
       const out = await db.tx(async (q) => {
-        const r = await q.get("SELECT * FROM access_requests WHERE id = $1 AND status = 'pending' FOR UPDATE", [Number.isInteger(id) ? id : 0]);
+        const r = await q.get("SELECT * FROM access_requests WHERE id = $1 AND status = 'pending' FOR UPDATE", [id]);
         if (!r || !a.keys.includes(r.project_key)) return null;
         if (decision === 'decline') {
           await q.run("UPDATE access_requests SET status = 'declined', decided_by = $1, decided_at = now() AT TIME ZONE 'utc' WHERE id = $2", [a.user.email, r.id]);
@@ -302,7 +305,7 @@ const d=await r.json().catch(()=>({}));if(r.ok){f.outerHTML='<p class="ok"><stro
       if (!sameOrigin(req)) return res.status(403).json({ error: 'Cross-site request refused' });
       const a = await adminUser(req, res); if (!a) return;
       const r = await db.get("UPDATE project_access SET status = 'revoked' WHERE id = $1 AND status = 'active' AND project_key = ANY($2) RETURNING email, project_key",
-        [Number(req.params.id) || 0, a.keys]);
+        [rowId(req.params.id), a.keys]);
       if (!r) return res.status(404).json({ error: 'No such access' });
       await audit(a.user.email, 'revoke', r.project_key, r.email);
       res.json({ ok: true });

@@ -130,6 +130,11 @@ function matches(route, pathname) {
   return p === route.base || p.startsWith(route.base + '/');
 }
 
+/** The path exactly as the request line carried it, which is what the gate sees as req.path. */
+function requestPath(req) {
+  return String((req && (req.originalUrl || req.url)) || '').split(/[?#]/)[0];
+}
+
 /**
  * Removes a tab's prefix from a request URL, for a route marked `strip`.
  *
@@ -217,7 +222,11 @@ function mount(app, {
         // lose the prefix its app's own links are built on, and a stripping tab
         // would have the rewrite done for it where it can neither be seen nor
         // tested. Whether the prefix goes is decided below, in one place.
-        pathFilter: (pathname) => matches(route, pathname),
+        // Both spellings must match. `pathname` is WHATWG-normalised (so
+        // /./ladwani/ and /ladwani/%2e%2e/edu/ arrive as /ladwani/ and /edu/),
+        // while the gate above decided on the path as sent. Forwarding on the
+        // normalised one alone let those spellings past the gate.
+        pathFilter: (pathname, req) => matches(route, pathname) && matches(route, requestPath(req)),
         target: route.target,
         // Only for a tab that cannot own its prefix; see the file header.
         ...(route.strip ? { pathRewrite: (url) => stripPrefix(route, url) } : {}),

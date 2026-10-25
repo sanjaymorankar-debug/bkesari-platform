@@ -70,7 +70,7 @@ describe('hub access layer on PostgreSQL', { skip }, () => {
   test('ATIP is a plain 404 for visitors and signed-in non-owners, and open to the owner', async () => {
     for (const u of [null, ASHA]) {
       as(u);
-      for (const p of ['/ATIP/', '/atip/', '/ATIP/api/archive']) assert.equal((await hit('GET', p)).status, 404, `${p} as ${u && u.email}`);
+      for (const p of ['/ATIP', '/atip', '/ATIP/', '/atip/', '/ATIP/api/archive']) assert.equal((await hit('GET', p)).status, 404, `${p} as ${u && u.email}`);
     }
     as(OWNER);
     const r = await hit('GET', '/ATIP/');
@@ -156,6 +156,14 @@ describe('hub access layer on PostgreSQL', { skip }, () => {
     as(OWNER);
     const r = await hit('POST', '/hub/api/admin/requests/1', { decision: 'approve' }, { origin: 'https://evil.example' });
     assert.equal(r.status, 403);
+  });
+
+  test('an impossible id on the admin routes is a 404, never a 500', async () => {
+    as(OWNER);
+    for (const id of ['99999999999999999999', '1.5', '1e400', '-1', 'abc']) {
+      assert.equal((await hit('POST', `/hub/api/admin/requests/${id}`, { decision: 'approve' })).status, 404, `decide ${id}`);
+      assert.equal((await hit('POST', `/hub/api/admin/access/${id}/revoke`, {})).status, 404, `revoke ${id}`);
+    }
   });
 
   test('/global-warming redirects permanently to /environment', async () => {
