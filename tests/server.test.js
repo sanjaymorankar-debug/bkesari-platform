@@ -29,19 +29,23 @@ const stubDb = (approved) => new Proxy({}, { get: (_, k) => async (sql) => {
 const noDb = stubDb(false);
 const APPROVED_USER = { id: 'u-approved', email: 'member@example.com', emailVerified: true };
 
+// APP_ENV is blank, not 'dev': a tier name fills in that tier's live Hostinger
+// origins for the blank ones (portal/proxy.js TIER_ORIGINS). 127.0.0.1 is dev anyway.
 const ENV = {
   TRACKER_USER: 'tracker', TRACKER_PASSWORD: 'tracker-pw',
   ATIP_USER: 'viewer', ATIP_PASSWORD: 'viewer-pw', ATIP_PUBLISH_TOKEN: 'token',
-  EDU_ORIGIN: '', LADWANI_ORIGIN: '', APP_ENV: 'dev',
+  EDU_ORIGIN: '', LADWANI_ORIGIN: '', APP_ENV: '',
 };
 
 /** Runs `fn(base)` against createApp with `env` applied to process.env, then puts it back. */
 async function withHub(env, fn, { db = noDb, extra = {} } = {}) {
   const saved = {};
   for (const k of Object.keys(env)) { saved[k] = process.env[k]; process.env[k] = env[k]; }
-  const { app } = createApp(db, extra);
+  const { app, proxied } = createApp(db, extra);
   const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   try {
+    // A test hub forwards only to an upstream the test started, never to a live site.
+    for (const r of proxied) assert.match(r.target, /^http:\/\/127\.0\.0\.1:\d+$/, `${r.path} -> ${r.target}`);
     return await fn(`http://127.0.0.1:${server.address().port}`, server.address().port);
   } finally {
     await new Promise((resolve) => server.close(resolve));

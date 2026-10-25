@@ -167,13 +167,17 @@ case "$STATUS" in
 esac
 
 # /atip/ fails CLOSED (failClosed=true): 503 when unconfigured, never open.
+# Under Neon Auth ATIP is the owner's alone, and everyone else, visitors
+# included, gets a 404 rather than a login prompt (portal/server.js atipOwner),
+# so a 404 here is the viewer correctly hidden.
 fetch /atip/
 case "$STATUS" in
   401) ok "the ATIP viewer requires a login (401)" ;;
+  404) ok "the ATIP viewer is hidden from visitors (404, owner only)" ;;
   503) caution "the ATIP viewer is not configured yet (503)" \
                 "set ATIP_USER and ATIP_PASSWORD on the server. It is refusing everyone, so this is safe." ;;
   200) bad "THE ATIP VIEWER IS OPEN TO THE INTERNET" "/atip/ answered 200 with no login." ;;
-  *)   caution "/atip/ answered $STATUS" "expected 401, or 503 if not configured yet" ;;
+  *)   caution "/atip/ answered $STATUS" "expected 401, 404 (owner only, under Neon Auth), or 503 if not configured yet" ;;
 esac
 
 # The snapshot upload endpoint must never accept an unauthenticated POST.

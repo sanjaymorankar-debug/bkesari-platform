@@ -1,0 +1,122 @@
+[
+  {
+    "name": "home public desktop",
+    "ok": true,
+    "detail": "LadWani | Education | TaskList | Driving Simulator | Environmental Activities"
+  },
+  {
+    "name": "home public phone",
+    "ok": true,
+    "detail": "LadWani | Education | TaskList | Driving Simulator | Environmental Activities"
+  },
+  {
+    "name": "/global-warming -> /environment (301)",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "/ATIP hidden from visitors (404)",
+    "ok": true,
+    "detail": "404"
+  },
+  {
+    "name": "/ATIP/ hidden from visitors (404)",
+    "ok": true,
+    "detail": "404"
+  },
+  {
+    "name": "/atip/ hidden from visitors (404)",
+    "ok": true,
+    "detail": "404"
+  },
+  {
+    "name": "/ladwani/ sends visitors to sign in",
+    "ok": true,
+    "detail": "/auth/sign-in?next=%2Fladwani%2F"
+  },
+  {
+    "name": "/edu/ sends visitors to sign in",
+    "ok": true,
+    "detail": "/auth/sign-in?next=%2Fedu%2F"
+  },
+  {
+    "name": "/tasks/ sends visitors to sign in",
+    "ok": true,
+    "detail": "/auth/sign-in?next=%2Ftasks%2F"
+  },
+  {
+    "name": "forged X-Bkesari-Token from a visitor is refused",
+    "ok": true,
+    "detail": "401"
+  },
+  {
+    "name": "JWKS published",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "member menu: 5 tabs, no ATIP",
+    "ok": true,
+    "detail": "LadWani | Education | TaskList | Driving Simulator | Environmental Activities"
+  },
+  {
+    "name": "member: /ATIP is 404",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "member without access to /ladwani/ is sent to request access",
+    "ok": true,
+    "detail": "https://dev.bkesari.com/access/request?project=ladwani"
+  },
+  {
+    "name": "member request for ladwani recorded",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "member without access to /edu/ is sent to request access",
+    "ok": true,
+    "detail": "https://dev.bkesari.com/access/request?project=edu"
+  },
+  {
+    "name": "member request for edu recorded",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "admin approved the requests",
+    "ok": true,
+    "detail": "2 approved"
+  },
+  {
+    "name": "a non-admin cannot open access admin",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "a non-admin cannot list requests (403)",
+    "ok": true,
+    "detail": "403"
+  },
+  {
+    "name": "approved member opens LadWani and is signed in there by the hub token",
+    "ok": true,
+    "detail": "{\"id\":\"cmvnid4qt0002joeprmwad07l\",\"roles\":[\"MEMBER\"],\"memberId\":\"cmvnid4ve0004jo"
+  },
+  {
+    "name": "approved member opens Education signed in (no Education login form)",
+    "ok": true,
+    "detail": "200 https://dev.bkesari.com/edu/dashboard/parent"
+  },
+  {
+    "name": "a user approved for nothing is not let into LadWani",
+    "ok": true,
+    "detail": "https://dev.bkesari.com/access/request?project=ladwani"
+  },
+  {
+    "name": "a user approved for nothing is not let into Education",
+    "ok": true,
+    "detail": "https://dev.bkesari.com/access/request?project=edu"
+  }
+]
