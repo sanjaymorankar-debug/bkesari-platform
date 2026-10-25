@@ -211,3 +211,26 @@ test('under Neon Auth the Task Tracker still needs its login however the path is
     await new Promise((resolve) => auth.close(resolve));
   }
 });
+
+test('the hub is an installable PWA: manifest, icons, service worker, offline page', async () => {
+  await withHub(ENV, async (base) => {
+    const m = await fetch(`${base}/manifest.webmanifest`);
+    assert.equal(m.status, 200);
+    assert.match(m.headers.get('content-type'), /application\/manifest\+json/);
+    const manifest = await m.json();
+    assert.equal(manifest.display, 'standalone');
+    assert.equal(manifest.start_url.split('?')[0], '/');
+    for (const icon of manifest.icons) assert.equal((await fetch(base + icon.src)).status, 200, icon.src);
+    assert.ok(manifest.icons.some((i) => i.sizes === '512x512' && i.purpose === 'maskable'));
+    const sw = await fetch(`${base}/sw.js`);
+    assert.equal(sw.status, 200);
+    assert.equal(sw.headers.get('cache-control'), 'no-cache');
+    const swText = await sw.text();
+    // Per-user pages are never cached by the worker.
+    for (const p of ['hub', 'api', 'tasks', 'atip', 'ladwani', 'edu', 'admin', 'access', 'auth']) assert.ok(swText.includes(p), p);
+    assert.equal((await fetch(`${base}/offline.html`)).status, 200);
+    const home = await (await fetch(`${base}/`)).text();
+    assert.match(home, /<link rel="manifest" href="\/manifest.webmanifest">/);
+    assert.match(home, /apple-touch-icon/);
+  });
+});

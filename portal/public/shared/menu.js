@@ -227,6 +227,11 @@
 
   function autoMount() {
     if (typeof document === 'undefined') return;
+    // Installable on Android and iOS home screens: the worker only serves the
+    // offline page and the static shell (see /sw.js).
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator && location.protocol === 'https:') {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => mount(document), { once: true });
     } else {
