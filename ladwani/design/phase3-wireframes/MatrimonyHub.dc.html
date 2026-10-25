@@ -1,0 +1,125 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#F7F5F0; --surface:#FFFFFF; --ink:#1B1F2E; --ink-muted:#5C6070; --border:#E4E0D6; --primary:#1E2A5A; --accent:#E0902C; --matrimony:#B85C72; --nav-active-bg:#EAEEF7; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:'Work Sans',-apple-system,sans-serif; background:var(--bg); color:var(--ink); }
+    h1,h2,.font-display { font-family:'Fraunces',Georgia,serif; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:10px; }
+    .navitem { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; font-size:14px; }
+    .navitem.active { background:var(--nav-active-bg); color:var(--primary); font-weight:600; }
+    .navitem.inactive { color:var(--ink-muted); font-weight:500; }
+    select { padding:9px 12px; border-radius:8px; border:1px solid var(--border); font-size:13px; background:#fff; }
+  </style>
+</helmet>
+
+<div style="width:1440px; height:1040px; display:flex;">
+  <div style="width:236px; background:#fff; border-right:1px solid var(--border); display:flex; flex-direction:column; padding:18px 12px; flex-shrink:0;">
+    <div style="display:flex; align-items:center; gap:10px; padding:6px 10px 22px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1E2A5A" stroke-width="1.6"><path d="M12 3v6M12 21v-4M6 21v-8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8M4 9h4M16 9h4M9 9V6a3 3 0 0 1 6 0v3"/></svg><span class="font-display" style="font-size:16px; font-weight:600;">Mi Samaj</span></div>
+    <div style="display:flex; flex-direction:column; gap:2px; flex:1;">
+      <div class="navitem inactive"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11.5 12 4l9 7.5M5 10v10h14V10"/></svg>Dashboard</div>
+      <div class="navitem inactive"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6"/></svg>My Family</div>
+      <div class="navitem inactive"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="7" r="3.2"/><path d="M2 21v-1c0-3 3-5 7-5s7 2 7 5v1"/></svg>Directory</div>
+      <div class="navitem active"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20s-7-4.4-9.5-9A5 5 0 0 1 12 6a5 5 0 0 1 9.5 5c-2.5 4.6-9.5 9-9.5 9Z"/></svg>Matrimony</div>
+    </div>
+  </div>
+
+  <div style="flex:1; overflow-y:auto; padding:28px 32px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+      <div>
+        <h1 style="font-size:22px; margin:0; display:flex; align-items:center; gap:10px; color:var(--primary);">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--matrimony)" stroke-width="1.8"><path d="M12 20s-7-4.4-9.5-9A5 5 0 0 1 12 6a5 5 0 0 1 9.5 5c-2.5 4.6-9.5 9-9.5 9Z"/></svg>
+          Community Matrimony
+        </h1>
+        <p style="margin:4px 0 0; font-size:13px; color:var(--ink-muted);">Trusted matrimonial discovery within Ladwani Samaj</p>
+      </div>
+      <div style="background:var(--matrimony); color:#fff; border-radius:8px; padding:11px 20px; font-weight:600; font-size:14px; display:flex; align-items:center; gap:8px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 20s-7-4.4-9.5-9A5 5 0 0 1 12 6a5 5 0 0 1 9.5 5c-2.5 4.6-9.5 9-9.5 9Z"/></svg>
+        Create My Profile
+      </div>
+    </div>
+
+    <div style="background:#F6E9EC; border:1px solid #EAD1D8; border-radius:10px; padding:14px 18px; display:flex; gap:12px; margin:16px 0 20px;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--matrimony)" stroke-width="1.8" style="flex-shrink:0; margin-top:2px;"><path d="M12 20s-7-4.4-9.5-9A5 5 0 0 1 12 6a5 5 0 0 1 9.5 5c-2.5 4.6-9.5 9-9.5 9Z"/></svg>
+      <div>
+        <p style="margin:0; font-size:13px; font-weight:600; color:#8A4356;">Privacy-First Matrimony</p>
+        <p style="margin:2px 0 0; font-size:13px; color:#8A4356; opacity:.85;">Contact information is never shared directly. Interested families connect through the platform.</p>
+      </div>
+    </div>
+
+    <div class="card" style="padding:16px; display:flex; gap:12px; margin-bottom:22px;">
+      <div style="flex:1; display:flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:8px; padding:9px 12px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5C6070" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <span style="color:var(--ink-muted); font-size:13px;">Search by name, city, education...</span>
+      </div>
+      <select><option>Any Gender</option></select>
+      <select><option>Any Age</option></select>
+      <select><option>Any Location</option></select>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px;">
+
+      <div class="card" style="padding:20px;">
+        <div style="display:flex; gap:12px; margin-bottom:14px;">
+          <div style="width:52px; height:52px; border-radius:14px; background:linear-gradient(135deg,#B85C72,#C9788C); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700;">MJ</div>
+          <div><p style="margin:0; font-weight:600; font-size:15px;">Meera J.</p><p style="margin:2px 0 0; font-size:12px; color:var(--ink-muted);">Female · 26 years</p></div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--ink-muted); margin-bottom:12px;">
+          <div style="display:flex; gap:6px; align-items:center;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9AA0B0" stroke-width="1.8"><path d="M12 21s-7-4.5-7-10a7 7 0 0 1 14 0c0 5.5-7 10-7 10Z"/></svg>Pune, Maharashtra</div>
+          <div style="display:flex; gap:6px; align-items:center;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9AA0B0" stroke-width="1.8"><path d="M22 10 12 5 2 10l10 5 10-5Z"/></svg>MBBS, Doctor</div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <div style="flex:1; text-align:center; padding:9px; border-radius:8px; border:1px solid var(--border); font-size:13px; font-weight:600;">View Profile</div>
+          <div style="flex:1; text-align:center; padding:9px; border-radius:8px; background:var(--matrimony); color:#fff; font-size:13px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:5px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 20s-7-4.4-9.5-9A5 5 0 0 1 12 6a5 5 0 0 1 9.5 5c-2.5 4.6-9.5 9-9.5 9Z"/></svg>Interest</div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:20px;">
+        <div style="display:flex; gap:12px; margin-bottom:14px;">
+          <div style="width:52px; height:52px; border-radius:14px; background:linear-gradient(135deg,#1E2A5A,#33447F); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700;">RK</div>
+          <div><p style="margin:0; font-weight:600; font-size:15px;">Rohit K.</p><p style="margin:2px 0 0; font-size:12px; color:var(--ink-muted);">Male · 30 years</p></div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--ink-muted); margin-bottom:12px;">
+          <div style="display:flex; gap:6px; align-items:center;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9AA0B0" stroke-width="1.8"><path d="M12 21s-7-4.5-7-10a7 7 0 0 1 14 0c0 5.5-7 10-7 10Z"/></svg>Mumbai, Maharashtra</div>
+          <div style="display:flex; gap:6px; align-items:center;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9AA0B0" stroke-width="1.8"><rect x="3" y="7" width="18" height="13" rx="2"/></svg>Chartered Accountant</div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <div style="flex:1; text-align:center; padding:9px; border-radius:8px; border:1px solid var(--border); font-size:13px; font-weight:600;">View Profile</div>
+          <div style="flex:1; text-align:center; padding:9px; border-radius:8px; background:var(--matrimony); color:#fff; font-size:13px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:5px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 20s-7-4.4-9.5-9A5 5 0 0 1 12 6a5 5 0 0 1 9.5 5c-2.5 4.6-9.5 9-9.5 9Z"/></svg>Interest</div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:20px;">
+        <div style="display:flex; gap:12px; margin-bottom:14px;">
+          <div style="width:52px; height:52px; border-radius:14px; background:linear-gradient(135deg,#B85C72,#C9788C); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700;">SP</div>
+          <div><p style="margin:0; font-weight:600; font-size:15px;">Sneha P.</p><p style="margin:2px 0 0; font-size:12px; color:var(--ink-muted);">Female · 28 years</p></div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--ink-muted); margin-bottom:12px;">
+          <div style="display:flex; gap:6px; align-items:center;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9AA0B0" stroke-width="1.8"><path d="M12 21s-7-4.5-7-10a7 7 0 0 1 14 0c0 5.5-7 10-7 10Z"/></svg>Nagpur, Maharashtra</div>
+          <div style="display:flex; gap:6px; align-items:center;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9AA0B0" stroke-width="1.8"><path d="M22 10 12 5 2 10l10 5 10-5Z"/></svg>M.Sc, Teacher</div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <div style="flex:1; text-align:center; padding:9px; border-radius:8px; border:1px solid var(--border); font-size:13px; font-weight:600;">View Profile</div>
+          <div style="flex:1; text-align:center; padding:9px; border-radius:8px; background:var(--matrimony); color:#fff; font-size:13px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:5px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 20s-7-4.4-9.5-9A5 5 0 0 1 12 6a5 5 0 0 1 9.5 5c-2.5 4.6-9.5 9-9.5 9Z"/></svg>Interest</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#F7F5F0; --surface:#FFFFFF; --ink:#1B1F2E; --ink-muted:#5C6070; --border:#E4E0D6; --primary:#1E2A5A; --accent:#E0902C; --nav-active-bg:#EAEEF7; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:'Work Sans',-apple-system,sans-serif; background:var(--bg); color:var(--ink); }
+    h1,h2,.font-display { font-family:'Fraunces',Georgia,serif; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:10px; }
+    .navitem { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; font-size:14px; }
+    .navitem.active { background:var(--nav-active-bg); color:var(--primary); font-weight:600; }
+    .navitem.inactive { color:var(--ink-muted); font-weight:500; }
+    label { font-size:12px; font-weight:600; color:var(--ink-muted); display:block; margin-bottom:6px; }
+    select,input { width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--border); font-size:13px; font-family:'Work Sans',sans-serif; background:#fff; }
+  </style>
+</helmet>
+
+<div style="width:1440px; height:960px; display:flex;">
+  <div style="width:236px; background:#fff; border-right:1px solid var(--border); display:flex; flex-direction:column; padding:18px 12px; flex-shrink:0;">
+    <div style="display:flex; align-items:center; gap:10px; padding:6px 10px 22px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1E2A5A" stroke-width="1.6"><path d="M12 3v6M12 21v-4M6 21v-8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8M4 9h4M16 9h4M9 9V6a3 3 0 0 1 6 0v3"/></svg><span class="font-display" style="font-size:16px; font-weight:600;">Mi Samaj</span></div>
+    <div style="display:flex; flex-direction:column; gap:2px; flex:1;">
+      <div class="navitem inactive"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11.5 12 4l9 7.5M5 10v10h14V10"/></svg>Dashboard</div>
+      <div class="navitem inactive"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6"/></svg>My Family</div>
+      <div class="navitem active"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="7" r="3.2"/><path d="M2 21v-1c0-3 3-5 7-5s7 2 7 5v1"/><circle cx="17.5" cy="8.5" r="2.4"/></svg>Directory</div>
+      <div class="navitem inactive"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20s-7-4.4-9.5-9A5 5 0 0 1 12 6a5 5 0 0 1 9.5 5c-2.5 4.6-9.5 9-9.5 9Z"/></svg>Matrimony</div>
+    </div>
+  </div>
+
+  <div style="width:260px; border-right:1px solid var(--border); background:#fff; padding:24px 20px; flex-shrink:0;">
+    <h2 style="font-size:15px; margin:0 0 18px; display:flex; align-items:center; gap:8px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1E2A5A" stroke-width="1.8"><path d="M4 6h16M7 12h10M10 18h4"/></svg>Filters</h2>
+    <div style="display:flex; flex-direction:column; gap:16px;">
+      <div><label>Gender</label><select><option>Any</option></select></div>
+      <div><label>Age Range</label><div style="display:flex; gap:8px;"><input placeholder="Min"><input placeholder="Max"></div></div>
+      <div><label>Marital Status</label><select><option>Any</option></select></div>
+      <div><label>City</label><input value="Pune"></div>
+      <div><label>Native Place</label><input placeholder="Village / district"></div>
+      <div><label>Education</label><select><option>Any</option></select></div>
+      <div style="padding-top:8px; border-top:1px solid var(--border);"><div style="background:var(--accent); color:#fff; border-radius:8px; padding:10px; text-align:center; font-weight:600; font-size:14px;">Apply Filters</div></div>
+    </div>
+  </div>
+
+  <div style="flex:1; overflow-y:auto; padding:28px 32px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+      <div>
+        <h1 style="font-size:20px; margin:0;">Member Directory</h1>
+        <p style="margin:4px 0 0; font-size:13px; color:var(--ink-muted);">47 members found in Pune</p>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--border); border-radius:8px; padding:9px 14px; width:320px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5C6070" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <span style="color:var(--ink-muted); font-size:13px;">Search by name...</span>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:16px;">
+
+      <div class="card" style="padding:18px; text-align:center;">
+        <div style="width:56px; height:56px; border-radius:14px; background:linear-gradient(135deg,#1E2A5A,#33447F); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; margin:0 auto 10px;">AL</div>
+        <p style="margin:0; font-weight:600; font-size:14px;">Aniket Ladwani</p>
+        <p style="margin:2px 0 0; font-size:12px; color:var(--ink-muted);">27 · B.Tech CS</p>
+        <p style="margin:0; font-size:12px; color:var(--ink-muted);">Pune</p>
+      </div>
+
+      <div class="card" style="padding:18px; text-align:center;">
+        <div style="width:56px; height:56px; border-radius:14px; background:linear-gradient(135deg,#4A6670,#5E8288); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; margin:0 auto 10px;">PL</div>
+        <p style="margin:0; font-weight:600; font-size:14px;">Pooja Ladwani</p>
+        <p style="margin:2px 0 0; font-size:12px; color:var(--ink-muted);">24 · M.Com</p>
+        <p style="margin:0; font-size:12px; color:var(--ink-muted);">Pune</p>
+      </div>
+
+      <div class="card" style="padding:18px; text-align:center;">
+        <div style="width:56px; height:56px; border-radius:14px; background:linear-gradient(135deg,#4A6670,#5E8288); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; margin:0 auto 10px;">MS</div>
+        <p style="margin:0; font-weight:600; font-size:14px;">Meera Sawant</p>
+        <p style="margin:2px 0 0; font-size:12px; color:var(--ink-muted);">31 · MBA Finance</p>
+        <p style="margin:0; font-size:12px; color:var(--ink-muted);">Pune</p>
+      </div>
+
+      <div class="card" style="padding:18px; text-align:center;">
+        <div style="width:56px; height:56px; border-radius:14px; background:linear-gradient(135deg,#1E2A5A,#33447F); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; margin:0 auto 10px;">VK</div>
+        <p style="margin:0; font-weight:600; font-size:14px;">Vikas Kulkarni</p>
+        <p style="margin:2px 0 0; font-size:12px; color:var(--ink-muted);">34 · Businessman</p>
+        <p style="margin:0; font-size:12px; color:var(--ink-muted);">Pune</p>
+      </div>
+
+      <div class="card" style="padding:18px; text-align:center;">
+        <div style="width:56px; height:56px; border-radius:14px; background:linear-gradient(135deg,#1E2A5A,#33447F); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; margin:0 auto 10px;">SD</div>
+        <p style="margin:0; font-weight:600; font-size:14px;">Suresh Deshpande</p>
+        <p style="margin:2px 0 0; font-size:12px; color:var(--ink-muted);">58 · Retired</p>
+        <p style="margin:0; font-size:12px; color:var(--ink-muted);">Pune</p>
+      </div>
+
+      <div class="card" style="padding:18px; text-align:center;">
+        <div style="width:56px; height:56px; border-radius:14px; background:linear-gradient(135deg,#4A6670,#5E8288); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; margin:0 auto 10px;">RJ</div>
+        <p style="margin:0; font-weight:600; font-size:14px;">Radhika Joshi</p>
+        <p style="margin:2px 0 0; font-size:12px; color:var(--ink-muted);">26 · Doctor</p>
+        <p style="margin:0; font-size:12px; color:var(--ink-muted);">Pune</p>
+      </div>
+
+      <div class="card" style="padding:18px; text-align:center;">
+        <div style="width:56px; height:56px; border-radius:14px; background:linear-gradient(135deg,#1E2A5A,#33447F); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; margin:0 auto 10px;">NP</div>
+        <p style="margin:0; font-weight:600; font-size:14px;">Nikhil Patil</p>
+        <p style="margin:2px 0 0; font-size:12px; color:var(--ink-muted);">29 · Engineer</p>
+        <p style="margin:0; font-size:12px; color:var(--ink-muted);">Pune</p>
+      </div>
+
+      <div class="card" style="padding:18px; text-align:center;">
+        <div style="width:56px; height:56px; border-radius:14px; background:linear-gradient(135deg,#4A6670,#5E8288); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; margin:0 auto 10px;">KM</div>
+        <p style="margin:0; font-weight:600; font-size:14px;">Kavita More</p>
+        <p style="margin:2px 0 0; font-size:12px; color:var(--ink-muted);">45 · Teacher</p>
+        <p style="margin:0; font-size:12px; color:var(--ink-muted);">Pune</p>
+      </div>
+
+    </div>
+
+    <div style="display:flex; justify-content:center; gap:8px; margin-top:28px;">
+      <div class="card" style="width:34px; height:34px; display:flex; align-items:center; justify-content:center; font-size:13px; background:var(--primary); color:#fff; border-color:var(--primary);">1</div>
+      <div class="card" style="width:34px; height:34px; display:flex; align-items:center; justify-content:center; font-size:13px;">2</div>
+      <div class="card" style="width:34px; height:34px; display:flex; align-items:center; justify-content:center; font-size:13px;">3</div>
+      <div class="card" style="width:34px; height:34px; display:flex; align-items:center; justify-content:center; font-size:13px;">...</div>
+      <div class="card" style="width:34px; height:34px; display:flex; align-items:center; justify-content:center; font-size:13px;">6</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

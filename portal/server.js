@@ -7,6 +7,7 @@ const createDb = require('./db');
 const menu = require('./public/shared/menu.js');
 // Serves the projects that live in their own apps under their own tab paths.
 const proxy = require('./proxy');
+const ladwani = require('./ladwani');
 // Neon services, each on only when `neon deploy` has supplied its variables.
 const neonAuth = require('./neon-auth');
 const storage = require('./storage');
@@ -223,7 +224,15 @@ function createApp(db, extra = {}) {
   // into a proxied project would do it. tests/proxy.test.js shows both
   // orders on a copy; tests/server.test.js fails if this one moves.
   const hub = createHub({ db: hubDb, getUser: extra.getUser || neonAuth.currentUser, envName: currentEnv });
+
+  // LadWani runs in this process (portal/ladwani.js) when its build is here:
+  // main() asks for it, tests pass their own options. Same gate, same place
+  // before the body parsers, and it takes /ladwani/ from the proxy below.
+  const ladwaniTab = extra.ladwani
+    ? ladwani.mount(app, { gate: hub.gate('ladwani'), keys: hub.keys, ...extra.ladwani })
+    : null;
   const proxied = proxy.mount(app, {
+    env: ladwaniTab ? { ...process.env, LADWANI_ORIGIN: '' } : process.env,
     gates: { edu: hub.gate('edu'), ladwani: hub.gate('ladwani') },
     // The bar for the proxy's own error page. Takes the request so the tier
     // badge comes from the same place every other page gets it.
@@ -588,7 +597,7 @@ ${menu.renderHtml({ pathname: req.path, env: currentEnv(req) })}
     res.status(status).json({ error: message });
   });
 
-  return { app, proxied };
+  return { app, proxied, ladwaniTab };
 }
 
 /**
@@ -628,7 +637,7 @@ async function main() {
   await new Promise((resolve, reject) => server.once('error', reject).listen(port, resolve));
   console.log(`bkesari portal listening on port ${port}, connecting to the database`);
   const { db, extra } = await openDatabases();
-  const { app, proxied } = createApp(db, extra);
+  const { app, proxied, ladwaniTab } = createApp(db, { ...extra, ladwani: {} });
   handler = app;
   console.log(`bkesari portal running at http://localhost:${port}`);
   console.log(`Task Tracker at http://localhost:${port}/tasks/`);
@@ -642,7 +651,11 @@ async function main() {
     `object storage ${storage.enabled() ? 'on' : 'off'}, ` +
     `report function ${process.env.NEON_FUNCTION_REPORT_BASE_URL && process.env.ORIGIN_SECRET ? 'on' : 'off'}`);
   for (const route of proxied) console.log(`${route.path} -> ${route.target}`);
-  if (!proxied.length) {
+  if (ladwaniTab) {
+    console.log(`${ladwani.BASE}/ -> in this process`);
+    ladwaniTab.api.then((state) => console.log(`LadWani API: ${state}`));
+  }
+  if (!proxied.length && !ladwaniTab) {
     console.log('No project origins set (EDU_ORIGIN, LADWANI_ORIGIN);');
     console.log('those tabs will show the "not on this tier yet" page.');
   }

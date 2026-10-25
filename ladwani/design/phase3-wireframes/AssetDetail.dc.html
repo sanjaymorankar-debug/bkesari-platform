@@ -1,0 +1,127 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#F7F5F0; --surface:#FFFFFF; --ink:#1B1F2E; --ink-muted:#5C6070; --border:#E4E0D6; --primary:#1E2A5A; --accent:#E0902C; --success:#2F8F5B; --nav-active-bg:#EAEEF7; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:'Work Sans',-apple-system,sans-serif; background:var(--bg); color:var(--ink); }
+    h1,h2,.font-display { font-family:'Fraunces',Georgia,serif; }
+    .mono { font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:10px; }
+    .navitem { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; font-size:14px; }
+    .navitem.active { background:var(--nav-active-bg); color:var(--primary); font-weight:600; }
+    .navitem.inactive { color:var(--ink-muted); font-weight:500; }
+    .pill { display:inline-flex; align-items:center; padding:3px 10px; border-radius:999px; font-size:11px; font-weight:600; }
+  </style>
+</helmet>
+
+<div style="width:1440px; height:1080px; display:flex;">
+  <div style="width:236px; background:#fff; border-right:1px solid var(--border); display:flex; flex-direction:column; padding:18px 12px; flex-shrink:0;">
+    <div style="display:flex; align-items:center; gap:10px; padding:6px 10px 22px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1E2A5A" stroke-width="1.6"><path d="M12 3v6M12 21v-4M6 21v-8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8M4 9h4M16 9h4M9 9V6a3 3 0 0 1 6 0v3"/></svg><span class="font-display" style="font-size:16px; font-weight:600;">Mi Samaj</span></div>
+    <div style="display:flex; flex-direction:column; gap:2px; flex:1;">
+      <div class="navitem inactive"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11.5 12 4l9 7.5M5 10v10h14V10"/></svg>Dashboard</div>
+      <div class="navitem active"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 10.5 12 4l9 6.5M5 9.5V20h14V9.5"/></svg>Services</div>
+    </div>
+  </div>
+
+  <div style="flex:1; overflow-y:auto; padding:28px 32px;">
+    <div style="max-width:1000px; margin:0 auto;">
+
+      <div style="display:flex; align-items:center; gap:8px; color:var(--ink-muted); font-size:13px; margin-bottom:16px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>Community Services · Marriage Halls
+      </div>
+
+      <div style="display:grid; grid-template-columns:2fr 1fr; gap:8px; margin-bottom:22px;">
+        <div style="background:linear-gradient(135deg,#E8E2D4,#D8CFB8); border-radius:10px; height:280px; display:flex; align-items:center; justify-content:center; color:#9C8F6E;"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18M5 21V10l7-6 7 6v11M9 21v-6h6v6"/></svg></div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div style="background:#E8E2D4; border-radius:10px; flex:1;"></div>
+          <div style="background:#E8E2D4; border-radius:10px; flex:1;"></div>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:2fr 1fr; gap:28px;">
+        <div>
+          <div style="display:flex; align-items:flex-start; justify-content:space-between;">
+            <div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <h1 style="font-size:24px; margin:0;">Shubh Mangal Karyalay</h1>
+                <span class="pill" style="background:#2F8F5B; color:#fff; display:flex; align-items:center; gap:4px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="m9 11 3 3L22 4"/></svg>Verified</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:14px; margin-top:8px; font-size:13px; color:var(--ink-muted);">
+                <span style="display:flex; align-items:center; gap:5px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9AA0B0" stroke-width="1.8"><path d="M12 21s-7-4.5-7-10a7 7 0 0 1 14 0c0 5.5-7 10-7 10Z"/></svg>Kothrud, Pune</span>
+                <span style="display:flex; align-items:center; gap:4px;">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="#E0902C" stroke="none"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8l-6.2 3.2L7 14.2l-5-4.9 6.9-1L12 2z"/></svg>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="#E0902C" stroke="none"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8l-6.2 3.2L7 14.2l-5-4.9 6.9-1L12 2z"/></svg>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="#E0902C" stroke="none"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8l-6.2 3.2L7 14.2l-5-4.9 6.9-1L12 2z"/></svg>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="#E0902C" stroke="none"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8l-6.2 3.2L7 14.2l-5-4.9 6.9-1L12 2z"/></svg>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="#E0902C" stroke="none"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8l-6.2 3.2L7 14.2l-5-4.9 6.9-1L12 2z"/></svg>
+                  <span class="mono">4.8</span> (62 reviews)
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <p style="font-size:14px; line-height:1.7; color:var(--ink-muted); margin:18px 0;">A spacious, air-conditioned marriage hall with a capacity for 500 guests, located centrally in Kothrud with ample parking. Popular with the Samaj for weddings and community events.</p>
+
+          <h2 style="font-size:15px; margin:0 0 12px;">Facilities</h2>
+          <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px;">
+            <span class="pill" style="background:#F0EBE3; color:#5C6070;">Air Conditioned</span>
+            <span class="pill" style="background:#F0EBE3; color:#5C6070;">Parking (200 cars)</span>
+            <span class="pill" style="background:#F0EBE3; color:#5C6070;">Catering Allowed</span>
+            <span class="pill" style="background:#F0EBE3; color:#5C6070;">Stage &amp; Sound System</span>
+            <span class="pill" style="background:#F0EBE3; color:#5C6070;">Generator Backup</span>
+            <span class="pill" style="background:#F0EBE3; color:#5C6070;">Guest Rooms (12)</span>
+          </div>
+
+          <h2 style="font-size:15px; margin:0 0 12px;">Availability — November 2026</h2>
+          <div class="card" style="padding:16px;">
+            <div style="display:grid; grid-template-columns:repeat(7,1fr); gap:6px; text-align:center; font-size:12px;">
+              <div style="color:var(--ink-muted); font-weight:600;">S</div><div style="color:var(--ink-muted); font-weight:600;">M</div><div style="color:var(--ink-muted); font-weight:600;">T</div><div style="color:var(--ink-muted); font-weight:600;">W</div><div style="color:var(--ink-muted); font-weight:600;">T</div><div style="color:var(--ink-muted); font-weight:600;">F</div><div style="color:var(--ink-muted); font-weight:600;">S</div>
+              <div style="padding:8px 0; border-radius:6px; background:#E6F3EC; color:#2F8F5B;">1</div>
+              <div style="padding:8px 0; border-radius:6px; background:#E6F3EC; color:#2F8F5B;">2</div>
+              <div style="padding:8px 0; border-radius:6px; background:#FBE9E9; color:#B23A3A;">3</div>
+              <div style="padding:8px 0; border-radius:6px; background:#E6F3EC; color:#2F8F5B;">4</div>
+              <div style="padding:8px 0; border-radius:6px; background:#E6F3EC; color:#2F8F5B;">5</div>
+              <div style="padding:8px 0; border-radius:6px; background:#FBF0DE; color:#C97A22;">6</div>
+              <div style="padding:8px 0; border-radius:6px; background:#E6F3EC; color:#2F8F5B;">7</div>
+            </div>
+            <div style="display:flex; gap:16px; margin-top:12px; font-size:11px; color:var(--ink-muted);">
+              <span style="display:flex; align-items:center; gap:5px;"><span style="width:9px; height:9px; border-radius:3px; background:#2F8F5B;"></span>Available</span>
+              <span style="display:flex; align-items:center; gap:5px;"><span style="width:9px; height:9px; border-radius:3px; background:#C97A22;"></span>Pending</span>
+              <span style="display:flex; align-items:center; gap:5px;"><span style="width:9px; height:9px; border-radius:3px; background:#B23A3A;"></span>Booked</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="card" style="padding:22px; position:sticky; top:0;">
+            <p style="margin:0; font-size:12px; color:var(--ink-muted); text-transform:uppercase; letter-spacing:.04em;">Starting from</p>
+            <p class="mono" style="margin:4px 0 16px; font-size:28px; font-weight:700; color:var(--primary);">₹85,000<span style="font-size:13px; color:var(--ink-muted); font-weight:500;"> / day</span></p>
+            <div style="display:flex; flex-direction:column; gap:8px; font-size:13px; color:var(--ink-muted); margin-bottom:18px;">
+              <div style="display:flex; justify-content:space-between;"><span>Weekend surcharge</span><span class="mono">+₹15,000</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>Security deposit</span><span class="mono">₹20,000</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>Community member discount</span><span class="mono" style="color:var(--success);">−5%</span></div>
+            </div>
+            <div style="background:var(--accent); color:#fff; border-radius:8px; padding:13px; text-align:center; font-weight:600; font-size:15px;">Book This Venue</div>
+            <p style="font-size:11px; color:var(--ink-muted); text-align:center; margin:10px 0 0;">Free cancellation up to 15 days before</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>
