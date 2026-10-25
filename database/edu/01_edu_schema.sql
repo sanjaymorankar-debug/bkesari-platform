@@ -1,5 +1,5 @@
 -- Education (Laravel) database for PostgreSQL: all 74 tables + the migrations log.
--- Generated 2026-10-09 from the 66 migrations in edu/database/migrations, run with
+-- Generated 2026-10-09 (users.hub_user_id added 2026-10-25) from the 67 migrations in edu/database/migrations, run with
 -- `php artisan migrate` on PostgreSQL 16 and dumped with `pg_dump --schema-only --no-owner
 -- --no-privileges`. It is therefore exactly what the app's own migrations create on
 -- PostgreSQL: enum() columns are varchar + CHECK constraints, booleans are boolean, json is
@@ -2413,7 +2413,8 @@ CREATE TABLE public.users (
     password character varying(255) NOT NULL,
     remember_token character varying(100),
     created_at timestamp(0) without time zone,
-    updated_at timestamp(0) without time zone
+    updated_at timestamp(0) without time zone,
+    hub_user_id character varying(80)
 );
 
 --
@@ -3609,6 +3610,13 @@ ALTER TABLE ONLY public.two_factor_authentications
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_email_unique UNIQUE (email);
+
+--
+-- Name: users users_hub_user_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_hub_user_id_unique UNIQUE (hub_user_id);
 
 --
 -- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -5034,5 +5042,6 @@ INSERT INTO public.migrations VALUES
 	(63, '2026_09_03_100017_create_course_ratings_table', 1),
 	(64, '2026_09_03_100018_create_school_replies_table', 1),
 	(65, '2026_09_03_100019_create_data_subject_requests_table', 1),
-	(66, '2026_10_09_000000_make_user_email_case_insensitive_on_pgsql', 1) ON CONFLICT DO NOTHING;
-SELECT pg_catalog.setval('public.migrations_id_seq', 66, true);
+	(66, '2026_10_09_000000_make_user_email_case_insensitive_on_pgsql', 1),
+	(67, '2026_10_25_000000_add_hub_user_id_to_users', 1) ON CONFLICT DO NOTHING;
+SELECT pg_catalog.setval('public.migrations_id_seq', 67, true);

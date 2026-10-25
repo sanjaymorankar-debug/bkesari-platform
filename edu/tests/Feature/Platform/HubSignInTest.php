@@ -53,6 +53,16 @@ class HubSignInTest extends TestCase
         $this->assertTrue($user->hasRole('parent'));
     }
 
+    public function test_a_hub_token_signs_the_visitor_in_on_a_protected_page_too(): void
+    {
+        // A deep link through the hub (/edu/dashboard/parent) must not be sent to
+        // /edu/login: HubSignIn has to run before the `auth` route middleware.
+        $this->get('/dashboard/parent', [HubToken::HEADER => $this->token($this->asha)])
+            ->assertOk();
+        $this->assertAuthenticated();
+        $this->assertSame('hub-asha', auth()->user()->hub_user_id);
+    }
+
     public function test_an_existing_account_is_linked_not_duplicated(): void
     {
         $existing = User::factory()->create(['email' => 'asha@example.com']);

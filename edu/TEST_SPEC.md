@@ -25,7 +25,7 @@ edu-tester agent".
 | App code: models, services, Livewire/Volt pages | `edu/app/`, `edu/resources/views/` | PHP 8.3, Laravel 13, Livewire 3.6, Volt 1.7 |
 | Serving under `/edu/` | `edu/app/Providers/AppServiceProvider.php`, `edu/app/Routing/BasePathRedirector.php`, `edu/bootstrap/app.php` | Laravel |
 | Database settings for Neon | `edu/config/database.php`, `edu/app/Database/PostgresConnector.php`, `edu/app/Providers/DatabaseServiceProvider.php` | Laravel, pdo_pgsql |
-| Schema and demo data | `edu/database/migrations/` (66), `edu/database/seeders/` | Laravel migrations, PostgreSQL 16 |
+| Schema and demo data | `edu/database/migrations/` (67), `edu/database/seeders/` | Laravel migrations, PostgreSQL 16 |
 | Hand-run SQL | `database/edu/01`–`04_*.sql`, `edu/database/sql/*.sql` | PostgreSQL |
 | PHPUnit suite | `edu/tests/Unit`, `edu/tests/Feature` (`edu/phpunit.xml`) | PHPUnit 12 |
 | Smoke and check scripts | `edu/tests/smoke/` | bash, Python 3, Node + Playwright |
@@ -172,7 +172,7 @@ Run in order, from `edu/`. Each row's command is literal; the "passes when" colu
 | 6 | S2 | `php artisan test --testsuite=Unit` | all pass |
 | 7 | S3a | `php artisan test` (SQLite, in memory) | all pass; exactly the 5 skips section 5 names (`vendor/bin/phpunit --display-skipped` lists them) |
 | 8 | S3a | `DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=bk_edu_test DB_USERNAME=bk_edu DB_PASSWORD=$BK_EDU_PASS php artisan test` | all pass, **0 skipped** |
-| 9 | S3b | `DB_CONNECTION=pgsql DB_URL="$PG:5432/bk_edu_test" php artisan migrate:fresh --seed --force`, then `psql "$PG:5432/bk_edu_test" -Atc "select (select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'), (select count(*) from migrations), (select count(*) from users), (select count(*) from schools), (select count(*) from complaints), (select extname from pg_extension where extname='citext')"` | exit 0; `74\|66\|289\|20\|100\|citext` |
+| 9 | S3b | `DB_CONNECTION=pgsql DB_URL="$PG:5432/bk_edu_test" php artisan migrate:fresh --seed --force`, then `psql "$PG:5432/bk_edu_test" -Atc "select (select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'), (select count(*) from migrations), (select count(*) from users), (select count(*) from schools), (select count(*) from complaints), (select extname from pg_extension where extname='citext')"` | exit 0; `74\|67\|289\|20\|100\|citext` |
 | 10 | S3c | the SQL load, below | every file exit 0; `compare_schema.py` prints `schemas match`; re-running 02 and 03 exits 0; `migrate --pretend` says `Nothing to migrate` |
 | 11 | S3d | the incremental scripts, below | every file exit 0; `compare_schema.py` prints `schemas match` |
 | 12 | S4 | `npm ci && rm -rf /tmp/edu-build && npx vite build --outDir /tmp/edu-build --emptyOutDir && diff -r /tmp/edu-build public/build` | `diff` prints nothing: the committed build is exactly what the sources produce |
@@ -211,19 +211,26 @@ that stopped at migration 40):
 ```bash
 psql -d postgres -c 'DROP DATABASE IF EXISTS bk_edu_sql' -c 'CREATE DATABASE bk_edu_sql OWNER bk_edu'   # as a superuser
 export DB_CONNECTION=pgsql DB_URL="$PG:5432/bk_edu_sql"
-php artisan migrate --force && php artisan migrate:rollback --step=26 --force   # 40 migrations left
+php artisan migrate --force && php artisan migrate:rollback --step=27 --force   # 40 migrations left
 for f in 2026_09_02_student_growth_career_modules 2026_09_03_school_core_udise_fees_facilities \
          2026_09_03_safeguarding_exams_health 2026_09_03_benchmark_references \
          2026_09_03_courses_and_ratings 2026_09_03_replies_and_data_rights; do
   psql "$PG:5432/bk_edu_sql?sslmode=require" -q -v ON_ERROR_STOP=1 -1 -f database/sql/$f.sql > /dev/null || echo "FAIL $f"
 done
-php artisan migrate --force                     # runs only the citext migration
+php artisan migrate --force                     # runs only the citext and hub_user_id migrations
 unset DB_CONNECTION DB_URL
 pg_dump --schema-only --no-owner --no-privileges "$PG:5432/bk_edu_sql" > /tmp/edu-incremental.sql
 python3 tests/smoke/compare_schema.py /tmp/edu-migrated.sql /tmp/edu-incremental.sql
 ```
 
-**S5, the smoke run.** Seed the suite database the way a tier is set up (schema commands over
+**S5, the smoke run.** Since hub v1 the hub's `edu` project is `approval` (`portal/sql/hub_schema.sql`):
+a guest through the hub is sent to the hub's `/auth/sign-in`, which needs Neon Auth, so every
+`/edu/` check of `http.sh` and `browser.cjs` would stop at that redirect. Before starting the hub,
+create its tables (start it once) and open the tab on the scratch hub database only:
+`psql "<hub database URL>" -c "UPDATE hub_projects SET visibility='open' WHERE key='edu'"`. The
+hub then forwards without a token, as before v1, and the smoke checks the app's own `/edu/`
+serving. The hub's gate itself is `portal-tester`'s; the token sign-in is `HubSignInTest`.
+Seed the suite database the way a tier is set up (schema commands over
 the direct URL, the app on the pooled one), start the app and the hub, run both scripts. Leave
 both servers up for S6, then stop them (`kill %1`, or the PIDs from `lsof -nP -iTCP:8101
 -iTCP:3105 -sTCP:LISTEN`) before S7. Without a PgBouncer bed, set `POOLED="$DIRECT"`, drop

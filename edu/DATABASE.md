@@ -1,6 +1,6 @@
 # Database
 
-PostgreSQL in every environment (local dev, CI, dev/test/production; 13+, CI uses 16). SQLite is used only for the zero-setup in-memory test run (`phpunit.xml`); CI runs the same suite against PostgreSQL too. 66 migrations, 74 tables (see `database/migrations/`).
+PostgreSQL in every environment (local dev, CI, dev/test/production; 13+, CI uses 16). SQLite is used only for the zero-setup in-memory test run (`phpunit.xml`); CI runs the same suite against PostgreSQL too. 67 migrations, 74 tables (see `database/migrations/`).
 
 ## Core groups
 
