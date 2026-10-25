@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { useEffect, useState, type ReactNode } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
+import { useEffect, useState, type MouseEvent, type ReactNode } from 'react'
 import { useAuth } from '../lib/auth-context'
 import { api } from '../lib/api-client'
 
@@ -13,7 +13,10 @@ export function Shell({ children }: { children: ReactNode }) {
 export function TopBar() {
   const { user, logout } = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
   const [unreadCount, setUnreadCount] = useState(0)
+  // On a phone the links fold behind a Menu button (see .topbar-toggle in globals.css).
+  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -23,6 +26,20 @@ export function TopBar() {
       .catch(() => undefined)
   }, [user])
 
+  useEffect(() => setMenuOpen(false), [pathname])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menuOpen])
+
+  // A link to the page already open changes no path, so close the menu on any link click too.
+  function closeOnLink(e: MouseEvent<HTMLElement>) {
+    if ((e.target as HTMLElement).closest('a')) setMenuOpen(false)
+  }
+
   async function handleLogout() {
     await logout()
     router.push('/login')
@@ -30,11 +47,23 @@ export function TopBar() {
 
   return (
     <div className="topbar">
-      <Link href="/dashboard" style={{ fontFamily: 'var(--font-display), serif', fontSize: 20, fontWeight: 600, textDecoration: 'none', color: 'var(--ink)' }}>
+      <Link href="/dashboard" className="topbar-brand">
         Mi Samaj
       </Link>
       {user && (
-        <nav>
+        <button
+          type="button"
+          className="btn btn-outline topbar-toggle"
+          aria-expanded={menuOpen}
+          aria-controls="topbar-nav"
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          {menuOpen ? 'Close' : 'Menu'}
+          {!menuOpen && unreadCount > 0 && <span className="pill pill-danger nav-count">{unreadCount}</span>}
+        </button>
+      )}
+      {user && (
+        <nav id="topbar-nav" aria-label="Main" className={menuOpen ? 'open' : undefined} onClick={closeOnLink}>
           <Link href="/dashboard">Dashboard</Link>
           <Link href="/community">Feed</Link>
           <Link href="/matrimony">Matrimony</Link>
@@ -48,18 +77,11 @@ export function TopBar() {
           {user.roles.includes('ADMIN') && <Link href="/admin/config">Configuration</Link>}
           {(user.roles.includes('ADMIN') || user.roles.includes('OPERATOR')) && <Link href="/admin/audit-log">Audit log</Link>}
           {(user.roles.includes('ADMIN') || user.roles.includes('OPERATOR')) && <Link href="/admin/reports">Reports</Link>}
-          <Link href="/notifications" style={{ position: 'relative' }}>
+          <Link href="/notifications" className="nav-notifications">
             Notifications
-            {unreadCount > 0 && (
-              <span
-                className="pill pill-danger"
-                style={{ position: 'absolute', top: -10, right: -18, padding: '0 6px', fontSize: 10, lineHeight: '16px' }}
-              >
-                {unreadCount}
-              </span>
-            )}
+            {unreadCount > 0 && <span className="pill pill-danger nav-count">{unreadCount}</span>}
           </Link>
-          <button className="btn btn-outline" onClick={handleLogout} style={{ padding: '4px 12px' }}>
+          <button className="btn btn-outline topbar-logout" onClick={handleLogout}>
             Log out
           </button>
         </nav>
