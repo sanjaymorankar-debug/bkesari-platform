@@ -97,8 +97,12 @@ async function startApi({ env, keys, loadApi }) {
   env.LADWANI_HUB_JWKS = JSON.stringify(keys.jwks);
   env.LADWANI_VISITOR_HEADER = VISITOR_HEADER;
   // Read by the engine when it starts, so set before LadWani loads it; a value
-  // set on the site wins.
+  // set on the site wins. The engine aborts the whole process (the hub with it)
+  // on anything but a whole number above 0, so such a value stops only the API.
   if (!env.TOKIO_WORKER_THREADS) env.TOKIO_WORKER_THREADS = String(ENGINE_THREADS);
+  else if (!/^[1-9][0-9]*$/.test(env.TOKIO_WORKER_THREADS)) {
+    throw new Error(`TOKIO_WORKER_THREADS must be a whole number above 0 or unset, not ${JSON.stringify(env.TOKIO_WORKER_THREADS)}`);
+  }
   const createApi = loadApi();
   const nest = await createApi();
   await nest.init();
@@ -125,7 +129,7 @@ const sendPlain = (res, status, text) => res.status(status).type('text/plain').s
  * Mounts LadWani at /ladwani/ when its static export is present. Returns what
  * it mounted, for the startup log: null when the export is missing (the tab
  * then keeps its "not on this tier yet" page), otherwise { api } where api is
- * a promise of 'ready' or the reason the API is off.
+ * a promise of 'ready (…)' (readyState) or the reason the API is off.
  *
  * Mount BEFORE the hub's body parsers: the API reads the request body itself.
  */

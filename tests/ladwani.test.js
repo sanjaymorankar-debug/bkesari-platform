@@ -286,6 +286,28 @@ test('the database engine\'s threads are capped before LadWani loads it, unless 
   }
 });
 
+test('a TOKIO_WORKER_THREADS the engine cannot use stops only LadWani\'s API, never the hub', async () => {
+  // The engine panics on 0 or anything but a whole number, and that panic
+  // aborts the whole process (SIGABRT while the engine loads): the hub with it.
+  for (const given of ['0', 'abc', ' 2', '2.5', '-1']) {
+    const env = { LADWANI_DATABASE_URL: 'postgres://stand-in', TOKIO_WORKER_THREADS: given };
+    let loaded = false;
+    const loadApi = () => { loaded = true; return fakeApi([])(); };
+    const { app, ladwaniTab } = createApp(stubDb(true), { getUser: async () => MEMBER, ladwani: { webDir: fakeExport(), env, loadApi, log: { error() {} } } });
+    assert.match(await ladwaniTab.api, /did not start: TOKIO_WORKER_THREADS must be a whole number above 0/, JSON.stringify(given));
+    assert.equal(loaded, false, `the engine is not loaded with ${JSON.stringify(given)}`);
+    const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+    try {
+      const base = `http://127.0.0.1:${server.address().port}`;
+      assert.equal((await get(`${base}/ladwani/`)).status, 200);
+      assert.equal((await get(`${base}/ladwani/api/v1/echo`)).status, 503);
+      assert.equal((await get(`${base}/`)).status, 200);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  }
+});
+
 test('sessionSecret: derived from the hub key unless LADWANI_JWT_SECRET is set', () => {
   const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
   const keys = { privateKey };
