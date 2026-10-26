@@ -93,7 +93,8 @@ safe to re-run.
 |---|---|
 | `DATABASE_URL` | Neon console → this tier's branch → **Connect** → database `neondb`, role `bk_portal_app`, *Connection pooling* **on**. Paste it whole: the `?sslmode=require&channel_binding=require` on the end is what turns TLS on |
 | `DATABASE_URL_UNPOOLED` | the same, with *Connection pooling* **off**. Used only to create the tables |
-| `TRACKER_USER`, `TRACKER_PASSWORD` | login for `/tasks/` |
+| `TRACKER_USER`, `TRACKER_PASSWORD` | login for the old Task Tracker at `/tasks/` |
+| `TASKLIST_ORIGIN` | where the TaskList app runs, once it is deployed (Part 7). Leave blank until then |
 | `ATIP_USER`, `ATIP_PASSWORD` | login for `/ATIP/` |
 | `ATIP_PUBLISH_TOKEN` | long random secret. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Use a **different one per tier** (dev/test/production). |
 
@@ -103,7 +104,7 @@ in place of `DATABASE_URL` for a database that is not on Neon; `.env.example` li
 Redeploy. Check (same checks for dev.bkesari.com and test.bkesari.com — add a **DEV** badge
 alongside the existing **TEST** one in `portal/` if you want the two visually distinguishable):
 - the site shows the menu
-- `/tasks/` asks for a login
+- `/tasks/` asks for a login (or, with `TASKLIST_ORIGIN` set, redirects to `/tasklist/`, which asks for TaskList's login)
 - `/ATIP/` asks for a login, then says *No dashboard snapshot has been published yet*
   (`/atip/` still resolves, for old bookmarks)
 
@@ -322,16 +323,16 @@ and server-rendering keeps that page's policy untouched.
 
 | Path | Served by |
 |---|---|
-| `/`, `/tasks/`, `/ATIP/` (owner only) | this repo (`portal/`) |
+| `/`, `/tasks/`, `/ATIP/` (owner only) | this repo (`portal/`); `/tasks/` redirects to `/tasklist/` once `TASKLIST_ORIGIN` is set |
 | `/environment/` (`/global-warming/` redirects to it), `/driving-simulator/` | this repo, static |
 | `/access/request`, `/admin/access`, `/hub/api/*`, `/.well-known/jwks.json` | this repo: sign-in permissions (Part 8) |
-| `/edu/`, `/ladwani/` | their own apps, reached through the hub |
+| `/edu/`, `/ladwani/`, `/tasklist/` | their own apps, reached through the hub |
 
 A tab whose destination is not deployed on a tier yet answers with a short
 "not available on this tier" page rather than a bare 404, so the menu never
 dead-ends while the estate is still being assembled.
 
-How `/edu/` and `/ladwani/` get served is Part 7.
+How `/edu/`, `/ladwani/` and `/tasklist/` get served is Part 7.
 
 ---
 
@@ -644,7 +645,7 @@ variables) set `LADWANI_ORIGIN` or `EDU_ORIGIN` to the app's own origin, e.g.
 started without it serves unstyled markup with a 200 status, which
 `scripts/smoke-dev.sh` reports by name.
 
-The settings are `EDU_ORIGIN` and `LADWANI_ORIGIN`. Each tab is independent: an origin that is not set leaves
+The settings are `EDU_ORIGIN`, `LADWANI_ORIGIN` and `TASKLIST_ORIGIN`. Each tab is independent: an origin that is not set leaves
 that tab on its placeholder, so you can bring them up one at a time.
 
 When `APP_ENV` names a tier, an unset origin falls back to that tier's Hostinger
@@ -688,6 +689,7 @@ story is not obvious.
 | Project | Hub side | App side |
 |---|---|---|
 | **LadWani** | `LADWANI_ORIGIN` | ✅ built for it — `BASE_PATH=/ladwani` in its deploy build; set it in that site's `.env` too |
+| **TaskList** | `TASKLIST_ORIGIN` | ✅ built for it — it always serves itself under `/tasklist/`; it needs only its own login (`TASKLIST_USER`, `TASKLIST_PASSWORD`) and **its own database**. Its `TASKLIST_DATABASE_URL` must not be the hub's `TASKLIST_DATABASE_URL` (`bk_tasklist`, the old tracker's tables, which TaskList imports from). Setting this also redirects `/tasks/` to `/tasklist/`; with central login on, the hub gates it like `/edu/` |
 | **Education** | `EDU_ORIGIN` | ✅ built for it — set `APP_URL=https://dev.bkesari.com/edu` in that site's `.env`; nothing else, and no change to its document root |
 
 Education needs no deploy-time flag: the path in `APP_URL` is the whole switch,
@@ -777,7 +779,7 @@ The hub does not take the rest of the estate down with it:
   is dropped and the browser shows its own error. Nothing can be rendered at
   that point — the request is already in flight.
 
-Either way the hub itself, `/tasks/`, `/atip/` and the static pages keep
+Either way the hub itself, `/atip/` and the static pages keep
 working. The hub's log names the tab and the target for every proxy error.
 
 ### Guardrails
@@ -885,7 +887,7 @@ and `audit_log`.
 |---|---|
 | `HUB_OWNER_EMAILS` | comma-separated owner emails (default `agtcipl@gmail.com`). The owner reaches ATIP, may decide every request, and needs a **verified** email |
 | `HUB_TOKEN_PRIVATE_KEY` | RSA private key (PEM, `\n` escapes allowed) that signs the project token. Set it on every tier; without it a key is made at start-up and tokens die on restart |
-| `TASKLIST_DATABASE_URL` / `ATIP_DATABASE_URL` | the `bk_tasklist` and `bk_atip` databases. `DATABASE_URL` is then the hub's own, holding only sign-in permissions. Unset, one database carries everything (local use) |
+| `TASKLIST_DATABASE_URL` / `ATIP_DATABASE_URL` | the `bk_tasklist` and `bk_atip` databases (`bk_tasklist` holds the old Task Tracker at `/tasks/`, not the new TaskList app, which has a database of its own). `DATABASE_URL` is then the hub's own, holding only sign-in permissions. Unset, one database carries everything (local use) |
 
 * `/ladwani/` and `/edu/`: not signed in -> `/auth/sign-in?next=...`; signed in without
   permission -> `/access/request?project=...`; permitted -> the request is forwarded

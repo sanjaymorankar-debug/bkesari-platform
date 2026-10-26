@@ -89,6 +89,7 @@ function loadWorker() {
 // Pages and APIs whose answer depends on who is signed in, or that belong to a project tab.
 const PER_USER = [
   '/hub/api/me', '/api/auth/get-session', '/tasks/', '/tasks/api/overview', '/tasks/live.js',
+  '/tasklist/', '/tasklist/api/tasks', '/tasklist/app.js',
   '/ATIP/', '/atip/api/archive', '/ladwani/orders', '/edu/livewire/update', '/edu/',
   '/admin/access', '/access/request?project=edu', '/auth/sign-in',
 ];

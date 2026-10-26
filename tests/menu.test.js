@@ -31,7 +31,7 @@ const EXPECTED_TABS = [
   ['LadWani', '/ladwani/'],
   ['ATIP', '/ATIP/'],
   ['Education', '/edu/'],
-  ['TaskList', '/tasks/'],
+  ['TaskList', '/tasklist/'],
   ['Driving Simulator', '/driving-simulator/'],
   ['Environmental Activities', '/environment/'],
 ];
@@ -117,9 +117,18 @@ test('the bar never mentions Milk & Dairy', () => {
 });
 
 test('renderHtml marks exactly one current item', () => {
-  const html = bar({ pathname: '/tasks/', env: 'dev' });
+  const html = bar({ pathname: '/tasklist/', env: 'dev' });
   assert.equal(html.match(/aria-current="page"/g).length, 1);
-  assert.match(html, /<a href="\/tasks\/" aria-current="page">TaskList<\/a>/);
+  assert.match(html, /<a href="\/tasklist\/" aria-current="page">TaskList<\/a>/);
+});
+
+test('the TaskList tab is lit on TaskList pages and not on the old /tasks/ path', () => {
+  assert.equal(menu.activeTabPath('/tasklist/'), '/tasklist/');
+  assert.equal(menu.activeTabPath('/tasklist'), '/tasklist/');
+  assert.equal(menu.activeTabPath('/tasklist/api/tasks'), '/tasklist/');
+  // /tasks/ redirects to /tasklist/ once TaskList is configured; it is no
+  // longer a tab of its own, so it must not light one up.
+  assert.equal(menu.activeTabPath('/tasks/'), '/');
 });
 
 test('the brand carries aria-current on the welcome page only', () => {
