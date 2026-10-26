@@ -118,6 +118,7 @@ them. LadWani's schema goes into its database once per run (2.5).
 | `LADWANI_DATABASE_URL` | LadWani's API in the hub (`portal/ladwani.js`) | unset (the pages are served and the API answers 503), except in S5's LadWani step: `$LADWANI_SMOKE_DATABASE_URL`. Never a Neon branch |
 | `LADWANI_JWT_SECRET`, `LADWANI_TRUST_PROXY` | LadWani's API in the hub | unset (the secret is then derived from the hub's key; the rate limits count per signed-in person, not per address, so no trust-proxy setting is needed for them) |
 | `LADWANI_VISITOR_HEADER` | LadWani's rate limits (`VisitorThrottlerGuard`) | never set by hand: `portal/ladwani.js` sets it in the hub's process. Standalone LadWani without it counts per IP and ignores the header |
+| `TOKIO_WORKER_THREADS` | LadWani's database engine (Prisma's, a tokio runtime) in the hub's process | unset: `portal/ladwani.js` sets it to `ENGINE_THREADS` (2) before the engine loads, and the startup log says `LadWani API: ready (database engine: 2 worker threads; the server shows N CPUs)`. A site value wins only if it is a whole number above 0; anything else stops LadWani's API (the engine would abort the whole process) |
 | `LADWANI_SMOKE_DATABASE_URL` | this spec's 2.5 and S5 commands | the LadWani smoke database |
 | `SIGNED_IN_HUB_LADWANI` | `tests/support/signed-in-hub.js` | unset (LadWani through the proxy), or `embedded` in S5's LadWani step (LadWani in the process, as `main()` does) |
 | `PARITY_POOLED_URL`, `PARITY_DIRECT_URL`, `PARITY_PORT`, `PARITY_IDLE_SECONDS` | `scripts/neon-parity.sh` | section 2.6 |
@@ -331,8 +332,9 @@ kill $HUB; wait $HUB 2>/dev/null
 # LadWani served by the hub itself (portal/ladwani.js), from #9a's export: no LadWani process
 # and no proxy. Signed out against server.js (no LADWANI_DATABASE_URL: its API is off), then
 # signed in with SIGNED_IN_HUB_LADWANI=embedded and LadWani's real API in the hub's process, on
-# the LadWani smoke database. The webhook line is the one that needs the API mounted before the
-# hub's body parsers: it checks its signature over the raw body, which only its own parser keeps.
+# the LadWani smoke database; its startup line names the engine's thread cap. The webhook line is
+# the one that needs the API mounted before the hub's body parsers: it checks its signature over
+# the raw body, which only its own parser keeps.
 # (A new event id each run: LadWani answers 500 to an unsigned event id it already holds.)
 A=$(cd ladwani/apps/web/out && ls _next/static/chunks/*.js | head -1)
 start_hub
@@ -342,6 +344,7 @@ has "$(curl -sI "$BASE/ladwani?x=1" | tr -d '\r')" 'Location: /ladwani/?x=1'
 want 401 -H 'accept: application/json' "$BASE/ladwani/api/v1/health"
 kill $HUB; wait $HUB 2>/dev/null
 HUB_JS=tests/support/signed-in-hub.js start_hub SIGNED_IN_HUB_LADWANI=embedded LADWANI_DATABASE_URL="$LADWANI_SMOKE_DATABASE_URL"
+has "$(cat "$HUBLOG")" 'LadWani API: ready (database engine: 2 worker threads; the server shows '
 has "$(curl -s "$BASE/ladwani/")" 'app/page-'
 has "$(curl -s "$BASE/ladwani/family/cmv7x2/")" 'app/family/%5Bid%5D/page-'
 has "$(curl -s "$BASE/ladwani/api/v1/health")" '"database":"ok"'
@@ -421,7 +424,7 @@ fails on a skip.
 | PORTAL-CR-18 | The dev deploy refuses every target but dev (branch, path, host, smoke URL, empty secrets) | `.github/deploy/guard.test.sh` (32 cases) |
 | PORTAL-CR-19 | Neon provisioning: one Singapore PostgreSQL 16 project per app with its tier branches, each app's login owning its database, a new password on every branch the run made (and a failed run naming any branch it made that still has the copied one), other projects (another site's) never touched, re-run creates nothing, dry run writes nothing, duplicate names refused, passwords only in 0600 files, an existing database under another owner never taken over | `neon-provision.test.js` (all 11) |
 | PORTAL-CR-20 | `database/portal/01_portal_schema.sql` stays the schema the app applies | `schema-copy.test.js` (both); S3 #8 |
-| PORTAL-CR-21 | LadWani served by the hub (`portal/ladwani.js`): its pages and API sit behind the `ladwani` gate however the path is spelled (case, dot segments, repeated or encoded slashes); only `/ladwani/_next/static/` build assets skip it, and a miss there is a bare 404, not the app's page; no path, however encoded (`..`, `%2e`, `%2f`, backslash, NUL, overlong UTF-8), reaches a file outside the export; any id is answered by its `_` page; only the gate's own `X-Bkesari-Token` reaches the API; LadWani's rate limits count per signed-in person: the hub drops any `X-Bkesari-Visitor` a client sent and, for API calls, sets it to the `sub` of the gate-signed token, so no one can spend or escape another's budget, and standalone LadWani (no `LADWANI_VISITOR_HEADER`) ignores the header; the API off (no `LADWANI_DATABASE_URL`) or failing to start is a 503 while the hub and the pages stay up; without the export nothing is mounted and the tab keeps its placeholder | `ladwani.test.js` (all 15); `ladwani/apps/api/src/common/visitor-throttler.guard.spec.ts` (#6a); S5 LadWani step; S6 LadWani loop |
+| PORTAL-CR-21 | LadWani served by the hub (`portal/ladwani.js`): its pages and API sit behind the `ladwani` gate however the path is spelled (case, dot segments, repeated or encoded slashes); only `/ladwani/_next/static/` build assets skip it, and a miss there is a bare 404, not the app's page; no path, however encoded (`..`, `%2e`, `%2f`, backslash, NUL, overlong UTF-8), reaches a file outside the export; any id is answered by its `_` page; only the gate's own `X-Bkesari-Token` reaches the API; LadWani's rate limits count per signed-in person: the hub drops any `X-Bkesari-Visitor` a client sent and, for API calls, sets it to the `sub` of the gate-signed token, so no one can spend or escape another's budget, and standalone LadWani (no `LADWANI_VISITOR_HEADER`) ignores the header; the API off (no `LADWANI_DATABASE_URL`) or failing to start is a 503 while the hub and the pages stay up; LadWani's database engine gets its worker-thread cap (`TOKIO_WORKER_THREADS`: `ENGINE_THREADS`, 2, unless the site sets a whole number above 0) before it loads, and a site value it cannot use stops only the API, never the hub; without the export nothing is mounted and the tab keeps its placeholder | `ladwani.test.js` (all 17); `ladwani/apps/api/src/common/visitor-throttler.guard.spec.ts` (#6a); S5 LadWani step (incl. its startup line); S6 LadWani loop |
 
 ### R3 — change-area map
 
@@ -430,7 +433,7 @@ fails on a skip.
 | `portal/server.js` | all of R1 (`server.test.js` first); S5; S6; CR-01 to CR-07, CR-11, CR-17, CR-21 (it mounts LadWani) |
 | `portal/db.js`, `portal/sql/**`, `database/portal/**`, `package.json`, `package-lock.json` | R1; S3 #8; S4; **S7**; CR-07 to CR-10, CR-20 |
 | `portal/proxy.js` | `proxy.test.js`; S5 proxy step; CR-11 to CR-14 |
-| `portal/ladwani.js` | `ladwani.test.js`; S5 LadWani step; S6 LadWani loop; CR-11, CR-21 |
+| `portal/ladwani.js` | `ladwani.test.js`; S5 LadWani step; S6 LadWani loop; CR-11, CR-21. A change to a setting it gives LadWani (`ENGINE_THREADS`, `LADWANI_*`) also: DEPLOY.md Part 7 and section 2.3 read against it |
 | `ladwani/**` | #6a–#6c, #9a; S5 LadWani step; CR-21. A change to its settings (`apps/api/src/common/env.ts`, `next.config.js`) also: DEPLOY.md Part 7 read against it |
 | `portal/public/shared/menu.js`, `portal/public/**/*.html`, `page.css` | `menu.test.js`; S1 #5; S5; CR-04, CR-14 to CR-16 |
 | `portal/public/tasks/**` | S1 #5; S5; S6 path loop; CR-01 |
@@ -522,6 +525,10 @@ Then per-person rate limits (`115b07b`: `VisitorThrottlerGuard`, `X-Bkesari-Visi
 S2 **113**; R1 **140** (`ladwani` **15**: +1 the API is told who the visitor is, +1 from portal-tester, a
 browser's visitor header never reaches the API even when the gate names no one); #6a **225** in **29**
 suites (+3, the guard's spec); #6b, #6c, #9a, S5 (42) and S6 (31) unchanged.
+Then the engine's thread cap (`49a10fb`, measured 2026-10-26 plus the portal-tester fix: `ENGINE_THREADS`,
+the `ready (database engine: …)` startup line): S2 **115**; R1 **142** (`ladwani` **17**: +1 the cap is in
+place before the engine loads, +1 from portal-tester, a value the engine cannot use stops only the API);
+S5 **43** probes ok (+1, the startup line); #6a–#6c, #9a, S6 (31) unchanged.
 
 Expected, and only these: in S2 the three PostgreSQL suites skip, because S2 runs without
 `TEST_DATABASE_URL` on purpose (node lists them as `# SKIP` lines under `# suites`, not
@@ -644,6 +651,14 @@ VERDICT: PASS | FAIL | BLOCKED
   carries the one-time code and its cookie is not `Secure` (DEPLOY.md Part 7). No suite here sees
   the tier's settings; the checks in DEPLOY.md, on the tier, do. Two people's separate budgets are
   proven only by `ladwani.test.js` (the header) and the guard's spec (the count); S5 signs in one person.
+- **LadWani's engine threads are not counted by any suite.** `ladwani.test.js` proves the cap is set
+  before the API loads (a stand-in API), and S5's startup line that the real API started with it. That the
+  engine obeys it was measured by hand on Linux (`taskset`, `/proc/<pid>/task/*/comm`): the engine's
+  `tokio-runtime-w` threads are the cap plus one (CPUs plus one uncapped). Not capped: tokio's blocking
+  threads, one per connection opening at once to a host name (a DNS lookup; Neon's URL is one), which
+  Prisma's pool bounds: LadWani sets `connection_limit=5` (`CONNECTION_DEFAULTS` in
+  `ladwani/apps/api/src/prisma/prisma.service.ts`; Prisma's own default is physical cores × 2 + 1,
+  whatever the affinity or the cap). Its spec checks the parameter; no suite counts the threads.
 - **LadWani's own depth.** Its integration tests (`npm run test:integration` in `ladwani/apps/api`,
   a database of their own) and its screens in a browser are not part of this suite.
 - **LadWani's payment webhook is behind the hub's gate**, so a payment gateway cannot reach it.
