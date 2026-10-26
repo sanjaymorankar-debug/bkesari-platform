@@ -434,7 +434,7 @@ fails on a skip.
 | `portal/db.js`, `portal/sql/**`, `database/portal/**`, `package.json`, `package-lock.json` | R1; S3 #8; S4; **S7**; CR-07 to CR-10, CR-20 |
 | `portal/proxy.js` | `proxy.test.js`; S5 proxy step; CR-11 to CR-14 |
 | `portal/ladwani.js` | `ladwani.test.js`; S5 LadWani step; S6 LadWani loop; CR-11, CR-21. A change to a setting it gives LadWani (`ENGINE_THREADS`, `LADWANI_*`) also: DEPLOY.md Part 7 and section 2.3 read against it |
-| `ladwani/**` | #6a–#6c, #9a; S5 LadWani step; CR-21. A change to its settings (`apps/api/src/common/env.ts`, `next.config.js`) also: DEPLOY.md Part 7 read against it |
+| `ladwani/**` | #6a–#6c, #9a; S5 LadWani step; CR-21. A change to its settings (`apps/api/src/common/env.ts`, `next.config.js`) also: DEPLOY.md Part 7 read against it. A change to its fonts (`apps/web/src/app/fonts/`, `layout.tsx`, the `font-family` and `font-weight` rules in `globals.css`) also: `ladwani-fonts.test.js` |
 | `portal/public/shared/menu.js`, `portal/public/**/*.html`, `page.css` | `menu.test.js`; S1 #5; S5; CR-04, CR-14 to CR-16 |
 | `portal/public/tasks/**` | S1 #5; S5; S6 path loop; CR-01 |
 | `scripts/smoke-dev.sh` | S5 (it is the smoke); CR-15, CR-17 |
@@ -529,6 +529,10 @@ Then the engine's thread cap (`49a10fb`, measured 2026-10-26 plus the portal-tes
 the `ready (database engine: …)` startup line): S2 **115**; R1 **142** (`ladwani` **17**: +1 the cap is in
 place before the engine loads, +1 from portal-tester, a value the engine cannot use stops only the API);
 S5 **43** probes ok (+1, the startup line); #6a–#6c, #9a, S6 (31) unchanged.
+Then LadWani's fonts shipped with the app (`71dd769`, `next/font/local`, measured 2026-10-26 plus the
+portal-tester fix: the latin-ext faces, where ₹ is, and IBM Plex Mono 600): S2 **118**; R1 **145**
+(`ladwani-fonts` **3**, new: what the bundled font files draw, read from the files themselves); #9a builds
+with no network at all; #6a–#6c, S5 (43), S6 (31) and S7 unchanged.
 
 Expected, and only these: in S2 the three PostgreSQL suites skip, because S2 runs without
 `TEST_DATABASE_URL` on purpose (node lists them as `# SKIP` lines under `# suites`, not
