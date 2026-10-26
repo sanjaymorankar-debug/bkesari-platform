@@ -271,6 +271,21 @@ test('an API that fails to start leaves the hub and the pages up', async () => {
   }
 });
 
+test('the database engine\'s threads are capped before LadWani loads it, unless the site sets them', async () => {
+  // Prisma's engine starts one worker thread per CPU the server shows; on
+  // Hostinger every thread counts against the account's process limit.
+  for (const [given, expected] of [[undefined, String(ladwani.ENGINE_THREADS)], ['5', '5']]) {
+    const env = { LADWANI_DATABASE_URL: 'postgres://stand-in' };
+    if (given) env.TOKIO_WORKER_THREADS = given;
+    let atLoad;
+    const loadApi = () => { atLoad = env.TOKIO_WORKER_THREADS; return fakeApi([])(); };
+    const { ladwaniTab } = createApp(stubDb(true), { getUser: async () => MEMBER, ladwani: { webDir: fakeExport(), env, loadApi, log: { error() {} } } });
+    const state = await ladwaniTab.api;
+    assert.equal(atLoad, expected, 'set when the API is loaded');
+    assert.match(state, new RegExp(`^ready \\(database engine: ${expected} worker threads; the server shows \\d+ CPUs\\)$`));
+  }
+});
+
 test('sessionSecret: derived from the hub key unless LADWANI_JWT_SECRET is set', () => {
   const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
   const keys = { privateKey };

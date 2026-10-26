@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 
@@ -30,6 +31,12 @@ const BASE = '/ladwani';
 // so each person gets their own budget whatever proxies stand in front.
 const VISITOR_HEADER = 'x-bkesari-visitor';
 const PLACEHOLDER = '_';
+// Worker threads for Prisma's query engine (a tokio runtime, which reads
+// TOKIO_WORKER_THREADS). Left alone it starts one per CPU the server shows, and
+// a shared host shows all of its cores. Hostinger counts every thread against
+// the account's process limit, so an uncapped engine starved Education's PHP
+// workers on 2026-10-26. LadWani's traffic needs no more than this.
+const ENGINE_THREADS = 2;
 const ROOT = path.join(__dirname, '..', 'ladwani');
 const DEFAULT_WEB_DIR = path.join(ROOT, 'apps', 'web', 'out');
 const DEFAULT_API_ENTRY = path.join(ROOT, 'apps', 'api', 'dist', 'main.js');
@@ -89,10 +96,18 @@ async function startApi({ env, keys, loadApi }) {
   env.LADWANI_JWT_SECRET = sessionSecret(env, keys);
   env.LADWANI_HUB_JWKS = JSON.stringify(keys.jwks);
   env.LADWANI_VISITOR_HEADER = VISITOR_HEADER;
+  // Read by the engine when it starts, so set before LadWani loads it; a value
+  // set on the site wins.
+  if (!env.TOKIO_WORKER_THREADS) env.TOKIO_WORKER_THREADS = String(ENGINE_THREADS);
   const createApi = loadApi();
   const nest = await createApi();
   await nest.init();
   return nest.getHttpAdapter().getInstance();
+}
+
+/** What the startup log says once the API is up: the engine's threads against the CPUs the server shows. */
+function readyState(env) {
+  return `ready (database engine: ${env.TOKIO_WORKER_THREADS} worker threads; the server shows ${os.availableParallelism()} CPUs)`;
 }
 
 /** The `sub` of a token this process just signed (the gate's), without checking it again. */
@@ -128,7 +143,7 @@ function mount(app, {
   let apiProblem = null;
   const apiReady = env.LADWANI_DATABASE_URL
     ? startApi({ env, keys, loadApi }).then(
-      (handler) => { api = handler; return 'ready'; },
+      (handler) => { api = handler; return readyState(env); },
       (err) => { apiProblem = `LadWani's API did not start: ${err.message}`; log.error(apiProblem); return apiProblem; },
     )
     : Promise.resolve((apiProblem = 'LADWANI_DATABASE_URL is not set'));
@@ -179,4 +194,4 @@ function mount(app, {
   return { api: apiReady };
 }
 
-module.exports = { BASE, PLACEHOLDER, VISITOR_HEADER, resolveStatic, sessionSecret, mount };
+module.exports = { BASE, PLACEHOLDER, VISITOR_HEADER, ENGINE_THREADS, resolveStatic, sessionSecret, mount };
