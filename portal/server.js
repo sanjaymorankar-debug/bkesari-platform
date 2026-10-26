@@ -18,7 +18,9 @@ const { createHub } = require('./hub');
 /* ============================================================
    bkesari.com
      /            -> welcome portal (public/index.html)
-     /tasks/      -> Task Tracker UI (public/tasks/index.html)
+     /tasks/      -> Task Tracker UI (public/tasks/index.html); redirects to
+                     /tasklist/ instead once TASKLIST_ORIGIN is set
+     /tasklist/   -> the TaskList app, forwarded by proxy.js (TASKLIST_ORIGIN)
      /tasks/api/  -> Task Tracker REST API
      /ATIP/       -> read-only ATIP snapshot, owner only, menu rendered server-side
      /environment/ -> Environmental Activities (/global-warming/ redirects here)
@@ -233,11 +235,24 @@ function createApp(db, extra = {}) {
     : null;
   const proxied = proxy.mount(app, {
     env: ladwaniTab ? { ...process.env, LADWANI_ORIGIN: '' } : process.env,
-    gates: { edu: hub.gate('edu'), ladwani: hub.gate('ladwani') },
+    // TaskList has its own login (TASKLIST_USER / TASKLIST_PASSWORD) until it
+    // moves to central login. With central login on, the hub also asks for a
+    // bkesari ID with TaskList access first, as it does for the old /tasks/;
+    // without it, the gate would only send people to a sign-in page that is
+    // not there.
+    gates: {
+      edu: hub.gate('edu'),
+      ladwani: hub.gate('ladwani'),
+      ...(neonAuth.enabled() ? { tasklist: hub.gate('tasklist') } : {}),
+    },
     // The bar for the proxy's own error page. Takes the request so the tier
     // badge comes from the same place every other page gets it.
     renderMenu: (pathname, req) => menu.renderHtml({ pathname, env: currentEnv(req) }),
   });
+
+  // Old bookmarks: /tasks/ goes to /tasklist/ once TaskList has an origin.
+  // Before the Task Tracker's login below, so the redirect needs no login.
+  const moved = proxy.mountMoved(app, proxied);
 
   // Neon Auth's /api/auth/* proxy forwards the raw body too, so it also has to
   // be mounted before the body parsers. Without NEON_AUTH_BASE_URL, /tasks/
@@ -597,7 +612,7 @@ ${menu.renderHtml({ pathname: req.path, env: currentEnv(req) })}
     res.status(status).json({ error: message });
   });
 
-  return { app, proxied, ladwaniTab };
+  return { app, proxied, ladwaniTab, moved };
 }
 
 /**
@@ -637,7 +652,7 @@ async function main() {
   await new Promise((resolve, reject) => server.once('error', reject).listen(port, resolve));
   console.log(`bkesari portal listening on port ${port}, connecting to the database`);
   const { db, extra } = await openDatabases();
-  const { app, proxied, ladwaniTab } = createApp(db, { ...extra, ladwani: {} });
+  const { app, proxied, ladwaniTab, moved } = createApp(db, { ...extra, ladwani: {} });
   handler = app;
   console.log(`bkesari portal running at http://localhost:${port}`);
   console.log(`Task Tracker at http://localhost:${port}/tasks/`);
@@ -651,12 +666,13 @@ async function main() {
     `object storage ${storage.enabled() ? 'on' : 'off'}, ` +
     `report function ${process.env.NEON_FUNCTION_REPORT_BASE_URL && process.env.ORIGIN_SECRET ? 'on' : 'off'}`);
   for (const route of proxied) console.log(`${route.path} -> ${route.target}`);
+  for (const m of moved) console.log(`${m.paths.join(', ')} redirect to ${m.to}`);
   if (ladwaniTab) {
     console.log(`${ladwani.BASE}/ -> in this process`);
     ladwaniTab.api.then((state) => console.log(`LadWani API: ${state}`));
   }
   if (!proxied.length && !ladwaniTab) {
-    console.log('No project origins set (EDU_ORIGIN, LADWANI_ORIGIN);');
+    console.log('No project origins set (EDU_ORIGIN, LADWANI_ORIGIN, TASKLIST_ORIGIN);');
     console.log('those tabs will show the "not on this tier yet" page.');
   }
 }

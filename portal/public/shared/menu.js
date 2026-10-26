@@ -48,7 +48,7 @@
     { name: 'LadWani',                  path: '/ladwani/',           icon: '👪', tagline: 'Family and community portal' },
     { name: 'ATIP',                     path: '/ATIP/',              icon: '📈', tagline: 'Trading intelligence, view only', ownerOnly: true },
     { name: 'Education',                path: '/edu/',               icon: '🎓', tagline: 'School and student governance' },
-    { name: 'TaskList',                 path: '/tasks/',             icon: '✅', tagline: 'Projects, tasks and status updates' },
+    { name: 'TaskList',                 path: '/tasklist/',          icon: '✅', tagline: 'Projects, tasks and status updates' },
     { name: 'Driving Simulator',        path: '/driving-simulator/', icon: '🚗', tagline: 'Driver training simulator' },
     { name: 'Environmental Activities', path: '/environment/',       icon: '🌍', tagline: 'Climate facts and local impact' },
   ];
@@ -82,7 +82,7 @@
    * The tab a path belongs to, by longest matching prefix, or '/' for home.
    *
    * Prefix rather than equality so a page deep inside a project — /ladwani/members,
-   * /tasks/42 — still lights up its own tab.
+   * /tasklist/api/tasks — still lights up its own tab.
    */
   function activeTabPath(pathname) {
     const path = String(pathname || '/').toLowerCase();

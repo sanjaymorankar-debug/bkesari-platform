@@ -18,7 +18,7 @@ const HUB_PROJECTS = [
   { key: 'ladwani', name: 'LadWani', path: '/ladwani/', visibility: 'approval', roles: 'member,karta,operator,admin', sort_order: 10 },
   { key: 'atip', name: 'ATIP', path: '/ATIP/', visibility: 'owner', roles: 'owner', sort_order: 20 },
   { key: 'edu', name: 'Education', path: '/edu/', visibility: 'approval', roles: 'parent,student,teacher,school_admin,admin', sort_order: 30 },
-  { key: 'tasklist', name: 'TaskList', path: '/tasks/', visibility: 'approval', roles: 'viewer,editor,owner', sort_order: 40 },
+  { key: 'tasklist', name: 'TaskList', path: '/tasklist/', visibility: 'approval', roles: 'viewer,editor,owner', sort_order: 40 },
 ];
 const stubDb = (approved) => new Proxy({}, { get: (_, k) => async (sql) => {
   if (k === 'all' && /FROM hub_projects/.test(sql)) return HUB_PROJECTS;
@@ -34,7 +34,7 @@ const APPROVED_USER = { id: 'u-approved', email: 'member@example.com', emailVeri
 const ENV = {
   TRACKER_USER: 'tracker', TRACKER_PASSWORD: 'tracker-pw',
   ATIP_USER: 'viewer', ATIP_PASSWORD: 'viewer-pw', ATIP_PUBLISH_TOKEN: 'token',
-  EDU_ORIGIN: '', LADWANI_ORIGIN: '', APP_ENV: '',
+  EDU_ORIGIN: '', LADWANI_ORIGIN: '', TASKLIST_ORIGIN: '', APP_ENV: '',
 };
 
 /** Runs `fn(base)` against createApp with `env` applied to process.env, then puts it back. */
@@ -231,10 +231,51 @@ test('the hub is an installable PWA: manifest, icons, service worker, offline pa
     assert.equal(sw.headers.get('cache-control'), 'no-cache');
     const swText = await sw.text();
     // Per-user pages are never cached by the worker.
-    for (const p of ['hub', 'api', 'tasks', 'atip', 'ladwani', 'edu', 'admin', 'access', 'auth']) assert.ok(swText.includes(p), p);
+    for (const p of ['hub', 'api', 'tasks', 'tasklist', 'atip', 'ladwani', 'edu', 'admin', 'access', 'auth']) assert.ok(swText.includes(p), p);
     assert.equal((await fetch(`${base}/offline.html`)).status, 200);
     const home = await (await fetch(`${base}/`)).text();
     assert.match(home, /<link rel="manifest" href="\/manifest.webmanifest">/);
     assert.match(home, /apple-touch-icon/);
   });
+});
+
+test('TaskList at /tasklist/: forwarded as is without central login, behind its gate with it', async () => {
+  // Stands in for the TaskList app and reports what reached it.
+  const upstream = http.createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ url: req.url, token: Boolean(req.headers['x-bkesari-token']) }));
+  });
+  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${upstream.address().port}`;
+  try {
+    // No central login: TaskList's own login is the only one, so the hub
+    // forwards without a gate. /tasks/ sends old bookmarks on.
+    await withHub({ ...ENV, NEON_AUTH_BASE_URL: '', TASKLIST_ORIGIN: origin }, async (base, port) => {
+      const r = await raw(port, 'GET', '/tasklist/api/tasks');
+      assert.equal(r.status, 200);
+      assert.deepEqual(JSON.parse(r.text), { url: '/tasklist/api/tasks', token: false });
+      const old = await fetch(`${base}/tasks/`, { redirect: 'manual' });
+      assert.equal(old.status, 302);
+      assert.equal(old.headers.get('location'), '/tasklist/');
+      // The old tracker's API keeps its own login.
+      assert.equal((await raw(port, 'GET', '/tasks/api/overview')).status, 401);
+    });
+
+    // Central login on: a visitor is sent to sign in, an approved member
+    // reaches TaskList with the hub's signed token.
+    const central = { ...ENV, NEON_AUTH_BASE_URL: 'http://127.0.0.1:1/neondb/auth',
+      NEON_AUTH_COOKIE_SECRET: 'test-only-cookie-secret-0123456789abcdef', TASKLIST_ORIGIN: origin };
+    await withHub(central, async (base) => {
+      const r = await fetch(`${base}/tasklist/`, { redirect: 'manual' });
+      assert.equal(r.status, 302);
+      assert.match(r.headers.get('location'), /^\/auth\/sign-in\?next=%2Ftasklist%2F/);
+    }, { extra: { getUser: async () => null } });
+    await withHub(central, async (base) => {
+      const r = await fetch(`${base}/tasklist/api/tasks`);
+      assert.equal(r.status, 200);
+      assert.deepEqual(await r.json(), { url: '/tasklist/api/tasks', token: true });
+    }, { db: stubDb(true), extra: { getUser: async () => APPROVED_USER } });
+  } finally {
+    await new Promise((resolve) => upstream.close(resolve));
+  }
 });

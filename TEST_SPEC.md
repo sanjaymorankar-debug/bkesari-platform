@@ -3,8 +3,9 @@
 The hub is the Node.js (Express) app behind **bkesari.com**, `test.bkesari.com` and
 `dev.bkesari.com`: the welcome page, the shared menu every project includes
 (`portal/public/shared/menu.js`), the static Global Warming and Driving Simulator pages, the
-**Task Tracker** at `/tasks/`, the read-only **ATIP viewer** at `/ATIP/` (and `/atip/`), the
-proxy that serves `/edu/` from its own app (`portal/proxy.js`), and **LadWani** at `/ladwani/`,
+**Task Tracker** at `/tasks/` (which redirects to `/tasklist/` once `TASKLIST_ORIGIN` is set), the
+read-only **ATIP viewer** at `/ATIP/` (and `/atip/`), the proxy that serves `/edu/` and
+`/tasklist/` (the TaskList repository's app) from their own apps (`portal/proxy.js`), and **LadWani** at `/ladwani/`,
 which the hub serves itself (`portal/ladwani.js`: the static export of `ladwani/apps/web` and
 LadWani's NestJS API, in the hub's process). Its
 data is in **PostgreSQL on Neon** (database `neondb`, role `bk_portal_app`, one Neon branch per
@@ -115,6 +116,7 @@ them. LadWani's schema goes into its database once per run (2.5).
 | `ATIP_USER`, `ATIP_PASSWORD` | `/ATIP/` login (unset = 503: fails closed) | `smoke` / `smoke-local-only` |
 | `ATIP_PUBLISH_TOKEN` | snapshot upload | `smoke-local-token` |
 | `EDU_ORIGIN`, `LADWANI_ORIGIN` | the proxy | blank, except in S5's proxy step (`http://127.0.0.1:3111`). Blank `EDU_ORIGIN` while `APP_ENV` names a tier means that tier's live Education site (`TIER_ORIGINS` in `portal/proxy.js`): S5's first hub therefore has a gated route to the dev site, which no anonymous request gets past. LadWani has no tier default, and `LADWANI_ORIGIN` is ignored while its export is built (server.js serves it itself); it still reaches the proxy in `tests/support/signed-in-hub.js`'s default mode. A hub with a signed-in stand-in (`server.test.js`, `tests/support/signed-in-hub.js`) must set both to a local upstream or leave `APP_ENV` blank |
+| `TASKLIST_ORIGIN` | the proxy (`/tasklist/`) and the `/tasks` → `/tasklist/` redirect | blank (no tier default: `/tasks/` stays the old tracker and `/tasklist/` is the "not on this tier yet" page). `proxy.test.js` and `server.test.js` set it to a local upstream when they test the forwarding and the redirect |
 | `LADWANI_DATABASE_URL` | LadWani's API in the hub (`portal/ladwani.js`) | unset (the pages are served and the API answers 503), except in S5's LadWani step: `$LADWANI_SMOKE_DATABASE_URL`. Never a Neon branch |
 | `LADWANI_JWT_SECRET`, `LADWANI_TRUST_PROXY` | LadWani's API in the hub | unset (the secret is then derived from the hub's key; the rate limits count per signed-in person, not per address, so no trust-proxy setting is needed for them) |
 | `LADWANI_VISITOR_HEADER` | LadWani's rate limits (`VisitorThrottlerGuard`) | never set by hand: `portal/ladwani.js` sets it in the hub's process. Standalone LadWani without it counts per IP and ignores the header |
@@ -522,6 +524,11 @@ Then per-person rate limits (`115b07b`: `VisitorThrottlerGuard`, `X-Bkesari-Visi
 S2 **113**; R1 **140** (`ladwani` **15**: +1 the API is told who the visitor is, +1 from portal-tester, a
 browser's visitor header never reaches the API even when the gate names no one); #6a **225** in **29**
 suites (+3, the guard's spec); #6b, #6c, #9a, S5 (42) and S6 (31) unchanged.
+Then TaskList at `/tasklist/` (`TASKLIST_ORIGIN`, the `/tasks` redirect, the gate under central
+login): S2 **119**; R1 **146** (`menu` **20**: +1 the TaskList tab is lit on its pages and not on
+`/tasks/`; `proxy` **36**: +4 forwarding with the prefix, the redirect with and without an origin,
+every move points at a proxied tab; `server` **8**: +1 ungated without central login, gated with it);
+everything else unchanged.
 
 Expected, and only these: in S2 the three PostgreSQL suites skip, because S2 runs without
 `TEST_DATABASE_URL` on purpose (node lists them as `# SKIP` lines under `# suites`, not

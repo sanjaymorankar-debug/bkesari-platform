@@ -4,7 +4,7 @@ One repository for everything behind **bkesari.com**. Each part keeps its own la
 
 | Folder | What | Language | Where it runs |
 |---|---|---|---|
-| `portal/` | Welcome page, **Task Tracker** (`/tasks/`) and the **ATIP viewer** (`/ATIP/`) | Node.js (Express) | Hostinger Node.js Web App: `dev.`/`test.`/`bkesari.com` |
+| `portal/` | Welcome page, the old **Task Tracker** (`/tasks/`, being replaced by TaskList at `/tasklist/`) and the **ATIP viewer** (`/ATIP/`) | Node.js (Express) | Hostinger Node.js Web App: `dev.`/`test.`/`bkesari.com` |
 | `edu/` | School & Student Governance platform | PHP (Laravel) | Hostinger PHP site: `devedu.`/`testedu.`/`edu.bkesari.com` |
 | `atip/` | A pointer only — ATIP lives in the `ATIP-DEV` repo, and on the Mac at `/Users/agtci/Documents/Project_Documents/Projects/ATIP` | Python | Mac, pushing a view-only snapshot to `/ATIP/`; or a VPS for the full app |
 
@@ -17,7 +17,7 @@ One repository for everything behind **bkesari.com**. Each part keeps its own la
 | `main` | https://bkesari.com |
 
 The menu (`portal/public/shared/menu.js`) is the same on every tier. Its tabs are
-paths on the site you are on (`/ladwani/`, `/edu/`, `/tasks/`, `/ATIP/`, ...),
+paths on the site you are on (`/ladwani/`, `/edu/`, `/tasklist/`, `/ATIP/`, ...),
 and the hub forwards each app's path to the app behind it (DEPLOY.md Part 7). The
 tier badge comes from the address: `dev.` and `localhost` are dev, `test.` is test,
 anything else is production.
@@ -71,7 +71,20 @@ The database tests run against a throwaway PostgreSQL named in `TEST_DATABASE_UR
 (never a `DB_*` or `DATABASE_URL` setting: they delete every row in the tracker
 tables). `TEST_SPEC.md` has the full list of what to run.
 
-## Task Tracker
+## TaskList (`/tasklist/`)
+
+The **TaskList** tab is its own app, in the `TaskList` repository (Node.js on
+PostgreSQL). Set `TASKLIST_ORIGIN` to where it runs (locally
+`http://127.0.0.1:3100`) and the hub forwards `/tasklist/` to it, like `/edu/`
+(DEPLOY.md Part 7). With `TASKLIST_ORIGIN` set, the old address `/tasks/`
+redirects to `/tasklist/`; without it, `/tasks/` still shows the old Task Tracker
+below. TaskList's README covers its setup and the one-off import of the Task
+Tracker's data.
+
+## Task Tracker (old, at `/tasks/`)
+
+Being replaced by TaskList. Its code and tables stay here until the owner has
+confirmed the import into TaskList; removing them is a later task.
 
 - **Projects** and **tasks**. A task can belong to a project or be independent. Deleting a project keeps its tasks as independent tasks.
 - Both have owner, status, description, **planned start/end**, **actual start/end**, **current step** and **next step**.
