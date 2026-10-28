@@ -33,7 +33,41 @@ export function getAccessToken(): string | null {
   return accessToken
 }
 
+export interface HubSession {
+  accessToken: string
+  user: { id: string; roles: string[]; memberId: string | null }
+}
+
+let hubSignIn: Promise<HubSession | null> | null = null
+
+/**
+ * Behind bkesari.com the hub signs every forwarded request, so a visitor who
+ * signed in there is signed in here with no second password. The attempt is
+ * shared and made once per page load: AuthProvider and any request that finds
+ * no session (a deep link opened straight onto a data page) wait on the same
+ * promise instead of racing it. Resolves to null when there is no hub access.
+ */
+export function signInViaHub(): Promise<HubSession | null> {
+  if (typeof window === 'undefined') return Promise.resolve(null)
+  hubSignIn ??= (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/hub`, { method: 'POST', credentials: 'include' })
+      if (!res.ok) return null
+      const session = (await res.json())?.data as HubSession | undefined
+      if (!session?.accessToken) return null
+      setAccessToken(session.accessToken)
+      window.localStorage.setItem('authUser', JSON.stringify(session.user))
+      return session
+    } catch {
+      return null
+    }
+  })()
+  return hubSignIn
+}
+
 async function request<T>(method: string, path: string, body?: unknown, retry = true): Promise<T> {
+  // No session yet: let the hub sign-in finish before the first call goes out.
+  if (!path.startsWith('/auth/') && !getAccessToken()) await signInViaHub()
   const token = getAccessToken()
   const res = await fetch(`${API_BASE}${path}`, {
     method,
@@ -48,6 +82,8 @@ async function request<T>(method: string, path: string, body?: unknown, retry = 
   if (res.status === 401 && retry && path !== '/auth/refresh') {
     const refreshed = await tryRefresh()
     if (refreshed) return request<T>(method, path, body, false)
+    // Expired LadWani session: the hub may still vouch for the visitor.
+    if (!path.startsWith('/auth/') && (await signInViaHub())) return request<T>(method, path, body, false)
   }
 
   const text = await res.text()
@@ -78,6 +114,7 @@ async function tryRefresh(): Promise<boolean> {
  * a client-side object URL.
  */
 async function requestBlob(path: string, retry = true): Promise<Blob> {
+  if (!getAccessToken()) await signInViaHub()
   const token = getAccessToken()
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'GET',
@@ -87,7 +124,7 @@ async function requestBlob(path: string, retry = true): Promise<Blob> {
 
   if (res.status === 401 && retry) {
     const refreshed = await tryRefresh()
-    if (refreshed) return requestBlob(path, false)
+    if (refreshed || (await signInViaHub())) return requestBlob(path, false)
   }
 
   if (!res.ok) {

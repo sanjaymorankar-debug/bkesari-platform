@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { api, getAccessToken, setAccessToken, ApiError } from './api-client'
+import { api, getAccessToken, setAccessToken, signInViaHub, ApiError } from './api-client'
 
 export interface AuthUser {
   id: string
@@ -26,16 +26,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function restore() {
       if (!getAccessToken()) {
-        // Behind bkesari.com the hub signs every forwarded request, so a visitor
-        // who signed in there is signed in here too, with no second password.
-        try {
-          const result = await api.post<{ accessToken: string; user: AuthUser }>('/auth/hub')
-          setAccessToken(result.accessToken)
-          window.localStorage.setItem('authUser', JSON.stringify(result.user))
-          setUser(result.user)
-        } catch {
-          // not behind the hub, or no access there: the normal login page applies
-        }
+        // Behind the hub a visitor who signed in there is signed in here too.
+        const session = await signInViaHub()
+        if (session) setUser(session.user)
         setLoading(false)
         return
       }
