@@ -186,7 +186,8 @@ S7 cannot run (section 6).
 
 S7 ends **every other session of that role** (that is the point: it is what Neon's suspend does),
 including a local hub you have running on the same role, which then reconnects. Run it after
-R1, never alongside it.
+R1, never alongside it. Like S5's first hub, the parity hub runs `APP_ENV=dev`, so its smoke step
+sends `/edu/` to the Education dev site unless `EDU_ORIGIN` is exported to a local upstream.
 
 ## 3. Standard suite
 
@@ -208,7 +209,7 @@ Record each command's exit code, counts and duration.
 | 8 | S3 integration | the hand-run SQL load below | exit 0 |
 | 9 | S4 build | the deploy-bundle boot below | `bundle boots: 200` |
 | 9a | S4 LadWani build | the LadWani build below (`build:embedded` without its `npm install`) | exit 0; `ladwani/apps/web/out/index.html` and `ladwani/apps/api/dist/main.js` exist; the route list shows the ten `[param]` pages each built once, as `/…/_` |
-| 10 | S5 smoke | the smoke run below (needs #9a's export) | smoke-dev.sh `0 failed` (the one warning, `/edu/ Livewire checks skipped`, is expected: `APP_ENV=dev` fills in the Education dev site and the hub serves LadWani, so both tabs answer with the sign-in page); every probe `ok`; `S5 failures: 0` |
+| 10 | S5 smoke | the smoke run below (needs #9a's export) | smoke-dev.sh `0 failed, 0 warnings` (`APP_ENV=dev` fills in the Education dev site, whose own sign-in page now answers `/edu/`, so its Livewire checks run; the hub serves LadWani); every probe `ok`; `S5 failures: 0` |
 | 11 | S6 security | the security checks below | `S6 failures: 0` |
 | 12 | S6 hygiene | `npm audit --omit=dev`; `npm --prefix ladwani audit --omit=dev` | report only: list advisories in the report; fix only if trivial. LadWani's run in the hub's process (Nest, Prisma); its Next.js only builds the export |
 | 13 | S7 Neon parity | `bash scripts/neon-parity.sh` (2.6) | `Neon parity passed.`, exit 0 |
@@ -577,11 +578,17 @@ from then).
 
 Expected, and only these: in S2 the five PostgreSQL suites skip, because S2 runs without
 `TEST_DATABASE_URL` on purpose (node lists them as `# SKIP` lines under `# suites`, not
-`# skipped`); in S5 `smoke-dev.sh` warns that the `/edu/` Livewire checks were skipped, because
-the smoke run has no signed-in session; #6c (and #9a's build) print LadWani's two lint warnings named
-above. Anything else skipping or warning is a regression (R4).
-(A hub with no `APP_ENV` and no origins still gives the old 23 / 0 / 2, the two warnings being
-`/edu/` and `/ladwani/` not deployed.)
+`# skipped`); #6c (and #9a's build) print LadWani's two lint warnings named
+above. Anything else skipping or warning is a regression (R4). (`smoke-dev.sh`'s old warning,
+`/edu/ Livewire checks skipped`, came from the hub's own sign-in page in front of `/edu/`; with that
+gone it cannot appear.)
+(A hub with no `APP_ENV` and no origins gives 31 / 0 / 1 with #9a's export built, the warning being
+`/edu/` not deployed; without the export `/ladwani/` is a second.)
+
+First run on this branch (portal-tester, 3 Nov 2026, with its fixes; `/edu/` sent to a local
+Education stand-in, as no real tier was to be contacted): S5 **39** probes ok, smoke-dev.sh 33 / 0 / 0;
+S6 **27** ok; S7 **18** passed (the 17 plus TaskList's own sign-in through the pooler); R1 **161**
+(`tasklist.pg` **14**: +2, OTP codes and passwords sent together stay within 5 tries).
 
 For reference, the suite as merged (before this spec, the same commit, clean tree): 80 tests,
 63 pass, 9 fail, 8 skip, all from the MySQL/SQLite `tests/db-dialects.test.js` that the move to
@@ -644,7 +651,7 @@ Written to `.claude/test-runs/<UTC yyyymmdd-hhmmss>-portal-tester.md` and copied
 | ID | Result | Evidence |
 |---|---|---|
 | PORTAL-CR-01 | PASS | <test name or probe line> |
-| ... all 21 ... |
+| ... all 26 ... |
 
 ## Defects
 
