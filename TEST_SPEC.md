@@ -82,7 +82,7 @@ else may use them:
 | Name in this spec | Used by | What happens to it | Mac | This repo's CI |
 |---|---|---|---|---|
 | suite database (`TEST_DATABASE_URL`) | S3 / R1 | **each PostgreSQL test file drops and recreates a schema of its own (`t_db`, `t_hub`, `t_tasklist`, `t_migrate`)** | `bk_portal_test` | `bk_portal_test` in the service container |
-| smoke database (`SMOKE_DATABASE_URL`) | S4, S5, S7 | **S7 drops the tracker tables**; S5 writes rows | `bk_portal_smoke` | not used (CI's smoke runs on the suite database) |
+| smoke database (`SMOKE_DATABASE_URL`) | S4, S5, S7 | **S7 drops the tracker tables**; S5 writes rows; S5 and S7 empty the sign-in rate-limit counters before they sign in (`tl_rate_limits`; S5 also `hub_admin_rate_limits`) | `bk_portal_smoke` | not used (CI's smoke runs on the suite database) |
 | LadWani smoke database (`LADWANI_SMOKE_DATABASE_URL`) | S5's LadWani step | LadWani's schema (`prisma migrate deploy`) and reference data (its seed); S5 signs in through the hub, which adds a LadWani user, and stores a webhook event | `bk_ladwani_smoke` | not used |
 
 Never a Neon database, a `_dev`/`_test`/`_prod` database on a server, or anything an app
@@ -312,10 +312,15 @@ bash scripts/smoke-dev.sh "$BASE" --env dev || F=$((F+1))
 has "$(curl -sI "$BASE/" | tr -d '\r')" 'X-Bkesari-Env: dev'
 has "$(curl -s "$BASE/")" 'Driving Simulator';  has "$(curl -s -H 'cookie: k_lang=mr' "$BASE/")" 'lang="mr"'
 # TaskList: its own account, made with mobile + OTP (the dev tier shows the code), its own cookie.
+# The smoke database outlives the run, and the limits hold (CR-23, tested in tasklist.pg and hub.pg):
+# TaskList's 5 codes per mobile an hour, the admin's 10 sign-ins per 15 minutes. Each run signs both in
+# with the same mobile and address, so it starts their counters afresh; else a repeat run is a 429.
+psql "$SMOKE_DATABASE_URL" -XAq -c 'DELETE FROM tl_rate_limits' -c 'DELETE FROM hub_admin_rate_limits' \
+  || { echo "FAIL could not reset the sign-in rate limits"; F=$((F+1)); }
 TL=$(mktemp); C=$(curl -s -c $TL "$BASE/tasklist/api/auth/session" | json csrf)
 OTP=$(curl -s -b $TL -c $TL -H "$J" -H "x-csrf-token: $C" -d '{"mobile":"9876500999","purpose":"sign-up"}' "$BASE/tasklist/api/auth/otp/send" | json devCode)
 C=$(curl -s -b $TL -c $TL -H "$J" -H "x-csrf-token: $C" -d "{\"mobile\":\"9876500999\",\"code\":\"$OTP\",\"name\":\"S5\"}" "$BASE/tasklist/api/auth/otp/verify" | json csrf)
-has "$(grep tl_sid $TL)" '/tasklist'
+has "$(awk '$6 == "tl_sid" { print "Path=" $3 }' $TL)" 'Path=/tasklist'   # the session cookie itself, not tl_sid_csrf
 want 201 -b $TL -H "$J" -H "x-csrf-token: $C" -d '{"text":"S5 smoke tomorrow 5pm #s5"}' "$BASE/tasklist/api/quick-add"
 has "$(curl -s -b $TL "$BASE/tasklist/api/tasks")" '"due_time":"17:00"'
 want 403 -b $TL -H "$J" -d '{"title":"no token"}' "$BASE/tasklist/api/tasks"

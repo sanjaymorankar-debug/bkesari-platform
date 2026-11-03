@@ -171,6 +171,10 @@ if out=$(bash "$ROOT/scripts/smoke-dev.sh" "$BASE" --env dev 2>&1); then
 else
   bad "scripts/smoke-dev.sh passes" "$(printf '%s\n' "$out" | grep -E 'FAIL' | sed 's/\x1b\[[0-9;]*m//g' | head -3 | tr '\n' ' ')"
 fi
+# This database is wiped anyway, and every run signs up the same mobile from 127.0.0.1. TaskList
+# allows 5 codes per mobile an hour (tests/tasklist.pg.test.js checks that), so without a fresh
+# count the sixth run inside an hour would be refused with a 429.
+sql "DELETE FROM tl_rate_limits" >/dev/null || bad "TaskList's rate-limit counters are reset for this run"
 tl_sign_in && ok "a TaskList account signs in through the pooler (mobile + OTP)" \
   || bad "a TaskList account signs in through the pooler" "no session; is APP_ENV=dev showing the code? $(tail -3 "$LOG" | tr '\n' ' ')"
 c=$(tl_write "parity")
