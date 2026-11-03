@@ -5,9 +5,14 @@ namespace Tests\Feature\Auth;
 use App\Http\Middleware\HubSignIn;
 use App\Livewire\Forms\LoginForm;
 use App\Models\User;
+use Illuminate\Auth\Events\Attempting;
+use Illuminate\Cache\RateLimiter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\RateLimiter as RateLimiterFacade;
 use Livewire\Volt\Volt;
+use Mockery;
 use Tests\TestCase;
 
 /**
@@ -130,6 +135,33 @@ class OwnAccountTest extends TestCase
         }
 
         $component->assertSee('2 more wrong attempts lock sign-in for 15 minutes.');
+    }
+
+    public function test_passwords_sent_together_still_get_only_five_checks(): void
+    {
+        $user = User::factory()->create();
+        Cache::flush();
+        // Requests that arrive together all pass the limiter's check before
+        // any of them has been counted. (Twelve real requests at once against
+        // the database cache store had all twelve passwords checked before
+        // the fix.)
+        $limiter = Mockery::mock(RateLimiter::class, [app('cache')->driver(config('cache.limiter'))])->makePartial();
+        $limiter->shouldReceive('tooManyAttempts')->andReturnFalse();
+        RateLimiterFacade::swap($limiter);
+        $checked = 0;
+        Event::listen(Attempting::class, function () use (&$checked) {
+            $checked++;
+        });
+
+        // Twelve wrong passwords and, last, the right one.
+        foreach ([...array_fill(0, 12, 'wrong-password'), 'password'] as $password) {
+            Volt::test('pages.auth.login')->call('useMethod', 'email')
+                ->set('form.email', $user->email)->set('form.password', $password)->call('login')
+                ->assertHasErrors('form.email');
+        }
+
+        $this->assertSame(LoginForm::MAX_ATTEMPTS, $checked);
+        $this->assertGuest();
     }
 
     public function test_the_shared_route_names_open_the_same_screens(): void

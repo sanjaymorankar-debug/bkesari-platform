@@ -36,9 +36,18 @@ class LoginForm extends Form
     {
         $this->ensureIsNotRateLimited();
 
-        if (! Auth::attempt($this->only(['email', 'password']), $this->remember)) {
-            $attempts = RateLimiter::hit($this->throttleKey(), self::LOCKOUT_SECONDS);
+        // Counted before the password is checked, and decided on the count
+        // hit() returns (an atomic increment): requests that arrive together
+        // all pass the check above before any of them is counted, so counting
+        // only after a miss let each of them try a password.
+        $attempts = RateLimiter::hit($this->throttleKey(), self::LOCKOUT_SECONDS);
+        if ($attempts > self::MAX_ATTEMPTS) {
+            event(new Lockout(request()));
 
+            $this->throwLockedOut();
+        }
+
+        if (! Auth::attempt($this->only(['email', 'password']), $this->remember)) {
             // The fifth miss starts a full 15 minutes, however long the five
             // took: the limiter's window otherwise runs from the first miss.
             if ($attempts >= self::MAX_ATTEMPTS) {

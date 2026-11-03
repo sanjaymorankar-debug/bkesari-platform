@@ -37,19 +37,30 @@ new #[Layout('layouts.guest')] class extends Component
         // Keyed on the account rather than the address, so moving to another
         // address does not buy more guesses.
         $throttleKey = 'two-factor|'.$userId;
-
-        if (RateLimiter::tooManyAttempts($throttleKey, self::MAX_ATTEMPTS)) {
+        $throttled = function () use ($throttleKey): never {
             $seconds = RateLimiter::availableIn($throttleKey);
 
             throw ValidationException::withMessages([
                 'code' => trans('auth.throttle', ['seconds' => $seconds, 'minutes' => ceil($seconds / 60)]),
             ]);
+        };
+
+        if (RateLimiter::tooManyAttempts($throttleKey, self::MAX_ATTEMPTS)) {
+            $throttled();
         }
 
         $user = User::findOrFail($userId);
         $twoFactor = TwoFactorAuthentication::where('user_id', $user->id)->firstOrFail();
 
         $this->validate(['code' => ['required', 'string']]);
+
+        // Counted before the code is checked, and decided on the count hit()
+        // returns (an atomic increment): requests that arrive together all
+        // pass the check above before any of them is counted, so counting
+        // only after a miss let each of them check a code.
+        if (RateLimiter::hit($throttleKey) > self::MAX_ATTEMPTS) {
+            $throttled();
+        }
 
         $verified = false;
 
@@ -64,7 +75,6 @@ new #[Layout('layouts.guest')] class extends Component
         }
 
         if (! $verified) {
-            RateLimiter::hit($throttleKey);
             $this->addError('code', 'That code is not valid.');
 
             return;

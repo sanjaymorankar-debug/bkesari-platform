@@ -287,18 +287,23 @@ function createProjectAuth(o) {
     await limit(`signin:ip:${clientIp(req)}`, 20, 15 * 60);
     await limit(`signin:id:${email || mobile}`, 10, 15 * 60);
     const user = email ? await findByEmail(email) : await findByMobile(mobile);
-    const locked = user ? await db.get(`SELECT locked_until > now() AS locked, CEIL(EXTRACT(EPOCH FROM (locked_until - now())) / 60)::int AS minutes FROM ${T.users} WHERE id = $1`, [user.id]) : null;
-    if (locked && locked.locked) {
-      throw new AuthError(423, 'locked', `Too many wrong passwords. Try again in ${locked.minutes} minute${locked.minutes === 1 ? '' : 's'}, or reset your password.`);
+    // Claim this try before the password is compared, in one statement, so
+    // attempts sent together each count and no more than LOCK_AFTER are ever
+    // checked: the claim that reaches LOCK_AFTER locks out every one after it.
+    // A right password then clears the count (startSession, or below).
+    const r = user ? await db.get(`UPDATE ${T.users} SET failed_attempts = failed_attempts + 1,
+      locked_until = CASE WHEN failed_attempts + 1 >= $2 THEN now() + make_interval(mins => $3) ELSE locked_until END
+      WHERE id = $1 AND (locked_until IS NULL OR locked_until <= now()) RETURNING failed_attempts`, [user.id, LOCK_AFTER, LOCK_MINUTES]) : null;
+    if (user && !r) {
+      const locked = await db.get(`SELECT GREATEST(CEIL(EXTRACT(EPOCH FROM (locked_until - now())) / 60)::int, 1) AS minutes FROM ${T.users} WHERE id = $1`, [user.id]);
+      const minutes = locked ? locked.minutes : LOCK_MINUTES;
+      throw new AuthError(423, 'locked', `Too many wrong passwords. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}, or reset your password.`);
     }
     // Compare against a dummy hash for unknown users so timing does not reveal who has an account.
     const hash = (user && user.password_hash) || DUMMY_HASH;
     const ok = await bcrypt.compare(String(password), hash);
     if (!user || !ok || !user.password_hash) {
       if (user) {
-        const r = await db.get(`UPDATE ${T.users} SET failed_attempts = failed_attempts + 1,
-          locked_until = CASE WHEN failed_attempts + 1 >= $2 THEN now() + make_interval(mins => $3) ELSE locked_until END
-          WHERE id = $1 RETURNING failed_attempts`, [user.id, LOCK_AFTER, LOCK_MINUTES]);
         await audit(user.id, email || mobile, 'sign-in-failed', `attempt ${r.failed_attempts}`, req);
         if (r.failed_attempts >= LOCK_AFTER) {
           throw new AuthError(423, 'locked', `Too many wrong passwords. Try again in ${LOCK_MINUTES} minutes, or reset your password.`);
@@ -306,7 +311,11 @@ function createProjectAuth(o) {
       }
       throw new AuthError(401, 'credentials', 'That email/mobile and password do not match.');
     }
-    if (user.status !== 'active') throw new AuthError(403, 'status', user.status === 'pending' ? 'Your account is waiting for approval.' : 'This account is suspended.');
+    if (user.status !== 'active') {
+      // The right password is not a failed attempt, whatever the account's state.
+      await db.run(`UPDATE ${T.users} SET failed_attempts = 0, locked_until = NULL WHERE id = $1`, [user.id]);
+      throw new AuthError(403, 'status', user.status === 'pending' ? 'Your account is waiting for approval.' : 'This account is suspended.');
+    }
     const csrf = await startSession(req, res, user, 'password');
     res.json({ user: publicUser(user), csrf });
   }));
@@ -387,14 +396,23 @@ function createProjectAuth(o) {
     if (!mobile) throw new AuthError(400, 'mobile', 'Enter a valid 10-digit Indian mobile number.');
     if (code.length !== 6) throw new AuthError(400, 'code', 'Enter the 6-digit code.');
     await limit(`otpcheck:ip:${clientIp(req)}`, 30, 15 * 60);
+    const expired = () => new AuthError(400, 'expired', 'That code has expired. Ask for a new one.');
     const row = await db.get(`SELECT id, purpose, code_hash, attempts FROM ${T.otp} WHERE target = $1 AND used_at IS NULL AND expires_at > now() ORDER BY id DESC LIMIT 1`, [mobile]);
-    if (!row) throw new AuthError(400, 'expired', 'That code has expired. Ask for a new one.');
-    if (row.attempts >= OTP_MAX_TRIES) throw new AuthError(429, 'tries', 'Too many wrong codes. Ask for a new one.');
-    if (!sameText(otpHash(mobile, row.purpose, code), row.code_hash)) {
-      await db.run(`UPDATE ${T.otp} SET attempts = attempts + 1 WHERE id = $1`, [row.id]);
-      throw new AuthError(400, 'code', `That code is not right. ${OTP_MAX_TRIES - row.attempts - 1} tries left.`);
+    if (!row) throw expired();
+    // Claim a try before comparing, in one statement: requests that arrive
+    // together each get their own, so no more than OTP_MAX_TRIES are ever checked.
+    const tryNo = await db.get(`UPDATE ${T.otp} SET attempts = attempts + 1
+      WHERE id = $1 AND used_at IS NULL AND expires_at > now() AND attempts < $2 RETURNING attempts`, [row.id, OTP_MAX_TRIES]);
+    if (!tryNo) {
+      const now = await db.get(`SELECT used_at IS NULL AND expires_at > now() AS live FROM ${T.otp} WHERE id = $1`, [row.id]);
+      if (now && now.live) throw new AuthError(429, 'tries', 'Too many wrong codes. Ask for a new one.');
+      throw expired();
     }
-    await db.run(`UPDATE ${T.otp} SET used_at = now() WHERE id = $1`, [row.id]);
+    if (!sameText(otpHash(mobile, row.purpose, code), row.code_hash)) {
+      throw new AuthError(400, 'code', `That code is not right. ${OTP_MAX_TRIES - tryNo.attempts} tries left.`);
+    }
+    // Spend it, also in one statement: of two requests carrying the right code, one signs in.
+    if (!(await db.get(`UPDATE ${T.otp} SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id`, [row.id]))) throw expired();
     let user = await findByMobile(mobile);
     if (!user) {
       if (row.purpose !== 'sign-up' || !allowSignUp) throw new AuthError(403, 'closed', 'New accounts are not open here.');

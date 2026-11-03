@@ -117,6 +117,41 @@ describe('TaskList on PostgreSQL', { skip }, () => {
     assert.ok(stored, 'only the hash of the session token is stored');
   });
 
+  test('a code takes 5 guesses at most and is spent once, even when the requests arrive together', async () => {
+    const verify = (b, mobile, code, csrf, i) => b.fetch('POST', '/tasklist/api/auth/otp/verify',
+      // Each from its own address: the per-address limit is not what may stop them.
+      { json: { mobile, code, name: 'Race' }, csrf, headers: { 'x-forwarded-for': `203.0.113.${i + 1}` } });
+    // Open the server's database connections first, as on a busy server: a cold pool
+    // makes all but one request wait for a connection, which hides the race.
+    const warm = () => Promise.all(Array.from({ length: 6 }, () => new Browser(base).fetch('GET', '/tasklist/api/auth/me', { headers: { cookie: `tl_sid=${'x'.repeat(40)}` } })));
+    await warm();
+    const b = new Browser(base);
+    const s = await b.fetch('GET', '/tasklist/api/auth/session');
+    assert.equal((await b.fetch('POST', '/tasklist/api/auth/otp/send', { json: { mobile: '9876500060', purpose: 'sign-up' }, csrf: s.json.csrf })).status, 200);
+    const code = lastCode('9876500060');
+    const wrong = code === '000000' ? '111111' : '000000';
+    const guesses = await Promise.all(Array.from({ length: 10 }, (_, i) => verify(b, '9876500060', wrong, s.json.csrf, i)));
+    const checked = guesses.filter((r) => r.status === 400 && r.json.code === 'code').length;
+    assert.ok(checked <= 5, `${checked} of 10 guesses sent together were checked against one code`);
+    assert.deepEqual(guesses.filter((r) => !(r.status === 400 && r.json.code === 'code')).map((r) => [r.status, r.json.code]),
+      Array(10 - checked).fill([429, 'tries']), 'the rest are told there are no tries left');
+    const row = await db.get("SELECT attempts FROM tl_otp_codes WHERE target = '9876500060' ORDER BY id DESC LIMIT 1");
+    assert.ok(row.attempts <= 5, `the code counted ${row.attempts} tries`);
+    assert.equal((await verify(b, '9876500060', code, s.json.csrf, 10)).status, 429, 'after 5 wrong guesses even the right code is refused');
+
+    // The right code five times at once: one account and one session, not several.
+    const c = new Browser(base);
+    const s2 = await c.fetch('GET', '/tasklist/api/auth/session');
+    assert.equal((await c.fetch('POST', '/tasklist/api/auth/otp/send', { json: { mobile: '9876500061', purpose: 'sign-up' }, csrf: s2.json.csrf })).status, 200);
+    const code2 = lastCode('9876500061');
+    await warm();
+    const both = await Promise.all([20, 21, 22, 23, 24].map((i) => verify(c, '9876500061', code2, s2.json.csrf, i)));
+    assert.deepEqual(both.map((r) => r.status).sort(), [200, 400, 400, 400, 400], both.map((r) => `${r.status} ${r.text}`).join(' | '));
+    assert.ok(both.filter((r) => r.status === 400).every((r) => r.json.code === 'expired'), 'the others find the code spent');
+    const n = await db.get("SELECT (SELECT COUNT(*) FROM tl_users WHERE mobile = '9876500061') AS users, (SELECT COUNT(*) FROM tl_sessions s JOIN tl_users u ON u.id = s.user_id WHERE u.mobile = '9876500061') AS sessions");
+    assert.deepEqual(n, { users: 1, sessions: 1 });
+  });
+
   test('on production without an SMS provider a code is refused, never shown on screen', async (t) => {
     const made = createApp(db, { notify: () => ({}), log: quiet });
     const s2 = await new Promise((r) => { const s = made.app.listen(0, '127.0.0.1', () => r(s)); });

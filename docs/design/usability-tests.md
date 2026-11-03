@@ -52,7 +52,7 @@ Result key: ✅ passes · ⚠️ passes with a finding · ⏳ not yet runnable �
 
 ## Accessibility checks done alongside
 
-- **axe-core, WCAG 2.2 AA tags:** 114 public page × width × language combinations and 20 signed-in TaskList and LadWani screens.
+- **axe-core, WCAG 2.2 AA tags:** 114 public page × width × language combinations, and 20 scans of the signed-in TaskList screens and the LadWani sign-in. LadWani's signed-in screens are still to scan, with a seeded member, on Test.
   - Findings: 3 serious, all fixed and the pages rescanned with 0 left.
   - They were the brand colour as text (4.28:1), the faded deceased tree node, and the account button's label not matching its visible text.
 - **Keyboard:**

@@ -4,9 +4,11 @@ namespace Tests\Feature\Platform;
 
 use App\Models\TwoFactorAuthentication;
 use App\Models\User;
+use Illuminate\Cache\RateLimiter as CacheRateLimiter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Volt\Volt;
+use Mockery;
 use PragmaRX\Google2FA\Google2FA;
 use Tests\TestCase;
 
@@ -215,6 +217,28 @@ class TwoFactorAuthTest extends TestCase
 
         $this->assertAuthenticatedAs($officer);
         $this->assertSame(0, RateLimiter::attempts('two-factor|'.$officer->id));
+    }
+
+    public function test_codes_sent_together_still_get_only_five_checks(): void
+    {
+        [$officer, $secret] = $this->officerAtTheChallenge();
+        // Requests that arrive together all pass the limiter's check before
+        // any of them has been counted. (Twelve real requests at once against
+        // the database cache store had 6 and 9 codes checked before the fix.)
+        $limiter = Mockery::mock(CacheRateLimiter::class, [app('cache')->driver(config('cache.limiter'))])->makePartial();
+        $limiter->shouldReceive('tooManyAttempts')->andReturnFalse();
+        RateLimiter::swap($limiter);
+
+        // Twelve wrong codes and, last, the right one.
+        $challenge = Volt::test('pages.auth.two-factor-challenge');
+        $answers = [];
+        foreach ([...$this->wrongCodes($secret, 12), (new Google2FA())->getCurrentOtp($secret)] as $guess) {
+            $answers[] = $challenge->set('code', $guess)->call('verify')->errors()->first('code');
+        }
+
+        $this->assertCount(5, array_keys($answers, 'That code is not valid.'));
+        $this->assertStringContainsString('Too many', end($answers));
+        $this->assertGuest();
     }
 
     public function test_one_account_being_locked_does_not_lock_another(): void

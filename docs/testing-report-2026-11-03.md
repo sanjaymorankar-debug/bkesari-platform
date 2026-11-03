@@ -20,7 +20,7 @@ Report written 3 Nov 2026, between 12:30 PM and __FINAL_TIME__ (IST, UTC + 5:30)
 | Auth isolation (signing in or out of one project never affects another; cross-project reuse refused) | **Pass**: §3 |
 | Role-based access | **Pass**: §4 |
 | Responsive, 360 / 768 / 1280 px, EN / MR / HI | **No horizontal scroll on any page**: §5 |
-| Accessibility (axe-core, WCAG 2.2 AA) | __AXE_SUMMARY__ |
+| Accessibility (axe-core, WCAG 2.2 AA) | 134 scans (114 public page × width × language, 20 signed-in): 3 serious violations found, all fixed, **0 left** |
 | Lighthouse (mobile) | **Performance 95–100, accessibility 100, best practices 100** on every key page; LCP ≤ 1.2 s; CLS ≤ 0.064: §7 |
 | Mobile apps (Android, iOS) | **Not built**: blocked, §8 |
 | Test server / Prod server | **Not run on the redesign** (not deployed): §9 |
@@ -90,7 +90,16 @@ Defects found here and fixed: the header overflowed by 18–26 px at 360–390 p
 
 ## 6. Accessibility (axe-core, WCAG 2.0/2.1/2.2 A + AA tags)
 
-__AXE_TABLE__
+Each page was scanned with axe-core 4 (tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22aa`) in Chromium, after the page and its fonts had loaded.
+
+| Scope | Scans | Violations at the start | Violations now |
+|---|---|---|---|
+| Public pages: the 19 routes of §5 (hub 11, TaskList 3, LadWani 5) × 360 and 1280 px × EN / मराठी / हिंदी | 114 | 3 serious (D-05, D-06, D-07 in §10) | **0** |
+| Signed in: TaskList Today, Upcoming, Board, Lists, Tags, Search, Completed, Settings and the task detail, plus the LadWani sign-in, × 360 and 1280 px | 20 | 0 | **0** |
+
+The 404 page logs one console error by design: the browser reports the 404 status of the page itself.
+
+LadWani's signed-in screens (family tree, approvals, governance, bureau) are **not** in these scans: they need an approved member account with seeded family data. They are listed as open in §11, for the Test-server run.
 
 Also checked:
 - **Keyboard:** Tab order, the 3 px focus ring, Esc closes dialogs, and the board moves by keyboard.
@@ -185,3 +194,4 @@ __TESTER_DEFECTS__
 - The Education learning screens the brief lists but the product does not have (D-024).
 - LadWani's operator document viewer and governance views (tracker).
 - Privacy-friendly analytics (tracker).
+- axe on LadWani's signed-in screens, with a seeded approved member (§6).
