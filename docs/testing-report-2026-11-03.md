@@ -15,8 +15,8 @@ Report written 3 Nov 2026, between 12:30 PM and __FINAL_TIME__ (IST, UTC + 5:30)
 | Hub + TaskList + shell + Kesari, automated (R1) | **162 / 162 pass**, 0 skipped, plus **32 / 32** deploy-guard cases (159 at the start; +2 race tests, +1 cookie test) |
 | portal-tester (TEST_SPEC.md S1–S7, R1–R4) | __PORTAL_VERDICT__ |
 | LadWani API (Jest) | **252 / 252 pass** in 31 suites; typecheck and lint clean (2 old warnings); static export builds |
-| Education (PHPUnit, edu/TEST_SPEC.md) | __EDU_COUNTS__ |
-| edu-tester | __EDU_VERDICT__ |
+| Education (PHPUnit, edu/TEST_SPEC.md) | **473 tests** on SQLite (468 pass, the 5 known skips), PostgreSQL (473 / 473) and through the pooler (473 / 473); smoke through the hub 60 / 0 (HTTP) and 21 / 0 (browser) |
+| edu-tester | **PASS** (report `.claude/test-runs/20261103-075722-edu-tester.md`, 01:27 PM): every level S1–S7 green at or above baseline; 5 defects found and fixed (D-22 to D-26) |
 | Auth isolation (signing in or out of one project never affects another; cross-project reuse refused) | **Pass**: §3 |
 | Role-based access | **Pass**: §4 |
 | Responsive, 360 / 768 / 1280 px, EN / MR / HI | **No horizontal scroll on any page**: §5 |
@@ -50,7 +50,7 @@ Report written 3 Nov 2026, between 12:30 PM and __FINAL_TIME__ (IST, UTC + 5:30)
 | ATIP: upload needs the token; newest only; view-only page (own CSP, controls hidden, also without `</head>`) | `hub.pg.test.js` | Pass |
 | LadWani: landing, sign-in (OTP / password), sign-up stepper, forgot, verify, pending, family tree with list view | LadWani Jest (incl. a real-HTTP suite); browser; Lighthouse | Pass |
 | LadWani in the hub: no gate, no hub token, raw body to the API, path traversal refused, engine thread cap | `ladwani.test.js` (16) | Pass |
-| Education: own sign-in (password, mobile + OTP), lockout, `/sign-in` aliases, `/shell/me`, languages | edu suites (§1) | __EDU_RESULT__ |
+| Education: own sign-in (password, mobile + OTP), lockout, `/sign-in` aliases, `/shell/me`, languages | edu suites (§1) | Pass (edu-tester; also under 12 requests sent at once) |
 | Migration from the shared ID: dry run changes nothing; `--apply` makes TaskList accounts and hands over the old tracker; safe to re-run | `migrate.pg.test.js` (3) | Pass |
 
 ## 3. Auth isolation
@@ -75,7 +75,7 @@ Report written 3 Nov 2026, between 12:30 PM and __FINAL_TIME__ (IST, UTC + 5:30)
 | ATIP: the hub admin with the **owner** role sees it; an **editor** admin gets 404; anonymous 404; TaskList's owner role grants nothing there | Pass (`hub.pg.test.js`) |
 | TaskList report (Neon Function): owner role only; others 404 | Pass (route + `server.test.js`) |
 | TaskList rows: each person sees, edits and deletes only their own; nobody sees the old shared tracker's rows until migrated | Pass (`tasklist.pg.test.js`) |
-| Education role middleware (parent, student, teacher, school_admin, district / state / national, system_admin) | __EDU_ROLE__ |
+| Education role middleware (parent, student, teacher, school_admin, district / state / national, system_admin) | Pass (`RbacBoundaryTest`, `AppealsTest`, `AcademicRecordsTest`, the 57 guest routes refused; edu-tester CR-01 to CR-21) |
 | LadWani roles (member, Karta, operator, admin) on its API | Pass (LadWani Jest) |
 
 ## 5. Responsive checks (360 / 768 / 1280 px)
@@ -190,7 +190,11 @@ There are **no build numbers to record yet**. Steps are in `mobile/README.md`. B
 | D-19 | S4 | Smoke step checked the LadWani API's "ready" line before the API had printed it | portal-tester | Waits up to 10 s for the line |
 | D-20 | S3 | The hub admin's session cookie (Path=/) was forwarded to Education's server with every `/edu/` request | portal-tester (code reading) | The proxy drops `hub_admin_sid` and its CSRF pair (D-027); a test checks it |
 | D-21 | S4 | Dead branch for the retired hub gate in `smoke-dev.sh`; stale counts in `TEST_SPEC.md` | portal-tester | Removed; spec counts updated |
-__EDU_DEFECTS__
+| D-22 | S3 | Education mobile sign-in (new): 12 wrong codes sent together were all checked; one code signed in 12 times; 12 codes sent to one number (limit 3) | edu-tester | Atomic try counter per code; the code spent by the first request to claim it; send limit on each request's own count |
+| D-23 | S3 | Education password lockout (also in the old code): 12 wrong passwords sent together were all checked | edu-tester | Count first, refuse on the request's own count |
+| D-24 | S3 | Education 2FA challenge (also in the old code): 6–9 of 12 wrong codes checked | edu-tester | Count first |
+| D-25 | S3 | Under D-22–D-24: Laravel's `RateLimiter::hit()` could reset a fresh key's count, letting up to twice the limit through | edu-tester | New `App\Support\Attempts`, counting under a per-key lock; `AttemptsTest` |
+| D-26 | S3 | Education 2FA recovery code (also in the old code): one code signed in 6–9 times when sent together | edu-tester | Spent in a transaction under a row lock |
 
 ## 11. Pass / fail
 
@@ -204,3 +208,8 @@ __EDU_DEFECTS__
 - LadWani's operator document viewer and governance views (tracker).
 - Privacy-friendly analytics (tracker).
 - axe on LadWani's signed-in screens, with a seeded approved member (§6).
+- **Owner decisions raised by the testers:**
+  - With no SMS provider, dev and test show the one-time code on screen. Set a provider on test before real accounts are copied there (D-028).
+  - A mobile number (Education) or an email (TaskList) added to an account is not yet confirmed with a code (D-028).
+  - CI's smoke step and the Neon parity script now reach the live Education dev site for `/edu/`, since the hub gate is gone. Keep that, or give them a local Education stand-in (portal-tester O1).
+- **Dependency advisories, report only:** Education's `symfony/mime` CVE-2026-45070 (medium; the app does not appear to reach it; `composer update symfony/mime`); LadWani's 11 npm advisories, 5 with non-breaking fixes, unchanged from before this release (they belong to the Ladwani repository).
