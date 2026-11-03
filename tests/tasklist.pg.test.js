@@ -46,6 +46,10 @@ describe('TaskList on PostgreSQL', { skip }, () => {
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   });
 
+  // Opens the server's database connections, as on a busy server, before requests sent
+  // together: with a cold pool all but one of them wait for a connection, which hides a race.
+  const warm = () => Promise.all(Array.from({ length: 10 }, () => new Browser(base).fetch('GET', '/tasklist/api/auth/me', { headers: { cookie: `tl_sid=${'x'.repeat(40)}` } })));
+
   async function signUpByOtp(mobile, name) {
     const b = new Browser(base);
     const s = await b.fetch('GET', '/tasklist/api/auth/session');
@@ -121,9 +125,6 @@ describe('TaskList on PostgreSQL', { skip }, () => {
     const verify = (b, mobile, code, csrf, i) => b.fetch('POST', '/tasklist/api/auth/otp/verify',
       // Each from its own address: the per-address limit is not what may stop them.
       { json: { mobile, code, name: 'Race' }, csrf, headers: { 'x-forwarded-for': `203.0.113.${i + 1}` } });
-    // Open the server's database connections first, as on a busy server: a cold pool
-    // makes all but one request wait for a connection, which hides the race.
-    const warm = () => Promise.all(Array.from({ length: 6 }, () => new Browser(base).fetch('GET', '/tasklist/api/auth/me', { headers: { cookie: `tl_sid=${'x'.repeat(40)}` } })));
     await warm();
     const b = new Browser(base);
     const s = await b.fetch('GET', '/tasklist/api/auth/session');
@@ -211,6 +212,27 @@ describe('TaskList on PostgreSQL', { skip }, () => {
     const unknown = await other.fetch('POST', '/tasklist/api/auth/sign-in', { json: { identifier: 'nobody@example.com', password: 'whatever-1' }, csrf: s.json.csrf });
     assert.equal(unknown.status, 401);
     assert.equal(unknown.json.error, 'That email/mobile and password do not match.');
+  });
+
+  test('wrong passwords sent together are no more than 5 tries either', async () => {
+    const b = new Browser(base);
+    const s = await b.fetch('GET', '/tasklist/api/auth/session');
+    const up = await b.fetch('POST', '/tasklist/api/auth/sign-up', { json: { name: 'Ravi', email: 'ravi@example.com', password: 'mango-tree-43' }, csrf: s.json.csrf, headers: { 'x-forwarded-for': '203.0.113.90' } });
+    assert.equal(up.status, 201, up.text);
+    const o = new Browser(base);
+    const so = await o.fetch('GET', '/tasklist/api/auth/session');
+    await warm();
+    // Nine at once, each from its own address (the per-address limit is not what may stop them).
+    const tries = await Promise.all(Array.from({ length: 9 }, (_, i) => o.fetch('POST', '/tasklist/api/auth/sign-in',
+      { json: { identifier: 'ravi@example.com', password: `wrong-guess-${i}` }, csrf: so.json.csrf, headers: { 'x-forwarded-for': `203.0.113.${100 + i}` } })));
+    assert.ok(tries.every((r) => r.status === 401 || r.status === 423), tries.map((r) => r.status).join(','));
+    const row = await db.get(`SELECT u.failed_attempts, u.locked_until > now() AS locked,
+      (SELECT COUNT(*) FROM tl_audit_log a WHERE a.user_id = u.id AND a.action = 'sign-in-failed') AS checked FROM tl_users u WHERE u.email = 'ravi@example.com'`);
+    assert.ok(row.checked <= 5 && row.failed_attempts <= 5, `${row.checked} of 9 passwords sent together were checked (failed_attempts ${row.failed_attempts})`);
+    assert.equal(row.locked, true, 'and the account is locked');
+    const right = await o.fetch('POST', '/tasklist/api/auth/sign-in', { json: { identifier: 'ravi@example.com', password: 'mango-tree-43' }, csrf: so.json.csrf, headers: { 'x-forwarded-for': '203.0.113.120' } });
+    assert.equal(right.status, 423, 'the right password does not open it either');
+    assert.match(right.json.error, /1[45] minutes/);
   });
 
   test('forgot password: same answer for any address, a single-use link, and every old session ends', async () => {

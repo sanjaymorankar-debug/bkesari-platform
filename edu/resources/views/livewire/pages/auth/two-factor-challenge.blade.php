@@ -2,6 +2,7 @@
 
 use App\Models\TwoFactorAuthentication;
 use App\Models\User;
+use App\Support\Attempts;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
@@ -54,11 +55,11 @@ new #[Layout('layouts.guest')] class extends Component
 
         $this->validate(['code' => ['required', 'string']]);
 
-        // Counted before the code is checked, and decided on the count hit()
-        // returns (an atomic increment): requests that arrive together all
-        // pass the check above before any of them is counted, so counting
-        // only after a miss let each of them check a code.
-        if (RateLimiter::hit($throttleKey) > self::MAX_ATTEMPTS) {
+        // Counted before the code is checked, and decided on this request's
+        // own count (Attempts::hit): requests that arrive together all pass
+        // the check above before any of them is counted, so counting only
+        // after a miss let each of them check a code.
+        if (Attempts::hit($throttleKey, 60) > self::MAX_ATTEMPTS) {
             $throttled();
         }
 

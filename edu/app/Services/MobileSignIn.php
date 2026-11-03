@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\User;
+use App\Support\Attempts;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
@@ -87,11 +88,11 @@ class MobileSignIn
                 return ['status' => 'throttled', 'retryAfter' => RateLimiter::availableIn($key)];
             }
         }
-        // The limit is decided on the count hit() returns (an atomic
-        // increment), not only on the check above: requests that arrive
-        // together all pass that check before any of them is counted.
+        // The limit is decided on each request's own count (Attempts::hit),
+        // not only on the check above: requests that arrive together all
+        // pass that check before any of them is counted.
         foreach ($limits as [$key, $max, $window]) {
-            if (RateLimiter::hit($key, $window) > $max) {
+            if (Attempts::hit($key, $window) > $max) {
                 return ['status' => 'throttled', 'retryAfter' => RateLimiter::availableIn($key)];
             }
         }

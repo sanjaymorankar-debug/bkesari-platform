@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Forms;
 
+use App\Support\Attempts;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
@@ -36,11 +37,11 @@ class LoginForm extends Form
     {
         $this->ensureIsNotRateLimited();
 
-        // Counted before the password is checked, and decided on the count
-        // hit() returns (an atomic increment): requests that arrive together
+        // Counted before the password is checked, and decided on this
+        // request's own count (Attempts::hit): requests that arrive together
         // all pass the check above before any of them is counted, so counting
         // only after a miss let each of them try a password.
-        $attempts = RateLimiter::hit($this->throttleKey(), self::LOCKOUT_SECONDS);
+        $attempts = Attempts::hit($this->throttleKey(), self::LOCKOUT_SECONDS);
         if ($attempts > self::MAX_ATTEMPTS) {
             event(new Lockout(request()));
 
@@ -51,8 +52,7 @@ class LoginForm extends Form
             // The fifth miss starts a full 15 minutes, however long the five
             // took: the limiter's window otherwise runs from the first miss.
             if ($attempts >= self::MAX_ATTEMPTS) {
-                RateLimiter::clear($this->throttleKey());
-                RateLimiter::increment($this->throttleKey(), self::LOCKOUT_SECONDS, $attempts);
+                Attempts::restart($this->throttleKey(), self::LOCKOUT_SECONDS, $attempts);
 
                 $this->throwLockedOut();
             }
