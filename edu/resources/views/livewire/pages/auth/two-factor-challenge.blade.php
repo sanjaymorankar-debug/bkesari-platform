@@ -4,6 +4,7 @@ use App\Models\TwoFactorAuthentication;
 use App\Models\User;
 use App\Support\Attempts;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
@@ -66,11 +67,19 @@ new #[Layout('layouts.guest')] class extends Component
         $verified = false;
 
         if ($this->useRecoveryCode) {
-            $codes = $twoFactor->recovery_codes ?? [];
-            if (in_array($this->code, $codes, true)) {
-                $verified = true;
-                $twoFactor->update(['recovery_codes' => array_values(array_diff($codes, [$this->code]))]);
-            }
+            // Spent inside a row lock, on the codes as they are under it: two
+            // requests carrying the same code at once could otherwise both
+            // find it unspent and both sign in.
+            $verified = DB::transaction(function () use ($twoFactor) {
+                $locked = TwoFactorAuthentication::whereKey($twoFactor->getKey())->lockForUpdate()->firstOrFail();
+                $codes = $locked->recovery_codes ?? [];
+                if (! in_array($this->code, $codes, true)) {
+                    return false;
+                }
+                $locked->update(['recovery_codes' => array_values(array_diff($codes, [$this->code]))]);
+
+                return true;
+            });
         } else {
             $verified = (new Google2FA())->verifyKey($twoFactor->secret, $this->code);
         }

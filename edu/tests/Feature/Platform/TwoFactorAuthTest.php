@@ -241,6 +241,28 @@ class TwoFactorAuthTest extends TestCase
         $this->assertGuest();
     }
 
+    public function test_a_recovery_code_carried_by_two_requests_at_once_signs_in_once(): void
+    {
+        $this->officerAtTheChallenge(['AAAA-BBBB']);
+        // The other request carrying the same code spends it just after this
+        // one has read the account's codes. (Twelve real requests at once
+        // signed in 9 and 6 times with one recovery code before the fix.)
+        $spentElsewhere = false;
+        TwoFactorAuthentication::retrieved(function (TwoFactorAuthentication $read) use (&$spentElsewhere) {
+            if (! $spentElsewhere) {
+                $spentElsewhere = true;
+                TwoFactorAuthentication::withoutEvents(fn () => TwoFactorAuthentication::find($read->id)->update(['recovery_codes' => []]));
+            }
+        });
+
+        Volt::test('pages.auth.two-factor-challenge')->set('useRecoveryCode', true)
+            ->set('code', 'AAAA-BBBB')->call('verify')
+            ->assertHasErrors('code');
+
+        $this->assertTrue($spentElsewhere);
+        $this->assertGuest();
+    }
+
     public function test_one_account_being_locked_does_not_lock_another(): void
     {
         [$locked] = $this->officerAtTheChallenge();
