@@ -471,8 +471,8 @@ test('an app that is down gives a 502 that still carries the menu', async () => 
     assert.equal(res.status, 502);
     const html = await res.text();
     assert.match(html, /not responding/);
-    // The bar, so the rest of the estate stays reachable from the error page.
-    assert.match(html, /bk-tabs/);
+    // The shell, so the rest of the estate stays reachable from the error page.
+    assert.match(html, /class="ks-bar/);
     assert.match(html, /Driving Simulator/);
     assert.equal(res.headers.get('x-robots-tag'), 'noindex');
   } finally {
@@ -490,7 +490,8 @@ test("a stripping tab's 502 page still marks that tab as current", async () => {
     assert.equal(res.status, 502);
     const html = await res.text();
     assert.match(html, /not responding/);
-    assert.match(html, /<a href="\/edu\/" aria-current="page">Education<\/a>/);
+    assert.match(html, /<header class="ks-bar bk-menu" data-project="education">/);
+    assert.match(html, /<a class="ks-item" href="\/edu\/" aria-current="page">/);
   } finally {
     await close(hub.server);
   }

@@ -158,6 +158,21 @@ function securityHeaders() {
   };
 }
 
+/**
+ * The Neon Function `report`, as a call the server makes: null when it is not
+ * configured. Unreachable, too slow or failing is a 502 with a plain message.
+ */
+function reportFunction(env) {
+  if (!env.NEON_FUNCTION_REPORT_BASE_URL || !env.ORIGIN_SECRET) return null;
+  return async () => {
+    const r = await fetch(env.NEON_FUNCTION_REPORT_BASE_URL, { headers: { 'x-secret': env.ORIGIN_SECRET }, redirect: 'manual', signal: AbortSignal.timeout(15000) })
+      .catch((err) => { console.error('report function did not answer:', err.message); throw Object.assign(new Error('The report function did not answer'), { status: 502 }); });
+    const body = await r.json().catch(() => null);
+    if (!r.ok || !body) throw Object.assign(new Error((body && body.error) || `The report function answered ${r.status}`), { status: 502 });
+    return body;
+  };
+}
+
 /** A per-project secret: <PREFIX>_AUTH_SECRET, else derived from the hub's key material, else random. */
 function projectSecret(prefix) {
   const own = process.env[`${prefix}_AUTH_SECRET`];
@@ -236,13 +251,7 @@ function createApp(db, extra = {}) {
     // Neon Function `report` (functions/report.ts): last-seven-days figures
     // computed next to the database. Server to function only; the browser
     // never sees the function URL or ORIGIN_SECRET.
-    report: env.NEON_FUNCTION_REPORT_BASE_URL && env.ORIGIN_SECRET ? async () => {
-      const r = await fetch(env.NEON_FUNCTION_REPORT_BASE_URL, { headers: { 'x-secret': env.ORIGIN_SECRET }, redirect: 'manual', signal: AbortSignal.timeout(15000) })
-        .catch((err) => { console.error('report function did not answer:', err.message); throw Object.assign(new Error('The report function did not answer'), { status: 502 }); });
-      const body = await r.json().catch(() => null);
-      if (!r.ok || !body) throw Object.assign(new Error((body && body.error) || `The report function answered ${r.status}`), { status: 502 });
-      return body;
-    } : null,
+    report: reportFunction(env),
   });
 
   // The ATIP snapshot is a full HTML page, so its route gets a larger limit.
@@ -471,4 +480,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createApp, main, trustProxySetting, securityHeaders };
+module.exports = { createApp, main, trustProxySetting, securityHeaders, reportFunction };

@@ -1,9 +1,9 @@
 /**
- * The real portal/server.js app (createApp), with no database: the routes
- * here never reach one. What is pinned is what only the assembled app can
- * show: the Task Tracker's login however a path is spelled, what a malformed
- * body gets back, and the proxy's place before the body parsers in THIS file
- * rather than in a copy of its order.
+ * The real portal/server.js app (createApp), with a database that finds
+ * nothing. What is pinned is what only the assembled app can show: TaskList's
+ * pages and API need TaskList's own sign-in however a path is spelled, what a
+ * malformed body gets back, and the proxy's place before the body parsers in
+ * THIS file rather than in a copy of its order.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -11,28 +11,15 @@ const http = require('node:http');
 
 const { createApp } = require('../portal/server.js');
 
-// Never called by the routes under test; a call would be a test bug.
-// The hub's permission lookups are the exception: `approved` is the one person
-// the stand-in sign-in below knows, and holds every project's access.
-const HUB_PROJECTS = [
-  { key: 'ladwani', name: 'LadWani', path: '/ladwani/', visibility: 'approval', roles: 'member,karta,operator,admin', sort_order: 10 },
-  { key: 'atip', name: 'ATIP', path: '/ATIP/', visibility: 'owner', roles: 'owner', sort_order: 20 },
-  { key: 'edu', name: 'Education', path: '/edu/', visibility: 'approval', roles: 'parent,student,teacher,school_admin,admin', sort_order: 30 },
-  { key: 'tasklist', name: 'TaskList', path: '/tasks/', visibility: 'approval', roles: 'viewer,editor,owner', sort_order: 40 },
-];
-const stubDb = (approved) => new Proxy({}, { get: (_, k) => async (sql) => {
-  if (k === 'all' && /FROM hub_projects/.test(sql)) return HUB_PROJECTS;
-  if (k === 'all' && /FROM project_access/.test(sql)) return approved ? HUB_PROJECTS.map((p) => ({ project_key: p.key, role: p.roles.split(',')[0] })) : [];
-  if (k === 'get' && /FROM project_access/.test(sql)) return approved ? { ok: 1 } : null;
-  throw new Error(`unexpected db.${String(k)}(${String(sql).slice(0, 60)})`);
-} });
-const noDb = stubDb(false);
-const APPROVED_USER = { id: 'u-approved', email: 'member@example.com', emailVerified: true };
+// The hub's own tables are not under test here: every query finds nothing,
+// so no one is signed in anywhere.
+const stubDb = () => ({ all: async () => [], get: async () => null, run: async () => ({ rowCount: 0, rows: [] }), tx: async (fn) => fn(stubDb()) });
+const noDb = stubDb();
+const quiet = { log() {}, warn() {}, error() {} };
 
 // APP_ENV is blank, not 'dev': a tier name fills in that tier's live Hostinger
 // origins for the blank ones (portal/proxy.js TIER_ORIGINS). 127.0.0.1 is dev anyway.
 const ENV = {
-  TRACKER_USER: 'tracker', TRACKER_PASSWORD: 'tracker-pw',
   ATIP_USER: 'viewer', ATIP_PASSWORD: 'viewer-pw', ATIP_PUBLISH_TOKEN: 'token',
   EDU_ORIGIN: '', LADWANI_ORIGIN: '', APP_ENV: '',
 };
@@ -41,7 +28,7 @@ const ENV = {
 async function withHub(env, fn, { db = noDb, extra = {} } = {}) {
   const saved = {};
   for (const k of Object.keys(env)) { saved[k] = process.env[k]; process.env[k] = env[k]; }
-  const { app, proxied } = createApp(db, extra);
+  const { app, proxied } = createApp(db, { log: quiet, ...extra });
   const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   try {
     // A test hub forwards only to an upstream the test started, never to a live site.
@@ -70,45 +57,48 @@ function raw(port, method, rawPath, { headers = {}, body } = {}) {
   });
 }
 
-const basic = (u, p) => ({ authorization: 'Basic ' + Buffer.from(`${u}:${p}`).toString('base64') });
 
-test('the Task Tracker page needs its login however the path is spelled', async () => {
+test('TaskList\'s pages and API need TaskList\'s own sign-in, however the path is spelled', async () => {
   await withHub(ENV, async (base, port) => {
     const spellings = [
-      '/tasks/', '/tasks/index.html',
-      '/%74asks/', '/%74asks/index.html', '/tasks%2findex.html', '/%74asks',
-      '//tasks/', '/./tasks/', '/shared/../tasks/', '/x/y/../../tasks/index.html',
-      '/shared/%2e%2e/tasks/index.html', '/%54ASKS/', '/TASKS/',
+      '/tasklist/', '/tasklist/board', '/tasklist/task/7', '/tasklist/api/tasks', '/tasklist/api/bootstrap',
+      '/%74asklist/', '/%74asklist/api/tasks', '//tasklist/', '//tasklist/api/tasks', '/./tasklist/api/tasks',
+      '/shared/../tasklist/api/tasks', '/TASKLIST/api/tasks',
     ];
     for (const p of spellings) {
-      const r = await raw(port, 'GET', p);
-      assert.equal(r.status, 401, `${p} answered ${r.status}`);
-      assert.doesNotMatch(r.text, /Task Tracker/, `${p} served the page`);
+      const r = await raw(port, 'GET', p, { headers: { cookie: 'tl_sid=forged-forged-forged-forged; hub_admin_sid=x' } });
+      assert.ok([301, 302, 401, 404].includes(r.status), `${p} answered ${r.status}`);
+      assert.doesNotMatch(r.text, /id="quick-input"|"tasks":/, `${p} served the app or its data`);
     }
-    // ...and the login still works the normal way.
-    const ok = await raw(port, 'GET', '/tasks/', { headers: basic('tracker', 'tracker-pw') });
-    assert.equal(ok.status, 200);
-    assert.match(ok.text, /<title>Task Tracker<\/title>/);
-    assert.equal((await raw(port, 'GET', '/tasks/', { headers: basic('tracker', 'wrong') })).status, 401);
-    // The rest of the site is untouched by the check.
-    assert.equal((await raw(port, 'GET', '/')).status, 200);
+    // The static files are public: the app's empty shell (what the offline
+    // worker keeps) and the sign-in page carry no one's data.
+    const shell = await raw(port, 'GET', '/tasklist/app.html');
+    assert.equal(shell.status, 200);
+    assert.doesNotMatch(shell.text, /"tasks":|tl_sid|@example/);
+    assert.equal((await raw(port, 'GET', '/tasklist/sign-in')).status, 200);
+    assert.equal((await raw(port, 'GET', '/tasklist/quickadd.js')).status, 200);
     assert.equal((await raw(port, 'GET', '/shared/menu.js')).status, 200);
   });
 });
 
 test('a malformed JSON body is a 400 that gives nothing away', async () => {
   await withHub(ENV, async (base, port) => {
+    // No route takes a body here: not found, and nothing given away either.
+    const home = await raw(port, 'POST', '/', { headers: { 'content-type': 'application/json' }, body: '{bad' });
+    assert.equal(home.status, 404);
+    // (A page of copy, so "at a glance" is fine: a stack frame is "    at fn (file:line)".)
+    assert.doesNotMatch(home.text, /node_modules|server\.js|\s{2,}at \S+ \(|SyntaxError/);
     const paths = [
-      ['/', {}],
-      ['/tasks/api/projects', {}],
-      ['/tasks/api/projects', basic('tracker', 'tracker-pw')],
+      ['/tasklist/api/tasks', {}],
+      ['/tasklist/api/auth/sign-in', {}],
+      ['/admin/api/auth/sign-in', {}],
       ['/ATIP/api/snapshot', { authorization: 'Bearer token' }],
     ];
     for (const [p, auth] of paths) {
       const r = await raw(port, 'POST', p, { headers: { 'content-type': 'application/json', ...auth }, body: '{bad' });
       assert.equal(r.status, 400, `${p} answered ${r.status}`);
       assert.match(r.type, /application\/json/);
-      assert.deepEqual(JSON.parse(r.text), { error: 'The request body is not valid JSON' });
+      assert.equal(JSON.parse(r.text).error, 'The request body is not valid JSON');
       // Express's default page carried the stack: file paths, node_modules, "at ..." frames.
       assert.doesNotMatch(r.text, /node_modules|server\.js|\bat \w|SyntaxError/, `${p} leaked: ${r.text}`);
     }
@@ -134,86 +124,39 @@ test('the real server.js mounts the proxy before the body parsers', async () => 
       });
       assert.equal(res.status, 200);
       assert.deepEqual(await res.json(), { url: '/ladwani/api/orders', body: payload });
-    }, { db: stubDb(true), extra: { getUser: async () => APPROVED_USER } });
+    });
   } finally {
     await new Promise((resolve) => upstream.close(resolve));
   }
 });
 
-test('the report proxy answers 502, not 500, when the function cannot be reached', async () => {
-  // A port that was free a moment ago: nothing is listening on it.
+test('TaskList\'s report and live endpoints are behind its sign-in, and the report is the owner\'s only', async () => {
   const spare = http.createServer();
   await new Promise((resolve) => spare.listen(0, '127.0.0.1', resolve));
   const dead = `http://127.0.0.1:${spare.address().port}/`;
   await new Promise((resolve) => spare.close(resolve));
   await withHub({ ...ENV, NEON_FUNCTION_REPORT_BASE_URL: dead, ORIGIN_SECRET: 'origin-secret' }, async (base, port) => {
-    const r = await raw(port, 'GET', '/tasks/api/report', { headers: basic('tracker', 'tracker-pw') });
-    assert.equal(r.status, 502);
-    assert.deepEqual(JSON.parse(r.text), { error: 'The report function did not answer' });
+    for (const p of ['/tasklist/api/report', '/tasklist/api/live']) assert.equal((await raw(port, 'GET', p)).status, 401, p);
   });
 });
 
-test('with Realtime off the live endpoint is a 404 the page can read, behind the login', async () => {
-  // bkesari-hub runs PostgreSQL 16, which Neon Realtime does not serve, so this
-  // is the production configuration: tasks/index.html takes the 404 as "no
-  // live updates". Half a configuration is still off.
-  const secret = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-  for (const rt of [
-    { NEON_REALTIME_URL: '', NEON_REALTIME_SECRET: '' },
-    { NEON_REALTIME_URL: 'wss://127.0.0.1:1/realtime', NEON_REALTIME_SECRET: '' },
-    { NEON_REALTIME_URL: '', NEON_REALTIME_SECRET: secret },
-  ]) {
-    await withHub({ ...ENV, ...rt }, async (base, port) => {
-      const r = await raw(port, 'GET', '/tasks/api/live', { headers: basic('tracker', 'tracker-pw') });
-      assert.equal(r.status, 404, JSON.stringify(rt));
-      assert.match(r.type, /application\/json/);
-      assert.deepEqual(JSON.parse(r.text), { error: 'Live updates are not configured' });
-      assert.equal((await raw(port, 'GET', '/tasks/api/live')).status, 401);
-    });
-  }
-});
-
-test('under Neon Auth the Task Tracker still needs its login however the path is spelled', async () => {
-  // A stand-in Neon Auth: get-session answers for whoever the test cookie
-  // names. The toolkit forwards only its own (__Secure-neon-auth.*) cookies.
-  const auth = http.createServer((req, res) => {
-    const who = (/__Secure-neon-auth\.test=(\w+)/.exec(req.headers.cookie || '') || [])[1];
-    const user = who === 'allowed' ? { email: 'asha@example.com', emailVerified: true }
-      : who === 'stranger' ? { email: 'ravi@example.com', emailVerified: true } : null;
-    res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify(req.url.endsWith('/get-session') && user ? { user, session: { id: 's' } } : null));
-  });
-  await new Promise((resolve) => auth.listen(0, '127.0.0.1', resolve));
-  const env = {
-    ...ENV,
-    NEON_AUTH_BASE_URL: `http://127.0.0.1:${auth.address().port}/neondb/auth`,
-    NEON_AUTH_COOKIE_SECRET: 'test-only-cookie-secret-0123456789abcdef',
-    TRACKER_ALLOWED_EMAILS: 'asha@example.com',
-  };
-  const as = (who) => ({ cookie: `__Secure-neon-auth.test=${who}` });
+test('the report function, when it cannot be reached, is a 502 with a plain message', async (t) => {
+  const { reportFunction } = require('../portal/server.js');
+  assert.equal(reportFunction({}), null, 'off until both settings are there');
+  assert.equal(reportFunction({ NEON_FUNCTION_REPORT_BASE_URL: 'http://x' }), null);
+  const spare = http.createServer();
+  await new Promise((resolve) => spare.listen(0, '127.0.0.1', resolve));
+  const dead = `http://127.0.0.1:${spare.address().port}/`;
+  await new Promise((resolve) => spare.close(resolve));
+  t.mock.method(console, 'error', () => {});
+  const call = reportFunction({ NEON_FUNCTION_REPORT_BASE_URL: dead, ORIGIN_SECRET: 's' });
+  await assert.rejects(call(), (err) => err.status === 502 && err.message === 'The report function did not answer');
+  const failing = http.createServer((req, res) => { res.statusCode = 500; res.end(JSON.stringify({ error: 'boom' })); });
+  await new Promise((resolve) => failing.listen(0, '127.0.0.1', resolve));
   try {
-    await withHub(env, async (base, port) => {
-      const spellings = [
-        '/tasks/', '/tasks/index.html', '/tasks/live.js', '/tasks/api/overview',
-        '/%74asks/', '/%74asks/index.html', '/tasks%2findex.html', '/%74asks/api/overview',
-        '//tasks/', '//tasks/api/overview', '/./tasks/', '/shared/../tasks/',
-        '/shared/%2e%2e/tasks/index.html', '/%54ASKS/', '/TASKS/',
-      ];
-      for (const headers of [{}, as('stranger'), basic('tracker', 'tracker-pw')]) {
-        for (const p of spellings) {
-          const r = await raw(port, 'GET', p, { headers });
-          assert.ok([302, 401, 403].includes(r.status), `${p} (${JSON.stringify(headers)}) answered ${r.status}`);
-          assert.doesNotMatch(r.text, /Task Tracker|"projects"/, `${p} served the tracker`);
-        }
-      }
-      const page = await raw(port, 'GET', '/tasks/', { headers: as('allowed') });
-      assert.equal(page.status, 200);
-      assert.match(page.text, /<title>Task Tracker<\/title>/);
-      assert.equal((await raw(port, 'GET', '/tasks/api/me', { headers: as('allowed') })).status, 200);
-    });
-  } finally {
-    await new Promise((resolve) => auth.close(resolve));
-  }
+    const seen = reportFunction({ NEON_FUNCTION_REPORT_BASE_URL: `http://127.0.0.1:${failing.address().port}/`, ORIGIN_SECRET: 's' });
+    await assert.rejects(seen(), (err) => err.status === 502 && err.message === 'boom');
+  } finally { await new Promise((resolve) => failing.close(resolve)); }
 });
 
 test('the hub is an installable PWA: manifest, icons, service worker, offline page', async () => {
@@ -231,10 +174,17 @@ test('the hub is an installable PWA: manifest, icons, service worker, offline pa
     assert.equal(sw.headers.get('cache-control'), 'no-cache');
     const swText = await sw.text();
     // Per-user pages are never cached by the worker.
-    for (const p of ['hub', 'api', 'tasks', 'atip', 'ladwani', 'edu', 'admin', 'access', 'auth']) assert.ok(swText.includes(p), p);
+    for (const p of ['hub', 'api', 'tasks', 'tasklist', 'atip', 'ladwani', 'edu', 'admin', 'access', 'auth', 'contact']) assert.ok(swText.includes(p), p);
     assert.equal((await fetch(`${base}/offline.html`)).status, 200);
     const home = await (await fetch(`${base}/`)).text();
     assert.match(home, /<link rel="manifest" href="\/manifest.webmanifest">/);
     assert.match(home, /apple-touch-icon/);
+    // TaskList installs on its own, scoped to /tasklist/.
+    const tm = await (await fetch(`${base}/tasklist/manifest.webmanifest`)).json();
+    assert.equal(tm.scope, '/tasklist/');
+    assert.equal(tm.start_url.split('?')[0], '/tasklist/');
+    const tsw = await fetch(`${base}/tasklist/sw.js`);
+    assert.equal(tsw.headers.get('service-worker-allowed'), '/tasklist/');
+    assert.doesNotMatch(await tsw.text(), /caches?\.(open|match)\([^)]*\/tasklist\/api/, 'TaskList\'s worker never stores its API');
   });
 });

@@ -183,7 +183,7 @@
     const { view, arg } = route();
     setActiveNav(view);
     // The back button closes an open task.
-    if (view !== 'task' && $('#detail').open) $('#detail').close();
+    if (view !== 'task' && $('#detail').open) closeDetail();
     const el = $('#view');
     if (!state.loaded && !state.tasks.length) return;
     const views = { today, upcoming, board, lists, list: () => listView(Number(arg)), tags, tag: () => tagView(arg), search, archive, settings, task: today };
@@ -512,7 +512,7 @@ ${x.comments === null ? '' : `<ul class="tl-updates">${(x.comments || []).map((c
         confirmDialog(t('task.delete'), t('task.deleteAsk', { title: x.title || '' }), t('task.delete'), () => {
           const id = detailId;
           state.tasks = state.tasks.filter((y) => String(y.id) !== String(id));
-          $('#detail').close();
+          closeDetail();
           mutate({ method: 'DELETE', path: `/tasks/${id}` });
           render();
           K.toast(t('task.deleted'));
@@ -555,9 +555,15 @@ ${x.comments === null ? '' : `<ul class="tl-updates">${(x.comments || []).map((c
     K.openDialog(dlg);
   }
 
+  // A dialog's close event arrives later, as a task of its own, so the address
+  // is put back here first: a render straight after must not reopen the task.
+  function closeDetail() {
+    detailId = null;
+    if (/\/task\//.test(location.pathname)) history.replaceState({}, '', `${BASE}/`);
+    if ($('#detail').open) $('#detail').close();
+  }
   $('#detail').addEventListener('close', () => {
     detailId = null;
-    // Synchronously, so a render straight after this does not reopen it.
     if (/\/task\//.test(location.pathname)) history.replaceState({}, '', `${BASE}/`);
   });
   $('#detail-form').addEventListener('submit', (e) => {
@@ -567,7 +573,7 @@ ${x.comments === null ? '' : `<ul class="tl-updates">${(x.comments || []).map((c
     const id = detailId;
     applyLocal(id, { ...p, notes: p.notes });
     mutate({ method: 'PATCH', path: `/tasks/${id}`, body: p });
-    $('#detail').close();
+    closeDetail();
     render();
     K.toast(t('task.saved'), { kind: 'success' });
   });

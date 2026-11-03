@@ -45,20 +45,23 @@ jobs:
       - name: Parse the server and the shared menu
         run: npm run check
 
-      # Two built files are committed, because deploys run `npm ci --omit=dev`
-      # on the server and never build: the Neon Realtime browser client
-      # (portal/public/tasks/live.js) and the Neon Auth server toolkit
-      # (portal/vendor/neon-auth-server.js). Rebuild both and fail if either
+      # Built files are committed, because deploys run `npm ci --omit=dev` on
+      # the server and never build: the Kesari design system
+      # (portal/public/kesari-ui/<version>/) and the Neon Realtime browser
+      # client (portal/public/tasklist/live.js). Rebuild both and fail if a
       # committed copy is stale.
       - name: The built files match their sources
         run: |
           npm run build
-          git diff --exit-code -- portal/public/tasks/live.js portal/vendor/neon-auth-server.js \
+          git diff --exit-code -- portal/public/kesari-ui portal/public/tasklist/live.js \
             || { echo "::error::a built file is out of date: run npm run build and commit it"; exit 1; }
+          test -z "$(git status --porcelain -- portal/public/kesari-ui)" \
+            || { echo "::error::the build made files that are not committed"; exit 1; }
 
-      # The menu's unit tests, the Task Tracker and ATIP snapshot routes against
-      # the real PostgreSQL above, plus the deploy guard's own tests: the rules
-      # that keep a dev deploy off test and production are themselves tested.
+      # The shell's and design system's unit tests, the hub, TaskList (its own
+      # accounts) and ATIP snapshot routes against the real PostgreSQL above,
+      # plus the deploy guard's own tests: the rules that keep a dev deploy off
+      # test and production are themselves tested.
       #
       # The PostgreSQL tests skip themselves when TEST_DATABASE_URL is unset, so
       # if the env below were ever dropped this step would still go green while
@@ -90,8 +93,9 @@ jobs:
           DATABASE_URL_UNPOOLED: postgresql://bk_portal:ci-only-not-a-real-password@127.0.0.1:5432/bk_portal_test
           PORT: 3100
           APP_ENV: dev
-          TRACKER_USER: ci
-          TRACKER_PASSWORD: ci-only-not-a-real-password
+          HUB_ADMIN_EMAIL: ci@example.com
+          HUB_ADMIN_PASSWORD: ci-only-not-a-real-password
+          HUB_AUTH_SECRET: ci-only-not-a-real-secret-0123456789abcdef
           ATIP_USER: ci
           ATIP_PASSWORD: ci-only-not-a-real-password
           ATIP_PUBLISH_TOKEN: ci-only-not-a-real-token
@@ -114,13 +118,20 @@ jobs:
           [ "$env" = dev ] || { echo "::error::the hub reports tier '$env', expected 'dev'"; exit 1; }
 
           # Not covered by the smoke test, which has no credentials: that the
-          # logins actually admit the right ones.
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 \
-            -u ci:ci-only-not-a-real-password http://127.0.0.1:3100/tasks/)
-          [ "$code" = 200 ] || { echo "::error::correct tracker credentials were refused ($code)"; exit 1; }
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 \
-            -u ci:wrong-password http://127.0.0.1:3100/tasks/)
-          [ "$code" = 401 ] || { echo "::error::a wrong tracker password was not rejected ($code)"; exit 1; }
+          # hub admin's own login admits the right password and refuses a wrong
+          # one (each project's sign-in is covered by the suites above).
+          signin() {
+            jar=$(mktemp)
+            csrf=$(curl -sS -c "$jar" --max-time 5 http://127.0.0.1:3100/admin/api/auth/session \
+              | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).csrf))')
+            curl -sS -b "$jar" -o /dev/null -w '%{http_code}' --max-time 10 -H 'content-type: application/json' \
+              -H "x-csrf-token: $csrf" -d "{\"identifier\":\"ci@example.com\",\"password\":\"$1\"}" \
+              http://127.0.0.1:3100/admin/api/auth/sign-in
+          }
+          code=$(signin ci-only-not-a-real-password)
+          [ "$code" = 200 ] || { echo "::error::the correct hub admin password was refused ($code)"; exit 1; }
+          code=$(signin wrong-password)
+          [ "$code" = 401 ] || { echo "::error::a wrong hub admin password was not rejected ($code)"; exit 1; }
 
           kill "$(cat /tmp/hub.pid)"
 

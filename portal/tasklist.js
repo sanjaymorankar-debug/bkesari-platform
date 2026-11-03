@@ -399,7 +399,7 @@ function createTaskList({ db, notify = {}, tier = () => 'prod', log = console, s
   }));
   api.get('/report', wrap(async (req, res) => {
     if (!report || req.user.role !== 'owner') throw new HttpError(404, 'The report is not available');
-    res.json(await report());
+    try { res.json(await report()); } catch (err) { throw new HttpError(err.status || 502, err.message); }
   }));
 
   api.use((req, res) => res.status(404).json({ error: 'Not found' }));
