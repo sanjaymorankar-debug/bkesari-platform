@@ -315,7 +315,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | EDU-CR-07 | Safeguarding cases are invisible to school admins; a POCSO case cannot close without an external report | `SafeguardingTest` |
 | EDU-CR-08 | Erasure never deletes safeguarding, consent or audit records; it runs as one transaction | `DataSubjectRequestTest`; `browser.cjs` step 4 (through the pooler in S7.6) |
 | EDU-CR-09 | Aggregates below 10 are withheld; no row-level path for government | `HealthAggregateTest` |
-| EDU-CR-10 | Two-factor sign-in: TOTP and single-use recovery codes, and at most 5 wrong codes per account per minute | `TwoFactorAuthTest` (10 tests) |
+| EDU-CR-10 | Two-factor sign-in: TOTP and single-use recovery codes, and at most 5 wrong codes per account per minute | `TwoFactorAuthTest` (12 tests, two of them with codes sent together) |
 | EDU-CR-11 | Complaint numbers are unique and never fail a submission: not after a gap, not under contention (a transaction-scoped advisory lock per district and year), and a clash leaves the caller's transaction usable | `ComplaintNumberTest` (5 tests, mutation-tested); `ComplaintFlowTest`; `browser.cjs` step 3; S7.8 |
 | EDU-CR-12 | Email sign-in, registration and admin lookup are case-insensitive on PostgreSQL; school search is too | `DatabaseCompatibilityTest` (the 3 email tests skip on SQLite and must run on PostgreSQL) |
 | EDU-CR-13 | Nothing breaks behind a transaction-mode pooler: no named prepared statements, no session `SET`, transactions commit | `NeonReadinessTest` (its 8 pooler tests, mutation-tested); S7.1, which CI also runs |
@@ -326,7 +326,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | EDU-CR-18 | The committed build matches its manifest and is exactly what the sources produce | S1 row 5, S4 |
 | EDU-CR-19 | Every protected GET route refuses a guest; no private file is served; complaint evidence downloads only for those the complaint policy allows, and only through its own complaint; the suite refuses a hosted database | S6 `guest_routes.py`, `http.sh`, the S6 refusal check; `ComplaintEvidenceTest` (3); `NeonReadinessTest`'s three `test_the_suite_refuses_*` |
 | EDU-CR-20 | No score, rank or label column in the growth or benchmark tables; a school cannot verify itself | `NoLabelingRulesTest`, `BenchmarkHonestyTest`, `UdiseVerificationTest`, `ClaimedVsExperiencedTest` |
-| EDU-CR-21 | Education's own accounts: the session cookie is `edu_sid`, on the path of `APP_URL`, Secure with https, HttpOnly, SameSite=Lax; nothing the hub forwards signs anyone in; five wrong passwords lock sign-in for 15 minutes; a mobile code is hashed, single-use, expires in 10 minutes, dies after 5 wrong tries, is rate-limited and is never shown in production | `OwnAccountTest`, `MobileSignInTest`, `BasePathTest::test_the_session_cookie_is_sent_only_under_the_prefix_and_only_over_https`; `http.sh` cookie and `shell/me` lines; `browser.cjs` step 2 |
+| EDU-CR-21 | Education's own accounts: the session cookie is `edu_sid`, on the path of `APP_URL`, Secure with https, HttpOnly, SameSite=Lax; nothing the hub forwards signs anyone in; five wrong passwords lock sign-in for 15 minutes; a mobile code is hashed, single-use, expires in 10 minutes, dies after 5 wrong tries, is rate-limited and is never shown in production; all of these hold for requests sent together | `OwnAccountTest`, `MobileSignInTest`, `AttemptsTest`, `BasePathTest::test_the_session_cookie_is_sent_only_under_the_prefix_and_only_over_https`; `http.sh` cookie and `shell/me` lines; `browser.cjs` step 2 |
 
 ### R3 — change-area map
 
@@ -398,17 +398,17 @@ Playwright 1.63). These are now the floor:
 
 | # | Level | Result |
 |---|---|---|
-| 2 | S1 php -l | 362 files, 0 errors |
+| 2 | S1 php -l | 364 files, 0 errors (362 + `Support/Attempts.php` and `AttemptsTest.php`, edu-tester 3 Nov 2026) |
 | 3 | S1 routes, views | 81 routes (`sign-in`, `sign-up`, `verify`, `logout`, `shell/me` added), views compile |
 | 4 | S1 Pint | the same 15 |
-| 7 | S3a SQLite | 465 tests: 460 passed, 5 skipped (the same 5), 2,408 assertions, 23 s. `HubSignInTest` (8 tests) was removed with the feature; 40 tests added |
-| 8 | S3a PostgreSQL | 465 tests: 465 passed, 2,416 assertions, 43 s |
+| 7 | S3a SQLite | 473 tests: 468 passed, 5 skipped (the same 5), 2,468 assertions, 30 s. `HubSignInTest` (8 tests) was removed with the feature; 40 tests added, then 8 for requests sent together (edu-tester D1–D5) |
+| 8 | S3a PostgreSQL | 473 tests: 473 passed, 2,476 assertions, 61 s |
 | 9 | S3b | `74\|68\|289\|20\|100\|citext`; 75 s |
 | 10–11 | S3c, S3d | schemas match (5,564 lines, 70 CHECKs); migrations logs identical; 04 twice gives one row |
 | 12 | S4 | byte-identical (`app-DNyD-VXB.css`) |
 | 13 | S5 | http 60 passed (3 s); browser 21 passed (9 s), with `KILL_URL` through PgBouncer |
 | 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 1 (symfony/mime CVE-2026-45070, reported 2026-10-28); `npm audit` 5 dev-only, 0 with `--omit=dev` |
-| 15 | S7.1 | 465 passed through the pooler, 32 s; 7.2/7.3/7.5/7.8 as specified |
+| 15 | S7.1 | 473 passed through the pooler, 38 s; 7.2/7.3/7.5/7.8 as specified |
 
 Pint's baseline list: `app/Routing/BasePathRedirector.php`, `bootstrap/app.php`,
 `bootstrap/providers.php`, `database/seeders/FacilitySeeder.php`,
