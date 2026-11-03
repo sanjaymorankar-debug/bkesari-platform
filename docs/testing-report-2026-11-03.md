@@ -12,7 +12,7 @@ Report written 3 Nov 2026, between 12:30 PM and __FINAL_TIME__ (IST, UTC + 5:30)
 
 | Area | Result |
 |---|---|
-| Hub + TaskList + shell + Kesari, automated (R1) | **159 / 159 pass**, 0 skipped, plus **32 / 32** deploy-guard cases |
+| Hub + TaskList + shell + Kesari, automated (R1) | **162 / 162 pass**, 0 skipped, plus **32 / 32** deploy-guard cases (159 at the start; +2 race tests, +1 cookie test) |
 | portal-tester (TEST_SPEC.md S1–S7, R1–R4) | __PORTAL_VERDICT__ |
 | LadWani API (Jest) | **252 / 252 pass** in 31 suites; typecheck and lint clean (2 old warnings); static export builds |
 | Education (PHPUnit, edu/TEST_SPEC.md) | __EDU_COUNTS__ |
@@ -63,6 +63,8 @@ Report written 3 Nov 2026, between 12:30 PM and __FINAL_TIME__ (IST, UTC + 5:30)
 | Signing out of TaskList leaves the hub admin signed in, and the other way round | `tasklist.pg.test.js` :: accounts are isolated | Pass |
 | A forged session cookie or another project's cookie opens no TaskList page or API, however the path is spelled | `server.test.js` (14 spellings) | Pass |
 | No hub token is forwarded to LadWani or Education, forged or not | `ladwani.test.js`; S5 proxy line | Pass |
+| The hub admin's session cookie (`hub_admin_sid`, Path=/) is removed before a request reaches Education or any proxied app; the app's own cookies pass | `proxy.test.js` (fails without the fix) | Pass (D-20, fixed) |
+| One-time codes and passwords sent together: at most 5 tries, and a code signs in once | `tasklist.pg.test.js` (two race tests) | Pass (D-15, D-16, fixed) |
 | Session tokens are stored only as hashes; OTP codes as HMACs; reset tokens hashed and single use | `tasklist.pg.test.js` | Pass |
 | CSRF: signed-in writes need the session's token; signed-out forms the double-submit token; JSON only; foreign Origin refused | `tasklist.pg.test.js`, `hub.pg.test.js` | Pass |
 
@@ -181,7 +183,14 @@ There are **no build numbers to record yet**. Steps are in `mobile/README.md`. B
 | D-12 | S3 | LadWani sign-up CLS 0.18 (skeleton then form) | Lighthouse | Step 1 drawn at once |
 | D-13 | S4 | Console errors on every page: signed-out `401`s from the shell's account check and LadWani's session check; `/favicon.ico` 404 | Lighthouse best practices | 200 with `user: null`; LadWani asks before refreshing; favicon served |
 | D-14 | S3 | TaskList search: a spare bound parameter made PostgreSQL refuse the query | review | One parameter used twice |
-__TESTER_DEFECTS__
+| D-15 | S2 | TaskList / hub admin one-time codes: 10 wrong codes sent together got 6–9 checks against one code (limit 5), and one right code sent several times at once gave several sessions | portal-tester | Each try claimed, and a matching code spent, in one atomic `UPDATE … RETURNING`; a test sends the requests together |
+| D-16 | S2 | TaskList / hub admin passwords: 9 wrong passwords sent together were all checked, so a lock after 5 could be outrun | portal-tester | The try is claimed (and the lock applied) in one `UPDATE` before the password is compared; the test adds 15 ms per query, as a remote database would |
+| D-17 | S3 | `compression` < 1.8.2 (high, GHSA-vc2v-76pw-4v95, new in this branch) and `qs` 6.16.0 (moderate) | portal-tester (`npm audit`) | Patch updates in the lockfile; `npm audit --omit=dev` at 0 |
+| D-18 | S3 | The Neon parity script still drove the retired Task Tracker (410s) | portal-tester | Rewritten for TaskList's own sign-in; 18 / 18 |
+| D-19 | S4 | Smoke step checked the LadWani API's "ready" line before the API had printed it | portal-tester | Waits up to 10 s for the line |
+| D-20 | S3 | The hub admin's session cookie (Path=/) was forwarded to Education's server with every `/edu/` request | portal-tester (code reading) | The proxy drops `hub_admin_sid` and its CSRF pair (D-027); a test checks it |
+| D-21 | S4 | Dead branch for the retired hub gate in `smoke-dev.sh`; stale counts in `TEST_SPEC.md` | portal-tester | Removed; spec counts updated |
+__EDU_DEFECTS__
 
 ## 11. Pass / fail
 
