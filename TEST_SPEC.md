@@ -254,15 +254,18 @@ superuser, so it is not run; see Known gaps.)
 
 ```bash
 curl -s -o /dev/null --max-time 2 http://127.0.0.1:3101/ && echo "FAIL something is already on 3101"
-B=$(mktemp -d); cp package.json package-lock.json "$B"/ && cp -R portal "$B"/
-( cd "$B" && npm ci --omit=dev --no-audit --no-fund --prefer-offline >/dev/null ) || echo "FAIL npm ci"
-cd "$B"   # node itself in the background, so $! is node's pid and the kill below stops it
-env -u DB_HOST -u DB_NAME -u DB_USER -u DB_PASSWORD -u DATABASE_URL_UNPOOLED \
-  DATABASE_URL="$SMOKE_DATABASE_URL" PORT=3101 node portal/server.js >"$B/hub.log" 2>&1 & BUNDLE=$!
-cd - >/dev/null
-for i in $(seq 1 40); do curl -fsS -o /dev/null http://127.0.0.1:3101/ 2>/dev/null && break; sleep 0.5; done
-echo "bundle boots: $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3101/)"
-kill $BUNDLE; wait $BUNDLE 2>/dev/null; rm -rf "$B"
+# Nothing runs unless the copy is made: with an empty $B (mktemp failing on a full disk) `cd ""`
+# succeeds in place, so the copy would land in / and `npm ci --omit=dev` would run in the working
+# tree, stripping its dev dependencies (portal-tester, 3 Nov 2026).
+if B=$(mktemp -d) && [ -d "$B" ] && cp package.json package-lock.json "$B"/ && cp -R portal "$B"/; then
+  ( cd "$B" && npm ci --omit=dev --no-audit --no-fund --prefer-offline >/dev/null ) || echo "FAIL npm ci"
+  # exec: node itself is in the background, so $! is node's pid and the kill below stops it
+  ( cd "$B" && exec env -u DB_HOST -u DB_NAME -u DB_USER -u DB_PASSWORD -u DATABASE_URL_UNPOOLED \
+      DATABASE_URL="$SMOKE_DATABASE_URL" PORT=3101 node portal/server.js ) >"$B/hub.log" 2>&1 & BUNDLE=$!
+  for i in $(seq 1 40); do curl -fsS -o /dev/null http://127.0.0.1:3101/ 2>/dev/null && break; sleep 0.5; done
+  echo "bundle boots: $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3101/)"
+  kill $BUNDLE; wait $BUNDLE 2>/dev/null; rm -rf "$B"
+else echo "FAIL could not stage the bundle in a temp directory"; fi
 ```
 
 (The bundle has no `ladwani/`, so its `/ladwani/` is the "not on this tier yet" page: the dev
