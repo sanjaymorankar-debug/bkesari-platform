@@ -332,14 +332,19 @@ has "$V" "connect-src 'none'";  has "$V" 'S5 snapshot';  has "$V" 'class="ks-bar
 kill $HUB; wait $HUB 2>/dev/null
 
 # The proxy, with the real server.js: a throwaway upstream on 3111 that echoes what it got.
-# Nothing gates the tabs any more, and no hub token is ever forwarded, forged or not.
+# Nothing gates the tabs any more, and no hub token is ever forwarded, forged or not. Nor is the
+# hub admin's session (D-027): its two Path=/ cookies come off, the project's own pass as sent.
 # With #9a's export built, server.js serves /ladwani/ itself and ignores LADWANI_ORIGIN; the
 # Education lines are the proxy's.
-node -e 'require("http").createServer((q,r)=>{let b="";q.on("data",c=>b+=c).on("end",()=>{r.setHeader("content-type","application/json");r.end(JSON.stringify({url:q.url,body:b,token:q.headers["x-bkesari-token"]||null}))})}).listen(3111,"127.0.0.1")' & UP=$!
+node -e 'require("http").createServer((q,r)=>{let b="";q.on("data",c=>b+=c).on("end",()=>{r.setHeader("content-type","application/json");r.end(JSON.stringify({url:q.url,body:b,token:q.headers["x-bkesari-token"]||null,cookie:q.headers.cookie||null}))})}).listen(3111,"127.0.0.1")' & UP=$!
 sleep 0.5
 start_hub EDU_ORIGIN=http://127.0.0.1:3111
 has "$(curl -s "$BASE/edu/login")" '"url":"/login"'
 has "$(curl -s -H 'x-bkesari-token: forged' "$BASE/edu/login")" '"token":null'
+want 200 -b $AD "$BASE/admin/api/state"           # the owner's jar is a live session on this hub...
+# ...and of its three Path=/ cookies Education gets only the shell's k_admin hint (not a secret).
+has "$(curl -s -b $AD "$BASE/edu/login")" '"cookie":"k_admin=1"'
+has "$(curl -s -H 'cookie: hub_admin_sid=s5; edu_sid=s5-edu; hub_admin_sid_csrf=s5; k_lang=mr' "$BASE/edu/login")" '"cookie":"edu_sid=s5-edu; k_lang=mr"'
 has "$(curl -s -H "$J" -d '{"qty":3}' "$BASE/edu/api/orders")" '"body":"{\"qty\":3}"'
 has "$(curl -sI "$BASE/education/sign-in" | tr -d '\r')" 'Location: /edu/sign-in'
 kill $UP; wait $UP 2>/dev/null; sleep 0.5
