@@ -143,9 +143,10 @@ Needs only `curl` and the URL — no SSH, no credentials — so it runs from a
 laptop, from CI, or from the deploy workflow, which runs it on every dev deploy
 and puts the output in the run summary.
 
-It checks: the hub and both static pages are served; the shared menu is included
-on each and served as JavaScript; `/tasks/`, `/atip/` and the ATIP upload
-endpoint are **not** open; the site reports the tier you asked for; non-production
+It checks: the hub and both static pages are served; the shell and the pinned
+Kesari design system are included and served; TaskList's API, the hub admin's
+API, `/atip/` and the ATIP upload endpoint are **not** open; the old shared
+sign-in's address shows the project chooser; the hub's security headers are sent; the site reports the tier you asked for; non-production
 tiers are not indexable; `/.env`, `/.git/config` and the server source are not
 reachable; and each project tab either answers or shows the placeholder.
 
@@ -157,7 +158,7 @@ to promote the tier.
 
 | Failure | What to do |
 |---|---|
-| **THE TASK TRACKER IS OPEN TO THE INTERNET** | Anyone can read and edit the tracker. `/tasks/` fails *open* when its credentials are unset — deliberate, for a laptop; catastrophic on a public host. Set `TRACKER_USER` and `TRACKER_PASSWORD`, redeploy, re-run. Fix this before anything else. |
+| **THE TASKLIST API IS OPEN TO THE INTERNET** / **THE HUB ADMIN API IS OPEN** | Something is answering without a session: a deploy of old code or a broken route. Roll back and re-run before anything else. |
 | **THE ATIP UPLOAD ENDPOINT ACCEPTED AN UNAUTHENTICATED POST** | Anyone could replace the published dashboard. Set `ATIP_PUBLISH_TOKEN` to a fresh random value — a **different one per tier**. |
 | **the site does not report itself as 'dev'** | The app resolved the wrong tier, so it may be opening the wrong database. Check `APP_ENV` and go back to section 2.1 before using the site. |
 | **`/.env` is publicly readable** | The document root is pointed at the application directory instead of its `public` folder. Stop and fix the site's root. |
@@ -193,16 +194,23 @@ more than the welcome page.
 
 ### 4.2 Each tab
 
-- [ ] **`/`** — the welcome page shows a card per project and every card links
-      where it says.
+- [ ] **`/`** — the home page shows the six project tiles with their status chips,
+      every **Open** goes where it says (ATIP in a new window), and the language
+      control turns the page into मराठी and हिंदी.
+- [ ] **`/auth/sign-in`** — shows "Choose a project to sign in" with LadWani,
+      Education and TaskList, each linking to its own sign-in.
+- [ ] **`/admin`** — the hub admin signs in with `HUB_ADMIN_EMAIL`; change a tile's
+      status and see it on the home page; post a banner and remove it again.
+- [ ] **`/contact`** — send a message; it appears in `/admin`'s inbox.
 - [ ] **`/global-warming/`** — reads correctly; every figure still shows its
       source and year. *Check the figures against their sources before this
       tier is ever public: they are not live readings.*
-- [ ] **`/driving-simulator/`** — reads correctly, and the dashed
-      "still to be filled in" panel is still obviously a placeholder.
-- [ ] **`/tasks/`** — the login is accepted; you can create a project and a task,
-      edit one, add a comment, and see them again after a reload. (That last part
-      is what proves the database is actually connected.)
+- [ ] **`/driving-simulator/`** — reads correctly, and shows no internal note.
+- [ ] **`/tasklist/`** — sends you to TaskList's own sign-in. Sign in (mobile +
+      code, or email + password), add "Call vendor tomorrow 5pm #gokesari" with the
+      quick-add bar, see it under Upcoming, move a task on the Board, reload, and
+      see it all again. (That last part proves the database is connected.)
+      Sign out of TaskList and confirm `/admin` (if signed in there) still is.
 - [ ] **`/atip/`** — the login is accepted, and you see either a dashboard or
       *"No dashboard snapshot has been published yet."* Confirm the page is
       **view-only**: no order buttons, no broker banner.
@@ -248,15 +256,9 @@ For whichever of the three are actually deployed:
 The brief's constraint: *do not delete or rewrite existing working features.*
 After any deploy that touched the hub:
 
-- [ ] The Task Tracker's existing projects and tasks are all still there, with
-      their comments.
-- [ ] The Task Tracker API still answers. `GET /tasks/api/overview` is the one
-      call the dashboard makes, and returns every project and task:
-
-      ```bash
-      curl -u "$TRACKER_USER:$TRACKER_PASSWORD" \
-        https://dev.bkesari.com/tasks/api/overview | head -c 400
-      ```
+- [ ] After `tools/migrate_shared_id.mjs --apply` (DEPLOY.md Part 9), the old Task
+      Tracker's projects and tasks are all in the owner's TaskList, as lists and
+      tasks, with their comments as status updates; nobody else sees them.
 - [ ] The ATIP snapshot that was published before the deploy is still showing,
       with a sensible age in its banner.
 - [ ] `gokesari.com` and `test.gokesari.com` are **untouched and still working**.

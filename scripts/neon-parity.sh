@@ -10,7 +10,8 @@
 # Needs: a PostgreSQL with TLS (the DIRECT URL) and a PgBouncer in transaction
 # mode in front of it that requires TLS (the POOLED URL), both reaching the
 # same throwaway database, owned by ROLE, which must not be a superuser.
-# THE DATABASE IS WIPED: the four tracker tables are dropped first. If the
+# THE DATABASE IS WIPED: TaskList's and ATIP's four tables (projects, tasks,
+# comments, atip_snapshots) are dropped first. If the
 # server certificate comes from a local CA, point NODE_EXTRA_CA_CERTS at it;
 # nothing here turns certificate checks off. Also needs node, psql and curl.
 #
@@ -35,6 +36,10 @@ IDLE="${PARITY_IDLE_SECONDS:-3}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASE="http://127.0.0.1:$PORT"
 U=parity; PW=parity-local-only; TOKEN=parity-local-token
+# The reads and writes go through TaskList with an account of its own (mobile +
+# OTP; APP_ENV=dev shows the code). Its session lives in the database, so it
+# outlives the hub's restart below.
+MOBILE=9876500998
 
 if [ -z "$POOLED" ] || [ -z "$DIRECT" ]; then
   echo "Neon parity SKIPPED: set PARITY_POOLED_URL and PARITY_DIRECT_URL (TEST_SPEC.md, Neon parity)."
@@ -53,9 +58,25 @@ bad() { fail=$((fail+1)); printf '  FAIL  %s\n' "$1"; [ $# -gt 1 ] && printf '  
 sql() { PGOPTIONS='-c client_min_messages=warning' psql "$DIRECT" -XAtq -v ON_ERROR_STOP=1 -c "$1"; }
 code() { curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$@"; }
 
-LOG=$(mktemp); HUB=""
+LOG=$(mktemp); JAR=$(mktemp); CSRF=""; HUB=""
 stop_hub() { [ -n "$HUB" ] && kill "$HUB" 2>/dev/null; wait "$HUB" 2>/dev/null; HUB=""; }
-trap 'stop_hub; rm -f "$LOG"' EXIT
+trap 'stop_hub; rm -f "$LOG" "$JAR"' EXIT
+
+# json <key>: that key of the JSON object on stdin, or nothing.
+json() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const v=JSON.parse(s)[process.argv[1]];if(v!==undefined&&v!==null)console.log(v)}catch{}})' "$1"; }
+# TaskList's own sign-in, as a person does it: the session's CSRF token, a code
+# by SMS (shown on the dev tier), the code back. Leaves the cookie in $JAR.
+tl_sign_in() {
+  local j='content-type: application/json' c otp
+  c=$(curl -s -c "$JAR" --max-time 20 "$BASE/tasklist/api/auth/session" | json csrf)
+  otp=$(curl -s -b "$JAR" -c "$JAR" --max-time 20 -H "$j" -H "x-csrf-token: $c" \
+    -d "{\"mobile\":\"$MOBILE\",\"purpose\":\"sign-up\"}" "$BASE/tasklist/api/auth/otp/send" | json devCode)
+  CSRF=$(curl -s -b "$JAR" -c "$JAR" --max-time 20 -H "$j" -H "x-csrf-token: $c" \
+    -d "{\"mobile\":\"$MOBILE\",\"code\":\"$otp\",\"name\":\"Parity\"}" "$BASE/tasklist/api/auth/otp/verify" | json csrf)
+  [ -n "$CSRF" ]
+}
+tl_read()  { code -b "$JAR" "$BASE/tasklist/api/tasks"; }
+tl_write() { code -b "$JAR" -X POST -H 'content-type: application/json' -H "x-csrf-token: $CSRF" -d "{\"name\":\"$1\"}" "$BASE/tasklist/api/lists"; }
 
 # start_hub <DATABASE_URL> [DATABASE_URL_UNPOOLED]
 start_hub() {
@@ -63,7 +84,7 @@ start_hub() {
   : > "$LOG"
   ( cd "$ROOT" && exec env -u DB_HOST -u DB_PORT -u DB_NAME -u DB_USER -u DB_PASSWORD -u DB_SSL \
       DATABASE_URL="$1" DATABASE_URL_UNPOOLED="${2:-}" PORT="$PORT" APP_ENV=dev \
-      TRACKER_USER=$U TRACKER_PASSWORD=$PW ATIP_USER=$U ATIP_PASSWORD=$PW ATIP_PUBLISH_TOKEN=$TOKEN \
+      ATIP_USER=$U ATIP_PASSWORD=$PW ATIP_PUBLISH_TOKEN=$TOKEN \
       node portal/server.js ) >"$LOG" 2>&1 &
   HUB=$!
   for _ in $(seq 1 60); do

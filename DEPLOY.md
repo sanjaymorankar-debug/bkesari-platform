@@ -58,7 +58,7 @@ nothing half-applied); `ON_ERROR_STOP` stops at the first error instead of carry
 
 ---
 
-## Part 1: Portal, Task Tracker and ATIP viewer (Node.js)
+## Part 1: The hub, TaskList and the ATIP viewer (Node.js)
 
 ### 1. Point the site at this repo
 
@@ -93,7 +93,11 @@ safe to re-run.
 |---|---|
 | `DATABASE_URL` | Neon console → this tier's branch → **Connect** → database `neondb`, role `bk_portal_app`, *Connection pooling* **on**. Paste it whole: the `?sslmode=require&channel_binding=require` on the end is what turns TLS on |
 | `DATABASE_URL_UNPOOLED` | the same, with *Connection pooling* **off**. Used only to create the tables |
-| `TRACKER_USER`, `TRACKER_PASSWORD` | login for `/tasks/` |
+| `HUB_AUTH_SECRET` | long random secret (`openssl rand -hex 32`), **different per tier**. Seals the hub's forms and codes; TaskList's and LadWani's secrets are derived from it unless `TASKLIST_AUTH_SECRET` / `LADWANI_JWT_SECRET` are set |
+| `HUB_ADMIN_EMAIL`, `HUB_ADMIN_PASSWORD_HASH` | the first hub admin, made at start when there is none (bcrypt hash: `node -e "console.log(require('bcryptjs').hashSync(process.argv[1], 11))" 'the password'`). `HUB_ADMIN_PASSWORD` (plain) also works; remove it after the first start. An address on `HUB_OWNER_EMAILS` (default `agtcipl@gmail.com`) gets the owner role, which also opens `/ATIP/` |
+| `SMS_WEBHOOK_URL`, `SMS_WEBHOOK_TOKEN` | where one-time codes go: POST `{"to":"+91…","text":"…"}` with `Authorization: Bearer <token>` to your SMS gateway or a relay. **Unset on production, mobile sign-in is refused** (dev and test show the code on screen). Per project: `TASKLIST_SMS_WEBHOOK_URL` |
+| `RESEND_API_KEY` + `MAIL_FROM`, or `MAIL_WEBHOOK_URL` | password-reset and verification emails. Per project: `TASKLIST_…`, `HUB_…` |
+| `TRUST_PROXY` | Express `trust proxy`. Default `loopback` (Hostinger's front end); set it to the front end's address if the visitor's IP shows as one address for everyone |
 | `ATIP_USER`, `ATIP_PASSWORD` | login for `/ATIP/` |
 | `ATIP_PUBLISH_TOKEN` | long random secret. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Use a **different one per tier** (dev/test/production). |
 
@@ -103,7 +107,7 @@ in place of `DATABASE_URL` for a database that is not on Neon; `.env.example` li
 Redeploy. Check (same checks for dev.bkesari.com and test.bkesari.com — add a **DEV** badge
 alongside the existing **TEST** one in `portal/` if you want the two visually distinguishable):
 - the site shows the menu
-- `/tasks/` asks for a login
+- `/tasklist/` sends you to TaskList's own sign-in, and `/admin` shows the hub admin's sign-in
 - `/ATIP/` asks for a login, then says *No dashboard snapshot has been published yet*
   (`/atip/` still resolves, for old bookmarks)
 
@@ -322,9 +326,9 @@ and server-rendering keeps that page's policy untouched.
 
 | Path | Served by |
 |---|---|
-| `/`, `/tasks/`, `/ATIP/` (owner only) | this repo (`portal/`) |
+| `/`, `/about`, `/contact`, `/privacy`, `/terms`, `/auth/sign-in` (project chooser), `/admin`, `/tasklist/`, `/ATIP/` (owner only), `/kesari-ui/1.0.0/`, `/styleguide/` (dev and test only) | this repo (`portal/`) |
 | `/environment/` (`/global-warming/` redirects to it), `/driving-simulator/` | this repo, static |
-| `/access/request`, `/admin/access`, `/hub/api/*`, `/.well-known/jwks.json` | this repo: sign-in permissions (Part 8) |
+| `/tasks/*`, `/education/*`, `/access/*`, `/admin/access` | redirects (to `/tasklist/`, `/edu/`, the chooser, `/admin`); the old `/hub/api/*`, `/tasks/api/*` and `/.well-known/jwks.json` answer 410 |
 | `/edu/`, `/ladwani/` | their own apps, reached through the hub |
 
 A tab whose destination is not deployed on a tier yet answers with a short
@@ -625,7 +629,7 @@ Settings on the hub site (hPanel → the site → Node.js → Environment variab
 | Variable | Value |
 |---|---|
 | `LADWANI_DATABASE_URL` | Neon project **bkesari-ladwani**, the tier's branch (`production` / `test`), database **`bk_ladwani`**, role `bk_ladwani_app`, **pooled** connection string. Without it the pages load and the API answers 503. |
-| `LADWANI_JWT_SECRET` | Optional. Unset, LadWani's session secret is derived from `HUB_TOKEN_PRIVATE_KEY`. |
+| `LADWANI_JWT_SECRET` | Optional. Unset, LadWani's session secret is derived from `HUB_AUTH_SECRET` (or the older `HUB_TOKEN_PRIVATE_KEY`). LadWani's session cookie is `lw_sid` on `/ladwani` (`LADWANI_COOKIE_PATH`, set by the hub). |
 | `LADWANI_TRUST_PROXY` | Not needed here. LadWani rate-limits per visitor (20 API calls a minute, 5 sign-ins per 15 minutes). Inside the hub every API call has passed the hub's sign-in, so the hub names the signed-in person in `X-Bkesari-Visitor` (dropping any value the browser sent) and LadWani counts per person (`VisitorThrottlerGuard`), whatever proxies are in front. Check after a deploy: two people signed in at once each keep their own budget. It still decides the address LadWani's audit log records (admin → audit log): unset, every entry shows Hostinger's front end rather than the visitor. Set it to the hops in front of the hub (`ladwani/docs/27-dev-deploy.md`) only if that column should be useful. |
 | `NODE_ENV` | `production`. LadWani's API reads it from the hub's process: otherwise its sign-up answer carries the one-time code (`devOtp`) and its session cookie is not `Secure`. The hub's own code does not read it. |
 | `TOKIO_WORKER_THREADS` | Leave unset. The hub sets it to 2 (`ENGINE_THREADS` in `portal/ladwani.js`) before LadWani's database engine (Prisma) starts. Uncapped, the engine starts a thread per CPU the server shows, which on shared hosting is every core of the machine, and Hostinger counts each thread against the account's process limit: on 2026-10-26 that left Education's PHP with no room to start (503 on every PHP page) until the hub was restarted. The startup log shows the value in effect next to the CPU count (`LadWani API: ready (database engine: 2 worker threads; the server shows N CPUs)`). A value set here must be a whole number above 0: the engine aborts the whole process on anything else, so the hub refuses it and only LadWani's API stays off (503, and the startup log says why). The same limit is why LadWani's connection pool is 5 (`connection_limit` in `ladwani/apps/api/src/prisma/prisma.service.ts`; Prisma's default is two per CPU core plus one): each new connection resolves Neon's host name on a thread of its own. A `connection_limit` in `LADWANI_DATABASE_URL` wins. |
@@ -875,27 +879,37 @@ read (no mailbox access); the test account was marked verified directly.
 
 ---
 
-## Part 8: The access layer (one bkesari ID, a permission per project)
+## Part 9: Accounts, one per project (since 3 Nov 2026)
 
-Sign-in is **Neon Auth** on the hub (`NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`).
-What a signed-in person may open is decided by the hub's own tables
-(`portal/sql/hub_schema.sql`): `hub_projects`, `project_access`, `access_requests`
-and `audit_log`.
+There is **no shared bkesari ID**. Each project signs its own people in, in its own database,
+with its own cookie; signing in to one grants nothing in another.
 
-| Setting | Meaning |
-|---|---|
-| `HUB_OWNER_EMAILS` | comma-separated owner emails (default `agtcipl@gmail.com`). The owner reaches ATIP, may decide every request, and needs a **verified** email |
-| `HUB_TOKEN_PRIVATE_KEY` | RSA private key (PEM, `\n` escapes allowed) that signs the project token. Set it on every tier; without it a key is made at start-up and tokens die on restart |
-| `TASKLIST_DATABASE_URL` / `ATIP_DATABASE_URL` | the `bk_tasklist` and `bk_atip` databases. `DATABASE_URL` is then the hub's own, holding only sign-in permissions. Unset, one database carries everything (local use) |
+| Project | Accounts (its own database) | Sign-in | Session cookie |
+|---|---|---|---|
+| TaskList | `tl_users`, `tl_sessions`, `tl_password_resets`, `tl_otp_codes`, `tl_rate_limits`, `tl_audit_log` (`bk_tasklist`) | `/tasklist/sign-in`: mobile + OTP, or email + password | `tl_sid`, Path=/tasklist |
+| LadWani | its `users` and refresh tokens (`bk_ladwani`) | `/ladwani/sign-in/`: mobile + OTP, or password | `lw_sid`, Path=/ladwani |
+| Education | its `users` (`bk_edu`) | `/edu/sign-in`: mobile + OTP, or email + password | `edu_sid`, Path = APP_URL's path |
+| Hub admin | `hub_admin_*` (`neondb`, the hub's) | `/admin`: email + password, no sign-up | `hub_admin_sid`, Path=/ (it also opens `/ATIP/` for the owner) |
 
-* `/ladwani/` and `/edu/`: not signed in -> `/auth/sign-in?next=...`; signed in without
-  permission -> `/access/request?project=...`; permitted -> the request is forwarded
-  with `X-Bkesari-Token`, an RS256 JWT valid 60 seconds with `sub` (user id), `email`,
-  `role`, `aud` (the project). Apps verify it against `/.well-known/jwks.json` and map
-  `sub` to a `hub_user_id` column on their own `users` table. A token for one project
-  is refused by another (`aud`). A client-sent `X-Bkesari-Token` is always discarded.
-* `/ATIP/`: owner only. Everyone else, signed in or not, gets a plain 404.
-* `/tasks/`: the existing `TRACKER_ALLOWED_EMAILS` list, plus anyone with a
-  `tasklist` row in `project_access`.
-* `/admin/access`: the owner (all projects) and each project's admin approve or
-  decline requests and revoke access. Every decision lands in `audit_log`.
+All cookies: HttpOnly, SameSite=Lax, Secure. Five wrong passwords lock an account for 15
+minutes; sign-in, codes and resets are rate-limited; every form carries a CSRF token.
+`/auth/sign-in` (the old shared sign-in's address) is now "Choose a project to sign in".
+
+**Moving the old users over, once per tier** (after this release is deployed there):
+
+```bash
+# 1. See the plan (changes nothing):
+HUB_DATABASE_URL="<hub, direct>" TASKLIST_DATABASE_URL="<tasklist, direct>" \
+  LADWANI_DATABASE_URL="<ladwani>" EDU_DATABASE_URL="<edu>" \
+  node tools/migrate_shared_id.mjs --csv ~/migration-plan.csv
+# 2. Apply: TaskList accounts for everyone who could open the old tracker; its
+#    lists and tasks go to the owner. LadWani and Education already have accounts.
+node tools/migrate_shared_id.mjs --apply
+# 3. Tell people, once (needs RESEND_API_KEY + MAIL_FROM or MAIL_WEBHOOK_URL):
+node tools/migrate_shared_id.mjs --apply --notify
+```
+
+Then, and only then, remove Neon Auth: set `auth: false` in `neon.ts` and `neon deploy`
+(its tables hold the names the migration reads). `HUB_TOKEN_PRIVATE_KEY`,
+`TRACKER_*`, `NEON_AUTH_*` and LadWani's/Education's `HUB_JWKS*` settings can then be
+deleted from every tier's environment.
