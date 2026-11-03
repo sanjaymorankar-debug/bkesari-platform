@@ -1,9 +1,9 @@
 # Testing report — Kesari redesign, 3 Nov 2026
 
 **Date of prompt:** 3 Nov 2026 Time 08:42 AM >
-Report written 3 Nov 2026, between 12:30 PM and __FINAL_TIME__ (IST, UTC + 5:30). All times below are IST.
+Report written 3 Nov 2026, between 12:30 PM and 01:52 PM (IST, UTC + 5:30). All times below are IST.
 
-- **Change under test:** `bkesari-platform`, branch `claude/confident-goldberg-i9xe8m`, draft PR [sanjaymorankar-debug/bkesari-platform#25](https://github.com/sanjaymorankar-debug/bkesari-platform/pull/25). Commits: dd56117 at 11:16 AM, 70cc39e at 11:43 AM, 981b49f at 12:24 PM, __LAST_COMMITS__.
+- **Change under test:** `bkesari-platform`, branch `claude/confident-goldberg-i9xe8m`, draft PR [sanjaymorankar-debug/bkesari-platform#25](https://github.com/sanjaymorankar-debug/bkesari-platform/pull/25). Commits: dd56117 at 11:16 AM, 70cc39e at 11:43 AM, 981b49f at 12:24 PM, 0c24f83 at 12:42 PM, then the testers' fixes from 5f3c633 (12:44 PM) to 71d3d4a (01:52 PM), and the commit of this report.
 - **Where it was tested:** a Linux container: Node 22.23.4, PHP 8.3.6, PostgreSQL 16, Chromium (Playwright), axe-core 4.x, Lighthouse 13.
 - **The stack:** the same code the hub site runs (`node portal/server.js`, LadWani's export and API in-process, its own PostgreSQL databases), with throwaway databases.
 - **Test and Prod servers:** **this release is not yet deployed to test.bkesari.com or bkesari.com.** §9 explains why, and what testing on them remains.
@@ -13,7 +13,7 @@ Report written 3 Nov 2026, between 12:30 PM and __FINAL_TIME__ (IST, UTC + 5:30)
 | Area | Result |
 |---|---|
 | Hub + TaskList + shell + Kesari, automated (R1) | **162 / 162 pass**, 0 skipped, plus **32 / 32** deploy-guard cases (159 at the start; +2 race tests, +1 cookie test) |
-| portal-tester (TEST_SPEC.md S1–S7, R1–R4) | __PORTAL_VERDICT__ |
+| portal-tester (TEST_SPEC.md S1–S7, R1–R4) | **PASS**, twice. On `e7c7ac4` (report `20261103-073944`, 01:09 PM), then on `5010301` after the proxy cookie fix (report `20261103-082002`, 01:50 PM): S1–S7 green; R1 162, S5 42 probes, S6 27, S7 18; 26 / 26 critical regressions |
 | LadWani API (Jest) | **252 / 252 pass** in 31 suites; typecheck and lint clean (2 old warnings); static export builds |
 | Education (PHPUnit, edu/TEST_SPEC.md) | **473 tests** on SQLite (468 pass, the 5 known skips), PostgreSQL (473 / 473) and through the pooler (473 / 473); smoke through the hub 60 / 0 (HTTP) and 21 / 0 (browser) |
 | edu-tester | **PASS** (report `.claude/test-runs/20261103-075722-edu-tester.md`, 01:27 PM): every level S1–S7 green at or above baseline; 5 defects found and fixed (D-22 to D-26) |
@@ -156,6 +156,8 @@ There are **no build numbers to record yet**. Steps are in `mobile/README.md`. B
 
 **What was measured on the servers today:** the before-state of prod and test (`docs/ux-audit.md`, 09:30–09:45 AM): 89 screenshots, axe on every page, and Lighthouse on 5 pages.
 
+**The PR's Hostinger preview** (`yellow-gaur-979644.hostingersite.com`) rebuilds on every push and served `5010301` at 01:37 PM. This environment's network refuses that host (HTTP 403 from the proxy), so it could not be tested from here. It is worth a look in a browser before step 2.
+
 **Promotion and the tests to run on each tier** (owner's go-ahead needed):
 
 | Step | Tier | Tests |
@@ -195,6 +197,7 @@ There are **no build numbers to record yet**. Steps are in `mobile/README.md`. B
 | D-24 | S3 | Education 2FA challenge (also in the old code): 6–9 of 12 wrong codes checked | edu-tester | Count first |
 | D-25 | S3 | Under D-22–D-24: Laravel's `RateLimiter::hit()` could reset a fresh key's count, letting up to twice the limit through | edu-tester | New `App\Support\Attempts`, counting under a per-key lock; `AttemptsTest` |
 | D-26 | S3 | Education 2FA recovery code (also in the old code): one code signed in 6–9 times when sent together | edu-tester | Spent in a transaction under a row lock |
+| D-27 | S3 | Test tooling (no product code): on a full disk the deploy-bundle step could run `npm ci --omit=dev` in the working tree; repeat smoke runs within an hour hit the sign-in rate limits (429); one cookie probe matched `tl_sid_csrf` and could not fail | portal-tester (re-run) | The step runs only when its temp copy exists; S5 and S7 reset the counters first; the probe matches the exact name |
 
 ## 11. Pass / fail
 
