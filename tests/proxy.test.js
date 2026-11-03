@@ -594,3 +594,36 @@ test('a tier default meets its gate like any other origin, and a forged token ne
     await close(upstream.server);
   }
 });
+
+test("the hub admin's session cookie never reaches a project app; the project's own cookies do", async () => {
+  const seen = [];
+  const upstream = await listen((req, res) => { seen.push(req.headers.cookie === undefined ? null : req.headers.cookie); res.end('app'); });
+  const saved = proxy.TIER_ORIGINS.dev;
+  proxy.TIER_ORIGINS.dev = { edu: upstream.origin, ladwani: upstream.origin };
+  const app = express();
+  try {
+    proxy.mount(app, { env: { APP_ENV: 'dev' }, log: { error: () => {} } });
+  } finally {
+    proxy.TIER_ORIGINS.dev = saved;
+  }
+  const hub = await listen(app);
+  const get = (path, cookie) => new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port: hub.server.address().port, path, headers: cookie ? { cookie } : {} }, (res) => {
+      res.resume(); res.on('end', () => resolve(res.statusCode));
+    }).on('error', reject);
+  });
+  try {
+    assert.equal(await get('/edu/', 'hub_admin_sid=secret; edu_sid=mine; k_lang=mr; hub_admin_sid_csrf=pair; k_admin=1'), 200);
+    assert.equal(await get('/edu/', 'hub_admin_sid=secret;hub_admin_sid_csrf=pair'), 200);
+    assert.equal(await get('/edu/', 'edu_sid=mine'), 200);
+    assert.equal(await get('/edu/'), 200);
+    assert.deepEqual(seen, ['edu_sid=mine; k_lang=mr; k_admin=1', null, 'edu_sid=mine', null]);
+  } finally {
+    await close(hub.server);
+    await close(upstream.server);
+  }
+  // The helper on its own: a value holding "=" is kept whole, a name only matches exactly.
+  const req = { headers: { cookie: 'a=1=2; hub_admin_sid_x=keep; hub_admin_sid=go' } };
+  proxy.dropCookies(req, proxy.HUB_PRIVATE_COOKIES);
+  assert.equal(req.headers.cookie, 'a=1=2; hub_admin_sid_x=keep');
+});

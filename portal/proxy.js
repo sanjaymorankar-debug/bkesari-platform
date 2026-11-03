@@ -182,6 +182,25 @@ function stripPrefix(route, url) {
   return (path.slice(route.base.length) || '/') + suffix;
 }
 
+// Cookies only the hub may read: the admin's session and its CSRF pair.
+const HUB_PRIVATE_COOKIES = ['hub_admin_sid', 'hub_admin_sid_csrf'];
+
+/**
+ * Removes the named cookies from the request's Cookie header, keeping every
+ * other pair as the browser sent it (the project's own session, k_lang). The
+ * header goes when nothing is left.
+ */
+function dropCookies(req, names) {
+  const header = req.headers.cookie;
+  if (!header) return;
+  const kept = String(header).split(';').filter((pair) => {
+    const name = pair.split('=')[0].trim();
+    return name && !names.includes(name);
+  }).map((pair) => pair.trim());
+  if (kept.length) req.headers.cookie = kept.join('; ');
+  else delete req.headers.cookie;
+}
+
 /**
  * The page shown when a configured app does not answer.
  *
@@ -239,6 +258,10 @@ function mount(app, {
       if (!matches(route, req.path)) return next();
       // Whatever the browser sent under this name is forged: only a gate may set it.
       delete req.headers['x-bkesari-token'];
+      // The hub admin's session is on Path=/ (the owner's ATIP viewer needs it),
+      // so the browser sends it here too. It is the hub's alone: no project app
+      // gets to see it.
+      dropCookies(req, HUB_PRIVATE_COOKIES);
       const gate = gates[route.key];
       return gate ? gate(req, res, next) : next();
     });
@@ -300,4 +323,4 @@ function mount(app, {
   return routes;
 }
 
-module.exports = { PROXIED_TABS, TIER_ORIGINS, parseOrigin, readRoutes, matches, stripPrefix, mount };
+module.exports = { PROXIED_TABS, TIER_ORIGINS, HUB_PRIVATE_COOKIES, parseOrigin, readRoutes, matches, stripPrefix, dropCookies, mount };

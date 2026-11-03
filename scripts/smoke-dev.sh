@@ -326,13 +326,7 @@ done
 # and posts there, so getting it wrong means nobody can sign in while the page
 # itself looks completely healthy. A status code cannot see any of this.
 fetch /edu/
-if [ "$STATUS" = 200 ] && grep -qF 'id="credForm"' "$BODY"; then
-  # Behind the hub's access layer an anonymous visitor lands on the bkesari
-  # sign-in page, so there is no Education markup to inspect. Pass
-  # SMOKE_COOKIE (a signed-in hub session with Education access) to check it.
-  ok "/edu/ is behind the hub's sign-in"
-  caution "/edu/ Livewire checks skipped" "set SMOKE_COOKIE to a signed-in session with Education access to run them."
-elif [ "$STATUS" = 200 ]; then
+if [ "$STATUS" = 200 ]; then
   if grep -qF 'data-update-uri="/edu/livewire/update"' "$BODY"; then
     ok "/edu/ points Livewire at its own endpoint, so the sign-in form can post"
   elif grep -qF 'data-update-uri="/livewire/update"' "$BODY"; then
