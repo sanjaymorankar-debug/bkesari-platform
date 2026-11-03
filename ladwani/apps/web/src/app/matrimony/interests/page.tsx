@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../../lib/api-client'
 import { errorMessage } from '../../../lib/auth-context'
-import { RequireAuth, TopBar, Shell, ErrorBanner, StatusPill } from '../../../components/ui'
+import { RequireAuth, TopBar, Shell, ErrorBanner, StatusPill, ListSkeleton, EmptyList } from '../../../components/ui'
 
 interface InterestRow {
   id: string
@@ -55,7 +55,8 @@ export default function MatrimonyInterestsPage() {
         <ErrorBanner message={error} />
 
         <div className="stack">
-          {rows?.length === 0 && <p className="muted">Nothing here yet.</p>}
+          {rows === null && !error && <ListSkeleton />}
+          {rows?.length === 0 && <EmptyList message="empty.interests" />}
           {rows?.map((r) => {
             const person = tab === 'received' ? r.fromMember : r.toMember
             return (

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en" data-project="tasklist">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TaskList</title>
+<meta name="description" content="TaskList: capture a task in two taps and see what is due today, in IST.">
+<meta name="theme-color" content="#4338CA">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="/tasklist/manifest.webmanifest">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="TaskList">
+<link rel="preload" href="/kesari-ui/1.0.0/fonts/mukta-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/kesari-ui/1.0.0/kesari.css">
+<link rel="stylesheet" href="/tasklist/tasklist.css">
+<script src="/kesari-ui/1.0.0/kesari.js"></script>
+<script src="/tasklist/i18n.js"></script>
+<script src="/tasklist/quickadd.js"></script>
+<meta name="kesari-me-url" content="/tasklist/api/auth/me">
+<meta name="kesari-footer" content="false">
+</head>
+<body class="k-has-bottomnav">
+<div data-bkesari-menu></div>
+<div id="offline" class="tl-offline" role="status" hidden></div>
+<div class="k-layout">
+  <nav class="k-sidenav" aria-label="TaskList">
+    <ul>
+      <li><a href="/tasklist/" data-nav="today"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg><span data-i18n="nav.today">Today</span></a></li>
+      <li><a href="/tasklist/upcoming" data-nav="upcoming"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span data-i18n="nav.upcoming">Upcoming</span></a></li>
+      <li><a href="/tasklist/board" data-nav="board"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="10" rx="1.5"/><rect x="17" y="4" width="4" height="13" rx="1.5"/></svg><span data-i18n="nav.board">Board</span></a></li>
+      <li><a href="/tasklist/lists" data-nav="lists"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg><span data-i18n="nav.lists">Lists</span></a></li>
+      <li><a href="/tasklist/tags" data-nav="tags"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/></svg><span data-i18n="nav.tags">Tags</span></a></li>
+      <li><a href="/tasklist/search" data-nav="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><span data-i18n="nav.search">Search</span></a></li>
+      <li><a href="/tasklist/archive" data-nav="archive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 13 4 4L19 7"/></svg><span data-i18n="nav.archive">Completed</span></a></li>
+      <li><a href="/tasklist/settings" data-nav="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span data-i18n="nav.settings">Settings</span></a></li>
+    </ul>
+  </nav>
+  <main id="main" class="k-main tl-main">
+    <form id="quick" class="tl-quick" autocomplete="off" novalidate>
+      <label class="k-sr-only" for="quick-input" data-i18n="quick.label">Add a task</label>
+      <div class="tl-quick-row">
+        <input id="quick-input" class="k-input" type="text" maxlength="500" enterkeyhint="done" aria-describedby="quick-hint quick-preview"
+          placeholder="Call vendor tomorrow 5pm #gokesari" data-i18n-attr="placeholder:quick.placeholder">
+        <button class="k-btn" type="submit" data-i18n="quick.add">Add</button>
+      </div>
+      <p id="quick-preview" class="tl-preview" aria-live="polite"></p>
+      <p id="quick-hint" class="k-hint tl-quick-hint" data-i18n="quick.hint">Type a date, a time, #tags, @list or !high — we pick them out.</p>
+    </form>
+    <div id="view" tabindex="-1">
+      <div class="k-skel k-skel--line" style="width:40%"></div>
+      <div class="k-skel k-skel--card"></div><div class="k-skel k-skel--card"></div>
+    </div>
+  </main>
+</div>
+<nav class="k-bottomnav" aria-label="TaskList">
+  <a href="/tasklist/" data-nav="today"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span data-i18n="nav.today">Today</span></a>
+  <a href="/tasklist/upcoming" data-nav="upcoming"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span data-i18n="nav.upcoming">Upcoming</span></a>
+  <a href="/tasklist/board" data-nav="board"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="10" rx="1.5"/><rect x="17" y="4" width="4" height="13" rx="1.5"/></svg><span data-i18n="nav.board">Board</span></a>
+  <a href="/tasklist/lists" data-nav="lists more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span data-i18n="nav.more">More</span></a>
+</nav>
+
+<dialog id="detail" class="k-dialog" aria-labelledby="detail-h">
+  <form id="detail-form" method="dialog" novalidate>
+    <div class="k-dialog__head"><h2 id="detail-h" data-i18n="task.open">Open task</h2>
+      <button class="k-btn k-btn--ghost k-btn--icon" type="button" data-k-close aria-label="Close" data-i18n-attr="aria-label:task.close">✕</button></div>
+    <div class="k-dialog__body" id="detail-body"></div>
+    <div class="k-dialog__foot">
+      <button class="k-btn k-btn--danger" type="button" id="detail-delete" data-i18n="task.delete">Delete task</button>
+      <button class="k-btn" type="submit" id="detail-save" data-i18n="task.save">Save</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="confirm" class="k-dialog" aria-labelledby="confirm-h">
+  <div class="k-dialog__head"><h2 id="confirm-h"></h2></div>
+  <div class="k-dialog__body" id="confirm-body"></div>
+  <div class="k-dialog__foot"><button class="k-btn k-btn--secondary" type="button" data-k-close data-i18n="task.close">Close</button>
+    <button class="k-btn k-btn--danger" type="button" id="confirm-ok"></button></div>
+</dialog>
+<script src="/shared/menu.js" defer></script>
+<script src="/tasklist/app.js" defer></script>
+</body>
+</html>

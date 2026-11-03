@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouteParams } from '@/lib/route-params'
 import { api } from '../../../lib/api-client'
 import { errorMessage } from '../../../lib/auth-context'
-import { RequireAuth, TopBar, Shell, ErrorBanner, StatusPill, Avatar } from '../../../components/ui'
+import { RequireAuth, TopBar, Shell, ErrorBanner, StatusPill, Avatar, ListSkeleton } from '../../../components/ui'
 
 interface FamilyMemberRow {
   id: string
@@ -77,7 +77,9 @@ export default function FamilyDetailPage() {
     return (
       <RequireAuth>
         <TopBar />
-        <Shell>Loading…</Shell>
+        <Shell>
+          <ListSkeleton />
+        </Shell>
       </RequireAuth>
     )
   }

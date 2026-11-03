@@ -4,7 +4,6 @@ import { ConflictException, ForbiddenException, UnauthorizedException } from '@n
 import { hash } from 'bcryptjs'
 import { AuthService, normalizeEmail } from './auth.service'
 import { PrismaService } from '../prisma/prisma.service'
-import { HubJwks } from './hub-token'
 
 describe('AuthService', () => {
   let service: AuthService
@@ -26,7 +25,6 @@ describe('AuthService', () => {
         AuthService,
         { provide: PrismaService, useValue: prisma },
         { provide: JwtService, useValue: { sign: jest.fn(() => 'signed.jwt.token') } },
-        { provide: HubJwks, useValue: new HubJwks('http://unused') },
       ],
     }).compile()
 
@@ -134,7 +132,7 @@ describe('AuthService', () => {
       await expect(service.login({ identifier: '9876543210', password: 'x' })).rejects.toBeInstanceOf(ForbiddenException)
     })
 
-    it('increments failedAttempts on a wrong password and locks out after the threshold', async () => {
+    it('increments failedAttempts on a wrong password and locks for 15 minutes at the fifth', async () => {
       const passwordHash = await hash('correct-password', 4)
       prisma.user.findFirst.mockResolvedValue({
         id: 'u1',
@@ -146,12 +144,32 @@ describe('AuthService', () => {
         member: null,
       })
 
-      await expect(service.login({ identifier: '9876543210', password: 'wrong' })).rejects.toBeInstanceOf(UnauthorizedException)
+      const before = Date.now()
+      await expect(service.login({ identifier: '9876543210', password: 'wrong' })).rejects.toBeInstanceOf(ForbiddenException)
 
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'u1' },
         data: expect.objectContaining({ failedAttempts: 5, lockedUntil: expect.any(Date) }),
       })
+      const lockedUntil: Date = prisma.user.update.mock.calls[0][0].data.lockedUntil
+      const minutes = (lockedUntil.getTime() - before) / 60_000
+      expect(minutes).toBeGreaterThanOrEqual(15)
+      expect(minutes).toBeLessThan(15.1)
+    })
+
+    it('counts a wrong password below the threshold without locking', async () => {
+      const passwordHash = await hash('correct-password', 4)
+      prisma.user.findFirst.mockResolvedValue({
+        id: 'u1', status: 'ACTIVE', passwordHash, failedAttempts: 3, lockedUntil: null, userRoles: [], member: null,
+      })
+      await expect(service.login({ identifier: '9876543210', password: 'wrong' })).rejects.toBeInstanceOf(UnauthorizedException)
+      expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 'u1' }, data: { failedAttempts: 4, lockedUntil: undefined } })
+    })
+
+    it('finds a mobile number typed with +91 and spaces', async () => {
+      prisma.user.findFirst.mockResolvedValue(null)
+      await expect(service.login({ identifier: '+91 98765 43210', password: 'x' })).rejects.toBeInstanceOf(UnauthorizedException)
+      expect(prisma.user.findFirst.mock.calls[0][0].where.OR).toContainEqual({ mobile: '9876543210' })
     })
 
     it('logs in successfully, resets failedAttempts, and issues an access + refresh token', async () => {

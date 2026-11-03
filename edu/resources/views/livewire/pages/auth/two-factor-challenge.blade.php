@@ -77,26 +77,28 @@ new #[Layout('layouts.guest')] class extends Component
 
         $this->redirectIntended(default: route('dashboard', absolute: false), navigate: true);
     }
+
+    public function rendering($view): void
+    {
+        $view->title(__('Two-factor sign-in'));
+    }
 }; ?>
 
 <div>
-    <p class="text-sm text-gray-600 mb-4">
-        Enter the 6-digit code from your authenticator app.
-    </p>
+    <h1>{{ __('One more step') }}</h1>
+    <p class="k-muted">{{ $useRecoveryCode ? __('Enter one of your recovery codes. Each code works once.') : __('Enter the 6-digit code from your authenticator app.') }}</p>
 
-    <form wire:submit="verify">
-        <div>
-            <x-input-label for="code" :value="$useRecoveryCode ? 'Recovery code' : 'Authentication code'" />
-            <x-text-input wire:model="code" id="code" class="block mt-1 w-full" inputmode="{{ $useRecoveryCode ? 'text' : 'numeric' }}" autocomplete="one-time-code" autofocus />
-            <x-input-error :messages="$errors->get('code')" class="mt-2" />
+    <form wire:submit="verify" class="mt-4" novalidate>
+        <div class="k-field">
+            <x-input-label for="code" :value="$useRecoveryCode ? __('Recovery code') : __('Authentication code')" />
+            <x-text-input wire:model="code" id="code" inputmode="{{ $useRecoveryCode ? 'text' : 'numeric' }}" autocomplete="one-time-code" autofocus />
+            <x-input-error :messages="$errors->get('code')" />
         </div>
 
-        <button type="button" wire:click="$toggle('useRecoveryCode')" class="text-sm text-indigo-600 hover:underline mt-3">
-            {{ $useRecoveryCode ? 'Use authenticator app instead' : "Use a recovery code instead" }}
+        <button type="submit" class="k-btn k-btn--block" wire:loading.attr="aria-busy" wire:target="verify">{{ __('Verify') }}</button>
+
+        <button type="button" wire:click="$toggle('useRecoveryCode')" class="k-btn k-btn--ghost mt-3">
+            {{ $useRecoveryCode ? __('Use authenticator app instead') : __('Use a recovery code instead') }}
         </button>
-
-        <div class="flex justify-end mt-4">
-            <x-primary-button>Verify</x-primary-button>
-        </div>
     </form>
 </div>

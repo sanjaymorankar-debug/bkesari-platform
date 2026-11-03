@@ -1,0 +1,48 @@
+/* Kesari base: reset, type, focus, layout. Applies to pages that opt in by
+   loading kesari.css; the app-shell header scopes its own styles instead. */
+*,*::before,*::after{box-sizing:border-box}
+html{font-size:var(--k-text-base);-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--k-page);color:var(--k-ink);
+  font-family:var(--k-font);font-size:1rem;line-height:var(--k-leading);overflow-wrap:break-word}
+img,svg,video{max-width:100%;height:auto}
+img{display:block}
+h1,h2,h3,h4{line-height:1.2;margin:0 0 var(--k-3);font-weight:700;letter-spacing:-.01em}
+h1{font-size:clamp(var(--k-text-2xl),5vw,var(--k-text-3xl))}
+h2{font-size:clamp(var(--k-text-xl),3.4vw,var(--k-text-2xl))}
+h3{font-size:var(--k-text-lg)}
+h4{font-size:var(--k-text-md)}
+.k-display{font-family:var(--k-font-display);font-weight:400;letter-spacing:0}
+p{margin:0 0 var(--k-4);max-width:70ch}
+a{color:var(--k-accent-ink);text-underline-offset:.18em}
+a:hover{color:var(--k-ink)}
+small,.k-small{font-size:var(--k-text-sm)}
+.k-muted{color:var(--k-muted)}
+.k-lead{font-size:var(--k-text-lg);color:var(--k-muted);max-width:60ch}
+code,kbd,pre{font-family:var(--k-font-mono);font-size:.92em}
+kbd{border:1px solid var(--k-border-strong);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--k-surface)}
+hr{border:0;border-top:1px solid var(--k-border);margin:var(--k-6) 0}
+
+/* Focus: 3px saffron, everywhere, for keyboard users. Never removed. */
+:focus-visible{outline:3px solid var(--k-focus);outline-offset:2px}
+:focus:not(:focus-visible){outline:none}
+
+.k-sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.k-skip{position:absolute;left:var(--k-2);top:-60px;z-index:10000;background:var(--k-surface);color:var(--k-ink);
+  padding:var(--k-3) var(--k-4);border-radius:var(--k-radius-sm);box-shadow:var(--k-shadow-2);font-weight:600}
+.k-skip:focus{top:var(--k-2)}
+[hidden]{display:none!important}
+
+/* Layout */
+.k-main{flex:1;width:100%;max-width:var(--k-content);margin:0 auto;padding:var(--k-8) var(--k-4) var(--k-12)}
+.k-main--narrow{max-width:640px}
+.k-stack>*+*{margin-top:var(--k-4)}
+.k-row{display:flex;flex-wrap:wrap;gap:var(--k-3);align-items:center}
+.k-row--between{justify-content:space-between}
+.k-grid{display:grid;gap:var(--k-4);grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr))}
+.k-section{margin:var(--k-10) 0}
+@media (max-width:640px){.k-main{padding:var(--k-6) var(--k-4) var(--k-16)}}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+@media print{.k-noprint{display:none!important}body{background:#fff;color:#000}}

@@ -292,6 +292,8 @@ export class MembersService {
 
   private toOwnProfileView(member: MemberWithProfileRelations) {
     return {
+      gender: member.gender,
+      dateOfBirth: member.dateOfBirth,
       currentCity: member.currentCity,
       currentState: member.currentState,
       nativeVillage: member.nativeVillage,

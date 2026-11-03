@@ -1,7 +1,19 @@
-import { IsArray, IsIn, IsOptional, IsString } from 'class-validator'
-import { INCOME_RANGES, type IncomeRange } from '@community-platform/shared-types'
+import { Type } from 'class-transformer'
+import { IsArray, IsDate, IsIn, IsOptional, IsString, MaxDate } from 'class-validator'
+import { GENDERS, INCOME_RANGES, type Gender, type IncomeRange } from '@community-platform/shared-types'
 
 export class UpdateOwnProfileDto {
+  /** Set by the person themself at sign-up (web /sign-up, step 2). */
+  @IsOptional()
+  @IsIn(GENDERS)
+  gender?: Gender
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  @MaxDate(() => new Date(), { message: 'Date of birth cannot be in the future' })
+  dateOfBirth?: Date
+
   @IsOptional()
   @IsString()
   currentCity?: string

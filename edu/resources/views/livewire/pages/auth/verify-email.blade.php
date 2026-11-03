@@ -33,26 +33,25 @@ new #[Layout('layouts.guest')] class extends Component
 
         $this->redirect(route('home'), navigate: true);
     }
+
+    public function rendering($view): void
+    {
+        $view->title(__('Check your email'));
+    }
 }; ?>
 
 <div>
-    <div class="mb-4 text-sm text-gray-600">
-        {{ __('Thanks for signing up! Before getting started, could you verify your email address by clicking on the link we just emailed to you? If you didn\'t receive the email, we will gladly send you another.') }}
-    </div>
+    <h1>{{ __('Check your email') }}</h1>
+    <p class="k-muted">{{ __('Thanks for signing up! Before getting started, could you verify your email address by clicking on the link we just emailed to you? If you didn\'t receive the email, we will gladly send you another.') }}</p>
 
     @if (session('status') == 'verification-link-sent')
-        <div class="mb-4 font-medium text-sm text-green-600">
-            {{ __('A new verification link has been sent to the email address you provided during registration.') }}
+        <div class="k-banner k-banner--success" role="status">
+            <p>{{ __('A new verification link has been sent to the email address you provided during registration.') }}</p>
         </div>
     @endif
 
-    <div class="mt-4 flex items-center justify-between">
-        <x-primary-button wire:click="sendVerification">
-            {{ __('Resend Verification Email') }}
-        </x-primary-button>
-
-        <button wire:click="logout" type="submit" class="underline text-sm text-gray-600 hover:text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-            {{ __('Log Out') }}
-        </button>
+    <div class="k-row k-row--between mt-4">
+        <button type="button" class="k-btn" wire:click="sendVerification">{{ __('Resend Verification Email') }}</button>
+        <button type="button" class="k-btn k-btn--ghost" wire:click="logout">{{ __('Sign out') }}</button>
     </div>
 </div>

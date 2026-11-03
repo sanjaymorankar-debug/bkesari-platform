@@ -193,6 +193,16 @@ pg_dump --format=custom --no-owner -h <DB_HOST> -p <DB_PORT> -U <DB_USERNAME> -d
 
 Production `.env` uses `MAIL_MAILER=sendmail` (Hostinger's local relay — no external SMTP credentials needed) with `MAIL_FROM_ADDRESS=noreply@edutest.agtci.com`. This was chosen over a third-party SMTP provider specifically to avoid managing external credentials, at the cost of no delivery guarantee — shared-hosting sendmail relays are commonly rate-limited or land in spam. Every send is wrapped in try/catch (`App\Livewire\Concerns\SendsMailSafely`), so a mail failure never breaks registration/invite flows, and all three mail-sending flows (school-staff invites, school-to-member invitations, parent-registered child accounts) still show the credential/invite-link on screen as the reliable fallback. If deliverability proves too unreliable in practice, revisit with a transactional provider — see `ROADMAP.md`.
 
+## Accounts, sign-in and the shared look (since 3 Nov 2026)
+
+Education keeps its own accounts, end to end. The hub in front of `/edu/` no longer signs anyone in or forwards a token (`HUB_JWKS` and `HUB_JWKS_URL` are gone; delete them from a server's `.env`). Nothing to set for that, but check:
+
+- **Session cookie.** `edu_sid`, HttpOnly, SameSite=Lax, sent only to the path of `APP_URL` (`/edu` behind bkesari.com) and Secure when `APP_URL` is https (`config/session.php`). Leave `SESSION_COOKIE`, `SESSION_PATH` and `SESSION_SECURE_COOKIE` out of `.env` so they follow `APP_URL`; an old `SESSION_PATH=/` line widens the cookie to every project on the domain. Changing the cookie name signs everyone out once.
+- **Sign-in lockout.** Five wrong passwords for one email from one address lock sign-in for 15 minutes (`App\Livewire\Forms\LoginForm`). The counter lives in the cache store (`CACHE_STORE=database` on every tier).
+- **Mobile sign-in.** `SMS_WEBHOOK_URL` and `SMS_WEBHOOK_TOKEN`: the provider's webhook receives `POST {"to":"+91XXXXXXXXXX","text":"..."}` with `Authorization: Bearer <token>`. Without them, production says "SMS sign-in is not available yet; use email" (any other `APP_ENV` shows the code on screen, for development only). Codes are six digits, stored hashed in the cache, valid 10 minutes, 5 tries, 3 per number per 10 minutes and 10 per address per hour (`App\Services\MobileSignIn`). People add a number at sign-up or on their profile (`users.mobile`, migration `2026_11_03_000000_add_mobile_to_users`; a database loaded from `database/edu/01_edu_schema.sql` already has it).
+- **Kesari and the shell.** The pages load `/kesari-ui/1.0.0/kesari.css`, `/kesari-ui/1.0.0/kesari.js` and `/shared/menu.js` from the hub. Behind bkesari.com leave `HUB_ASSET_ORIGIN` empty (same origin); a copy reached directly sets `HUB_ASSET_ORIGIN=https://bkesari.com`. The shell asks `/edu/shell/me` who is signed in and signs out with `POST /edu/logout`.
+- **Language.** English, Marathi or Hindi from the shell's `k_lang` cookie (`App\Http\Middleware\SetLocale`, strings in `lang/*.json`); the cookie is read unencrypted because the browser writes it.
+
 ## Scheduled analytics recalculation
 
 `php artisan analytics:recalculate` is scheduled hourly in `routes/console.php`, but Laravel's scheduler only fires when something calls `php artisan schedule:run` — on a real server that means an actual OS cron entry, once per minute:

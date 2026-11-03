@@ -1,5 +1,14 @@
 # Phase 3.0 — Visual Identity & Design System
 
+> **Since 2026-11 LadWani is drawn with Kesari**, the shared bkesari design system
+> (`packages/kesari-ui`, served by the hub at `/kesari-ui/1.0.0/`): `--k-*` tokens,
+> Mukta for all text (the bundled Fraunces, Work Sans and IBM Plex Mono are gone),
+> a 3px saffron focus ring, 48px targets, and LadWani's maroon accent
+> (`<html data-project="ladwani">`, #7C2D12). `apps/web/src/app/globals.css` maps the
+> older class names and the palette below onto those tokens. The rules in §1, §5 and §7
+> still hold: rose only in Matrimony, quiet (never red) deceased markers, the tree's
+> marriage ring and Karta ring.
+
 Translating the brief's "Modern, Trustworthy, Indian/community-oriented, Professional, Simple, Clean, Mobile-first... avoid looking primarily like a dating app" into concrete, reusable tokens.
 
 ## 1. How "not a dating app" actually gets enforced

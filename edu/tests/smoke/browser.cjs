@@ -35,16 +35,21 @@ const bad = m => { fail++; console.log(`FAIL ${m}`); };
 const check = (cond, m) => (cond ? ok(m) : bad(m));
 
 // URLs on the current page that point at the hub's origin but outside /edu.
+// The bkesari shell (header and footer, drawn by the hub's /shared/menu.js)
+// links to the hub and the other projects on purpose, and the Kesari design
+// system and the shell script are the hub's own files: those are not ours.
 async function urlsEscapingPrefix(page) {
   return page.evaluate(hub => {
     const out = [];
     const attrs = [['a', 'href'], ['link', 'href'], ['script', 'src'], ['img', 'src'], ['form', 'action'], ['[data-update-uri]', 'data-update-uri']];
     for (const [sel, attr] of attrs) {
       for (const el of document.querySelectorAll(sel)) {
+        if (el.closest('.ks-bar, .ks-foot')) continue;
         const raw = el.getAttribute(attr);
         if (!raw || /^(#|mailto:|tel:|javascript:)/.test(raw)) continue;
         const abs = new URL(raw, location.href);
         if (abs.origin !== new URL(hub).origin) continue; // not ours to prefix
+        if (/^\/(kesari-ui|shared)\//.test(abs.pathname)) continue; // the hub's shared files
         if (!(abs.pathname === '/edu' || abs.pathname.startsWith('/edu/'))) out.push(`${sel}[${attr}]=${raw}`);
       }
     }
@@ -52,21 +57,31 @@ async function urlsEscapingPrefix(page) {
   }, HUB);
 }
 
+// Education's own sign-in, by email (the mobile tab is first wherever SMS
+// codes can be delivered).
 async function signIn(page, email) {
+  const emailTab = page.locator('#tab-email');
+  if (await emailTab.count() && (await emailTab.getAttribute('aria-selected')) !== 'true') {
+    await emailTab.click();
+    await page.waitForSelector('#email');
+  }
   await page.fill('#email', email);
   await page.fill('#password', PASSWORD);
   await Promise.all([
-    page.waitForURL(u => !u.pathname.endsWith('/login'), { timeout: 30000 }),
-    page.click('button:has-text("Log in")'),
+    page.waitForURL(u => !/\/(login|sign-in)$/.test(u.pathname), { timeout: 30000 }),
+    page.click('#email-sign-in button[type=submit]'),
   ]);
 }
 
+// Signing out through the bkesari shell's account menu: it posts to
+// Education's /edu/logout (JSON, X-CSRF-Token from /edu/shell/me) and then
+// goes to Education's sign-in page.
 async function signOut(page) {
-  await page.locator('[x-text="name"]').first().click();
+  await page.locator('.ks-account summary').click();
   const before = page.url();
   await Promise.all([
     page.waitForURL(u => u.href !== before, { timeout: 30000 }),
-    page.locator('button:has-text("Log Out")').first().click(),
+    page.locator('[data-ks-signout]').click(),
   ]);
 }
 
@@ -80,7 +95,11 @@ function killAppConnections() {
   const browser = await chromium.launch();
   const page = await (await browser.newContext()).newPage();
   const broken = [];
-  page.on('response', r => { if (r.status() >= 400 && r.url().startsWith(HUB)) broken.push(`${r.status()} ${r.url()}`); });
+  // /edu/shell/me answers a guest with 401 by design (it tells the shell where to sign in).
+  page.on('response', r => {
+    if (r.status() === 401 && new URL(r.url()).pathname === '/edu/shell/me') return;
+    if (r.status() >= 400 && r.url().startsWith(HUB)) broken.push(`${r.status()} ${r.url()}`);
+  });
   // Our own origin only: a third-party font that cannot be reached is not a fault here.
   page.on('requestfailed', r => { if (r.url().startsWith(HUB)) broken.push(`failed ${r.url()}`); });
   page.on('pageerror', e => broken.push(`script error: ${e.message}`));
@@ -96,12 +115,18 @@ function killAppConnections() {
     const escaping = await urlsEscapingPrefix(page);
     check(escaping.length === 0, `every URL on a signed-in page carries /edu${escaping.length ? ': ' + escaping.join(', ') : ''}`);
     const font = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
-    check(/Figtree/.test(font), `the app's stylesheet applies (body font ${font.split(',')[0]})`);
+    check(/Mukta/.test(font), `the app's stylesheet applies (body font ${font.split(',')[0]})`);
+    const accent = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--k-accent').trim());
+    check(/^#0f766e$/i.test(accent), `Kesari loads with the Education accent (--k-accent ${accent || 'unset'})`);
+    await page.waitForSelector('.ks-account summary', { timeout: 30000 });
+    check(/Admin/i.test(await page.locator('.ks-account').innerText()), 'the shell shows the Education account from /edu/shell/me');
 
-    // 2. Signing out stays inside the tab.
+    // 2. Signing out stays inside the tab, and ends the Education session.
     await signOut(page);
     const out = new URL(page.url());
-    check(out.pathname === '/edu' || out.pathname === '/edu/', `signing out lands on ${page.url()}`);
+    check(out.pathname === '/edu/sign-in', `signing out lands on ${page.url()}`);
+    const after = await page.request.get(`${EDU}/shell/me`, { headers: { Accept: 'application/json' } });
+    check(after.status() === 401, `and /edu/shell/me then answers ${after.status()}`);
 
     // 3. A write: a complaint, numbered by Complaint::createNumbered() inside a
     //    savepoint, which is exactly what a pooler used to break, with an

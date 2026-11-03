@@ -23,9 +23,10 @@ edu-tester agent".
 | Component | Path | Language / framework |
 |---|---|---|
 | App code: models, services, Livewire/Volt pages | `edu/app/`, `edu/resources/views/` | PHP 8.3, Laravel 13, Livewire 3.6, Volt 1.7 |
+| Education's own sign-in, the shell's endpoints, languages | `edu/config/session.php`, `edu/routes/auth.php`, `edu/app/Livewire/Forms/LoginForm.php`, `edu/app/Services/MobileSignIn.php`, `edu/app/Http/Controllers/{ShellController,Auth/SignOutController}.php`, `edu/app/Http/Middleware/SetLocale.php`, `edu/lang/*.json` | Laravel |
 | Serving under `/edu/` | `edu/app/Providers/AppServiceProvider.php`, `edu/app/Routing/BasePathRedirector.php`, `edu/bootstrap/app.php` | Laravel |
 | Database settings for Neon | `edu/config/database.php`, `edu/app/Database/PostgresConnector.php`, `edu/app/Providers/DatabaseServiceProvider.php` | Laravel, pdo_pgsql |
-| Schema and demo data | `edu/database/migrations/` (67), `edu/database/seeders/` | Laravel migrations, PostgreSQL 16 |
+| Schema and demo data | `edu/database/migrations/` (68), `edu/database/seeders/` | Laravel migrations, PostgreSQL 16 |
 | Hand-run SQL | `database/edu/01`–`04_*.sql`, `edu/database/sql/*.sql` | PostgreSQL |
 | PHPUnit suite | `edu/tests/Unit`, `edu/tests/Feature` (`edu/phpunit.xml`) | PHPUnit 12 |
 | Smoke and check scripts | `edu/tests/smoke/` | bash, Python 3, Node + Playwright |
@@ -172,11 +173,11 @@ Run in order, from `edu/`. Each row's command is literal; the "passes when" colu
 | 6 | S2 | `php artisan test --testsuite=Unit` | all pass |
 | 7 | S3a | `php artisan test` (SQLite, in memory) | all pass; exactly the 5 skips section 5 names (`vendor/bin/phpunit --display-skipped` lists them) |
 | 8 | S3a | `DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=bk_edu_test DB_USERNAME=bk_edu DB_PASSWORD=$BK_EDU_PASS php artisan test` | all pass, **0 skipped** |
-| 9 | S3b | `DB_CONNECTION=pgsql DB_URL="$PG:5432/bk_edu_test" php artisan migrate:fresh --seed --force`, then `psql "$PG:5432/bk_edu_test" -Atc "select (select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'), (select count(*) from migrations), (select count(*) from users), (select count(*) from schools), (select count(*) from complaints), (select extname from pg_extension where extname='citext')"` | exit 0; `74\|67\|289\|20\|100\|citext` |
+| 9 | S3b | `DB_CONNECTION=pgsql DB_URL="$PG:5432/bk_edu_test" php artisan migrate:fresh --seed --force`, then `psql "$PG:5432/bk_edu_test" -Atc "select (select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'), (select count(*) from migrations), (select count(*) from users), (select count(*) from schools), (select count(*) from complaints), (select extname from pg_extension where extname='citext')"` | exit 0; `74\|68\|289\|20\|100\|citext` |
 | 10 | S3c | the SQL load, below | every file exit 0; `compare_schema.py` prints `schemas match` (it refuses a dump with no `CREATE TABLE`, so a failed `pg_dump` cannot pass); re-running 02 and 03 exits 0; `migrate --pretend` says `Nothing to migrate` |
 | 11 | S3d | the incremental scripts, below | every file exit 0; `compare_schema.py` prints `schemas match` |
 | 12 | S4 | `npm ci && rm -rf /tmp/edu-build && npx vite build --outDir /tmp/edu-build --emptyOutDir && diff -r /tmp/edu-build public/build` | `diff` prints nothing: the committed build is exactly what the sources produce |
-| 13 | S5 | the smoke run, below | `http smoke: N passed, 0 failed` and `browser smoke: N passed, 0 failed` (50 and 18 at baseline) |
+| 13 | S5 | the smoke run, below | `http smoke: N passed, 0 failed` and `browser smoke: N passed, 0 failed` (60 and 21 at baseline) |
 | 14 | S6 | the hygiene checks, below | each as stated |
 | 15 | S7 | the Neon parity checks, below | each as stated |
 
@@ -211,25 +212,22 @@ that stopped at migration 40):
 ```bash
 psql -d postgres -c 'DROP DATABASE IF EXISTS bk_edu_sql' -c 'CREATE DATABASE bk_edu_sql OWNER bk_edu'   # as a superuser
 export DB_CONNECTION=pgsql DB_URL="$PG:5432/bk_edu_sql"
-php artisan migrate --force && php artisan migrate:rollback --step=27 --force   # 40 migrations left
+php artisan migrate --force && php artisan migrate:rollback --step=28 --force   # 40 migrations left
 for f in 2026_09_02_student_growth_career_modules 2026_09_03_school_core_udise_fees_facilities \
          2026_09_03_safeguarding_exams_health 2026_09_03_benchmark_references \
          2026_09_03_courses_and_ratings 2026_09_03_replies_and_data_rights; do
   psql "$PG:5432/bk_edu_sql?sslmode=require" -q -v ON_ERROR_STOP=1 -1 -f database/sql/$f.sql > /dev/null || echo "FAIL $f"
 done
-php artisan migrate --force                     # runs only the citext and hub_user_id migrations
+php artisan migrate --force                     # runs only the citext, hub_user_id and mobile migrations
 unset DB_CONNECTION DB_URL
 pg_dump --schema-only --no-owner --no-privileges "$PG:5432/bk_edu_sql" > /tmp/edu-incremental.sql
 python3 tests/smoke/compare_schema.py /tmp/edu-migrated.sql /tmp/edu-incremental.sql
 ```
 
-**S5, the smoke run.** Since hub v1 the hub's `edu` project is `approval` (`portal/sql/hub_schema.sql`):
-a guest through the hub is sent to the hub's `/auth/sign-in`, which needs Neon Auth, so every
-`/edu/` check of `http.sh` and `browser.cjs` would stop at that redirect. Before starting the hub,
-create its tables (start it once) and open the tab on the scratch hub database only:
-`psql "<hub database URL>" -c "UPDATE hub_projects SET visibility='open' WHERE key='edu'"`. The
-hub then forwards without a token, as before v1, and the smoke checks the app's own `/edu/`
-serving. The hub's gate itself is `portal-tester`'s; the token sign-in is `HubSignInTest`.
+**S5, the smoke run.** Since 3 Nov 2026 the hub puts no sign-in of its own in front of `/edu/`
+and forwards no identity: Education keeps its own accounts (`edu_sid` on `/edu`), so the hub
+needs no setting for the smoke beyond its own database. The hub's side of that (its redirect of
+`/education/*`, the shell it serves) is `portal-tester`'s; the app's side is `OwnAccountTest`.
 Seed the suite database the way a tier is set up (schema commands over
 the direct URL, the app on the pooled one), start the app and the hub, run both scripts. Leave
 both servers up for S6, then stop them (`kill %1`, or the PIDs from `lsof -nP -iTCP:8101
@@ -251,13 +249,18 @@ HUB=http://127.0.0.1:3105 KILL_URL="$DIRECT" node tests/smoke/browser.cjs   # KI
 rm -rf storage/app/private/complaint-evidence storage/app/private/livewire-tmp   # the smoke's uploaded file
 ```
 
-`http.sh` checks the public pages on the app and through the hub, that every URL on four pages
-starts with `/edu`, that the build assets and Livewire's script load through the hub, that 11
-protected pages send a guest to `/edu/login`, and that 10 private paths (`.env`, `composer.json`,
-`storage/logs/...`, `../.env`) are 404 both ways. `browser.cjs` (Chromium) opens
-`/edu/admin/rating-weights` signed out, signs in as `admin@test.agtci.com` and must land back on
-that page; checks every URL on a signed-in page and that the stylesheet applies; signs out and
-must land on `/edu/`; files a complaint as `parent@test.agtci.com` (numbered, inside a
+`http.sh` checks the public pages on the app and through the hub, the sign-in, sign-up and
+forgot-password screens through the hub, that `/edu/shell/me` answers a guest 401 pointing at
+`/edu/sign-in`, that `edu_sid` is set on `/edu` HttpOnly and SameSite=Lax, that
+`/education/sign-in` redirects to `/edu/sign-in`, that every URL on four pages starts with `/edu`
+(or is the hub's shared `/kesari-ui/` or `/shared/` file), that the build assets, Livewire's script,
+Kesari and the shell load through the hub, that 12 protected pages send a guest to `/edu/login`,
+and that 10 private paths (`.env`, `composer.json`, `storage/logs/...`, `../.env`) are 404 both
+ways. `browser.cjs` (Chromium) opens `/edu/admin/rating-weights` signed out, signs in as
+`admin@test.agtci.com` and must land back on that page; checks every URL on a signed-in page
+(outside the hub's shell), that the stylesheet applies (Mukta) and Kesari's Education accent is
+set, and that the shell shows the Education account; signs out through the shell's account menu
+and must land on `/edu/sign-in`, after which `/edu/shell/me` is 401; files a complaint as `parent@test.agtci.com` (numbered, inside a
 savepoint) with an evidence file, which must upload to `/edu/livewire/upload-file` (Livewire's
 signed URL) and download again from the complaint page, and sees the complaint after a
 reload; sends an erasure request and carries it out as
@@ -305,7 +308,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 |---|---|---|
 | EDU-CR-01 | Every URL the app writes under the hub starts with `/edu` (routes, assets, Livewire's update URI and script), and Livewire's signed upload URL carries one prefix and passes its signature check | `tests/Feature/Platform/BasePathTest.php` (13 tests); `http.sh` URL and asset blocks; `browser.cjs` steps 1 and 3 |
 | EDU-CR-02 | A guest sent to sign in from a protected page returns to that page, query string kept | `BasePathTest::test_a_guest_redirect_remembers_the_prefixed_page_it_came_from`, `::test_the_remembered_page_keeps_its_query_string`; `browser.cjs` step 1 |
-| EDU-CR-03 | Signing out (and every literal link) stays inside `/edu/` | `BasePathTest::test_no_view_hardcodes_a_root_relative_link`; `browser.cjs` step 2 |
+| EDU-CR-03 | Signing out (through the shell or the app's own form) and every literal link stays inside `/edu/` | `BasePathTest::test_no_view_hardcodes_a_root_relative_link`, `OwnAccountTest::test_the_shell_signs_out_with_a_json_post`; `browser.cjs` step 2 |
 | EDU-CR-04 | A complaint or feedback row never carries the submitter's identity; reversing an anonymous ref needs the permission and a reason, and is logged | `AnonymizationTest` |
 | EDU-CR-05 | School, district and state boundaries; government roles never reach an individual child's records | `RbacBoundaryTest`, `GrowthAccessBoundaryTest` (mutation-tested), `HealthAccessMatrixTest` |
 | EDU-CR-06 | DPDP consent gates growth, career, life-skills and health data, per purpose, withdrawable at once | `ConsentGateTest`, `HealthPortalTest` |
@@ -323,6 +326,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | EDU-CR-18 | The committed build matches its manifest and is exactly what the sources produce | S1 row 5, S4 |
 | EDU-CR-19 | Every protected GET route refuses a guest; no private file is served; complaint evidence downloads only for those the complaint policy allows, and only through its own complaint; the suite refuses a hosted database | S6 `guest_routes.py`, `http.sh`, the S6 refusal check; `ComplaintEvidenceTest` (3); `NeonReadinessTest`'s three `test_the_suite_refuses_*` |
 | EDU-CR-20 | No score, rank or label column in the growth or benchmark tables; a school cannot verify itself | `NoLabelingRulesTest`, `BenchmarkHonestyTest`, `UdiseVerificationTest`, `ClaimedVsExperiencedTest` |
+| EDU-CR-21 | Education's own accounts: the session cookie is `edu_sid`, on the path of `APP_URL`, Secure with https, HttpOnly, SameSite=Lax; nothing the hub forwards signs anyone in; five wrong passwords lock sign-in for 15 minutes; a mobile code is hashed, single-use, expires in 10 minutes, dies after 5 wrong tries, is rate-limited and is never shown in production | `OwnAccountTest`, `MobileSignInTest`, `BasePathTest::test_the_session_cookie_is_sent_only_under_the_prefix_and_only_over_https`; `http.sh` cookie and `shell/me` lines; `browser.cjs` step 2 |
 
 ### R3 — change-area map
 
@@ -330,7 +334,8 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 |---|---|
 | `config/database.php`, `app/Database/**`, `app/Providers/DatabaseServiceProvider.php`, `phpunit.xml`, `config/queue.php` | R1 on both engines, all of S7, CR-13 to CR-15 |
 | `app/Providers/AppServiceProvider.php`, `app/Routing/**`, `bootstrap/app.php`, `routes/**`, `resources/views/layouts/**`, `resources/views/livewire/layout/**`, any `href`/`action`/`redirect` in a view | `BasePathTest`, S5, S6 `guest_routes.py`, CR-01 to CR-03, CR-19 |
-| `resources/views/livewire/pages/auth/**`, `app/Livewire/Forms/LoginForm.php`, `app/Models/TwoFactorAuthentication.php` | `Auth/*`, `TwoFactorAuthTest`, `browser.cjs`, CR-02, CR-10 |
+| `resources/views/livewire/pages/auth/**`, `app/Livewire/Forms/LoginForm.php`, `app/Models/TwoFactorAuthentication.php`, `app/Services/MobileSignIn.php`, `config/session.php`, `routes/auth.php`, `app/Http/Controllers/{ShellController,Auth/SignOutController}.php` | `Auth/*` (with `OwnAccountTest`, `MobileSignInTest`), `TwoFactorAuthTest`, `browser.cjs`, CR-02, CR-10, CR-21 |
+| `app/Http/Middleware/SetLocale.php`, `lang/*.json`, `bootstrap/app.php` (cookie encryption) | `LanguageTest`, S5 |
 | `database/migrations/**` | S3b, S3c (regenerate `database/edu/01_edu_schema.sql` with `pg_dump --schema-only --no-owner --no-privileges` and its migrations log), S7.4, CR-16, CR-17, the schema-level tests in `AnonymizationTest`, `NoLabelingRulesTest`, `BenchmarkHonestyTest`, `HealthAccessMatrixTest` |
 | `database/seeders/**` | S3b, `database/edu/02` and `03` if the rows they carry changed, `TEST_ACCOUNTS.md` |
 | `database/edu/*.sql`, `edu/database/sql/*.sql` | S3c, S3d, CR-17 |
@@ -385,6 +390,25 @@ league/commonmark 2.10.0 → 2.10.4, 46 packages in all): every count below is u
 | 15 | S7.2 / 7.3 routing | not possible (no direct-endpoint setting existed) | exit 0 / 1 / 1 as specified; 0 under `config:cache`, cache cleared |
 | 15 | S7.5 channel_binding | **FAIL**: `channel_binding=require` dropped, connected anyway | refused by PgBouncer 1.22 with `channel binding is required`; the direct endpoint connects |
 | 15 | S7.8 contention, 6 × 10 through the pooler | **FAIL** (retry only, measured before the lock): 4 of 6 processes failed, 29 created | 60 created, 60 distinct; 2 s |
+
+**Re-measured 2026-11-03** after Education's own sign-in (no hub token; `edu_sid`; 15-minute
+lockout; mobile codes; `users.mobile`, migration 68), the Kesari UI and the three languages. Same
+container type and versions (PHP 8.3.6, PostgreSQL 16, PgBouncer 1.22.0, Node 22, Chromium via
+Playwright 1.63). These are now the floor:
+
+| # | Level | Result |
+|---|---|---|
+| 2 | S1 php -l | 362 files, 0 errors |
+| 3 | S1 routes, views | 81 routes (`sign-in`, `sign-up`, `verify`, `logout`, `shell/me` added), views compile |
+| 4 | S1 Pint | the same 15 |
+| 7 | S3a SQLite | 465 tests: 460 passed, 5 skipped (the same 5), 2,408 assertions, 23 s. `HubSignInTest` (8 tests) was removed with the feature; 40 tests added |
+| 8 | S3a PostgreSQL | 465 tests: 465 passed, 2,416 assertions, 43 s |
+| 9 | S3b | `74\|68\|289\|20\|100\|citext`; 75 s |
+| 10–11 | S3c, S3d | schemas match (5,564 lines, 70 CHECKs); migrations logs identical; 04 twice gives one row |
+| 12 | S4 | byte-identical (`app-DNyD-VXB.css`) |
+| 13 | S5 | http 60 passed (3 s); browser 21 passed (9 s), with `KILL_URL` through PgBouncer |
+| 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 1 (symfony/mime CVE-2026-45070, reported 2026-10-28); `npm audit` 5 dev-only, 0 with `--omit=dev` |
+| 15 | S7.1 | 465 passed through the pooler, 32 s; 7.2/7.3/7.5/7.8 as specified |
 
 Pint's baseline list: `app/Routing/BasePathRedirector.php`, `bootstrap/app.php`,
 `bootstrap/providers.php`, `database/seeders/FacilitySeeder.php`,
@@ -458,7 +482,7 @@ Written to `.claude/test-runs/<UTC yyyymmdd-hhmmss>-edu-tester.md` and copied to
 | ID | Result | Evidence |
 |---|---|---|
 | EDU-CR-01 | PASS | <test name, or the smoke line> |
-| ... all 20 ... |
+| ... all 21 ... |
 
 ## Defects
 
@@ -496,6 +520,12 @@ VERDICT: PASS | FAIL | BLOCKED
   only by hand (root `TESTING.md` sections 2 and 4).
 - **Two-factor codes can be replayed** inside their 30-second window: `verifyKey()` keeps no
   record of the last time-step used. Rate-limited now, not replay-proof.
+- **Mobile codes are never sent to a real SMS provider in a test.** The webhook contract
+  (`POST {to, text}`, Bearer token) is checked with `Http::fake()`; the provider's own behaviour,
+  delivery and DLT template registration are outside this spec.
+- **The shell and Kesari are the hub's.** `/shared/menu.js` and `/kesari-ui/` are only loaded here
+  (S5 checks they arrive and the account menu works); their own rendering, strings and contrast
+  are `portal-tester`'s.
 - **Signed URLs fail under `/edu/` unless handled.** Livewire's upload and preview URLs are
   (`App\Routing\BasePathSignedUploadUrl`); the app signs nothing else today, but email
   verification would need the same (`DEPLOY.md` Part 7).

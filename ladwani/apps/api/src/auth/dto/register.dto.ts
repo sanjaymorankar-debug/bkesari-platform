@@ -1,4 +1,5 @@
-import { IsEmail, IsOptional, IsString, Matches, MinLength } from 'class-validator'
+import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator'
+import { IsIndianMobile, IsStrongPassword } from './fields'
 
 export class RegisterDto {
   @IsString()
@@ -9,16 +10,18 @@ export class RegisterDto {
   @MinLength(1)
   lastName!: string
 
-  @Matches(/^[6-9]\d{9}$/, { message: 'Enter a valid 10-digit Indian mobile number' })
+  @IsIndianMobile()
   mobile!: string
 
   @IsOptional()
   @IsEmail()
   email?: string
 
-  @IsString()
-  @MinLength(8)
-  @Matches(/[A-Z]/, { message: 'Password must contain at least one uppercase letter' })
-  @Matches(/[0-9]/, { message: 'Password must contain at least one number' })
-  password!: string
+  /**
+   * Optional: mobile + OTP is the primary sign-in, so an account can start
+   * without a password and add one later through "Forgot password".
+   */
+  @IsOptional()
+  @IsStrongPassword()
+  password?: string
 }

@@ -2,25 +2,26 @@
   "name": "bkesari-platform",
   "version": "2.0.0",
   "private": true,
-  "description": "bkesari.com: welcome portal, Task Tracker and read-only ATIP dashboard. Education (Laravel) and ATIP (Python) live in edu/ and atip/.",
+  "description": "bkesari.com: the hub (home, project tiles, admin), TaskList with its own accounts, the Kesari design system and the read-only ATIP viewer. LadWani (ladwani/), Education (Laravel, edu/) and ATIP (Python, atip/) live alongside.",
   "main": "portal/server.js",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "start": "node portal/server.js",
-    "build": "npm run build:live && npm run build:auth",
-    "build:live": "esbuild portal/client/live.js --bundle --minify --format=iife --target=es2020 --legal-comments=none --outfile=portal/public/tasks/live.js",
-    "build:auth": "esbuild node_modules/@neondatabase/auth/dist/server/index.mjs --bundle --platform=node --format=cjs --target=node20 --legal-comments=none --outfile=portal/vendor/neon-auth-server.js",
+    "build": "npm run build:kesari && npm run build:live",
+    "build:live": "esbuild portal/client/live.js --bundle --minify --format=iife --target=es2020 --legal-comments=none --outfile=portal/public/tasklist/live.js",
     "test": "node --test tests/*.test.js && bash .github/deploy/guard.test.sh",
     "test:pg": "node --env-file=.env.test --test tests/*.test.js && bash .github/deploy/guard.test.sh",
-    "check": "node --check portal/server.js && node --check portal/db.js && node --check portal/proxy.js && node --check portal/ladwani.js && node --check portal/hub.js && node --check portal/neon-auth.js && node --check portal/storage.js && node --check portal/realtime.js && node --check portal/public/shared/menu.js",
-    "build:hostinger": "npm run check && npm --prefix ladwani run build:embedded"
+    "check": "node --check portal/server.js && node --check portal/db.js && node --check portal/proxy.js && node --check portal/ladwani.js && node --check portal/hub.js && node --check portal/hub-pages.js && node --check portal/project-auth.js && node --check portal/tasklist.js && node --check portal/notify.js && node --check portal/storage.js && node --check portal/realtime.js && node --check portal/public/shared/menu.js && node --check portal/public/shared/admin.js && node --check portal/public/tasklist/app.js && node --check portal/public/tasklist/auth.js && node --check portal/public/tasklist/quickadd.js && node --check portal/public/tasklist/i18n.js && node --check portal/public/tasklist/sw.js && node --check packages/kesari-ui/src/kesari.js",
+    "build:hostinger": "npm run check && npm --prefix ladwani run build:embedded",
+    "build:kesari": "node packages/kesari-ui/build.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1156.0",
     "@aws-sdk/s3-request-presigner": "^3.1156.0",
     "@neon/realtime": "^0.1.2",
+    "bcryptjs": "^3.0.3",
     "express": "^4.19.2",
     "http-proxy-middleware": "^4.2.0",
     "pg": "^8.23.1"
@@ -29,7 +30,6 @@
     "@neon/config": "^1.9.3",
     "@neon/env": "^1.6.4",
     "@neon/functions": "^0.11.0",
-    "@neondatabase/auth": "0.6.0-beta",
     "esbuild": "^0.28.2"
   }
 }

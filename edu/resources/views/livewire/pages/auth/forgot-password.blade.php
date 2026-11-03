@@ -34,28 +34,30 @@ new #[Layout('layouts.guest')] class extends Component
 
         session()->flash('status', __($status));
     }
+
+    public function rendering($view): void
+    {
+        $view->title(__('Reset your password'));
+    }
 }; ?>
 
 <div>
-    <div class="mb-4 text-sm text-gray-600">
-        {{ __('Forgot your password? No problem. Just let us know your email address and we will email you a password reset link that will allow you to choose a new one.') }}
-    </div>
+    <h1>{{ __('Reset your password') }}</h1>
+    <p class="k-muted">{{ __('Forgot your password? No problem. Just let us know your email address and we will email you a password reset link that will allow you to choose a new one.') }}</p>
 
-    <!-- Session Status -->
-    <x-auth-session-status class="mb-4" :status="session('status')" />
+    <x-auth-session-status class="mt-4" :status="session('status')" />
 
-    <form wire:submit="sendPasswordResetLink">
-        <!-- Email Address -->
-        <div>
+    <form wire:submit="sendPasswordResetLink" class="mt-4" novalidate>
+        <div class="k-field">
             <x-input-label for="email" :value="__('Email')" />
-            <x-text-input wire:model="email" id="email" class="block mt-1 w-full" type="email" name="email" required autofocus />
-            <x-input-error :messages="$errors->get('email')" class="mt-2" />
+            <x-text-input wire:model="email" id="email" type="email" name="email" required autofocus autocomplete="username" />
+            <x-input-error :messages="$errors->get('email')" />
         </div>
 
-        <div class="flex items-center justify-end mt-4">
-            <x-primary-button>
-                {{ __('Email Password Reset Link') }}
-            </x-primary-button>
-        </div>
+        <button type="submit" class="k-btn k-btn--block" wire:loading.attr="aria-busy" wire:target="sendPasswordResetLink">{{ __('Email Password Reset Link') }}</button>
     </form>
+
+    <p class="mt-6 mb-0">
+        <a href="{{ route('sign-in') }}" wire:navigate class="k-link font-semibold">{{ __('Back to sign in') }}</a>
+    </p>
 </div>

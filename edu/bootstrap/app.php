@@ -26,15 +26,17 @@ return Application::configure(basePath: dirname(__DIR__))
         // those are pinned to APP_URL in AppServiceProvider.
         $middleware->trustProxies(at: '*');
 
-        // Signs in whoever the bkesari.com hub vouches for (X-Bkesari-Token).
-        // It must run before the `auth` route middleware, or a deep link through
-        // the hub (/edu/dashboard) is sent to /edu/login first: Laravel sorts
-        // Authenticate ahead of any group middleware not in its priority list.
-        $middleware->appendToGroup('web', \App\Http\Middleware\HubSignIn::class);
-        $middleware->prependToPriorityList(
-            before: \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
-            prepend: \App\Http\Middleware\HubSignIn::class,
-        );
+        // Education keeps its own accounts: there is no shared sign-in in
+        // front of it any more, and nothing the hub forwards is trusted as an
+        // identity. The session cookie (config/session.php) is `edu_sid`,
+        // scoped to the path this app is published under.
+
+        // The language the visitor picked in the bkesari shell (the `k_lang`
+        // cookie, en|mr|hi). The browser writes that cookie itself, so it is
+        // read as plain text rather than run through the encrypter, which
+        // would discard it as tampered.
+        $middleware->encryptCookies(except: ['k_lang']);
+        $middleware->appendToGroup('web', \App\Http\Middleware\SetLocale::class);
 
         $middleware->alias([
             'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
