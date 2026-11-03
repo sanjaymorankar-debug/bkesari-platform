@@ -214,12 +214,20 @@ describe('TaskList on PostgreSQL', { skip }, () => {
     assert.equal(unknown.json.error, 'That email/mobile and password do not match.');
   });
 
-  test('wrong passwords sent together are no more than 5 tries either', async () => {
-    const b = new Browser(base);
+  test('wrong passwords sent together are no more than 5 tries either', async (t) => {
+    // The database a network round trip away, as Neon is: here every query is
+    // sub-millisecond, and bcrypt's own time then spaces the requests out.
+    const later = (fn) => async (...a) => { await new Promise((r) => setTimeout(r, 15)); return fn(...a); };
+    const remote = { ...db, get: later(db.get), run: later(db.run), all: later(db.all) };
+    const made = createApp(remote, { notify: () => ({ sms: async () => true, mail: async () => true }), log: quiet });
+    const s3 = await new Promise((r) => { const s = made.app.listen(0, '127.0.0.1', () => r(s)); });
+    t.after(() => new Promise((r) => s3.close(r)));
+    const at = `http://127.0.0.1:${s3.address().port}`;
+    const b = new Browser(at);
     const s = await b.fetch('GET', '/tasklist/api/auth/session');
     const up = await b.fetch('POST', '/tasklist/api/auth/sign-up', { json: { name: 'Ravi', email: 'ravi@example.com', password: 'mango-tree-43' }, csrf: s.json.csrf, headers: { 'x-forwarded-for': '203.0.113.90' } });
     assert.equal(up.status, 201, up.text);
-    const o = new Browser(base);
+    const o = new Browser(at);
     const so = await o.fetch('GET', '/tasklist/api/auth/session');
     await warm();
     // Nine at once, each from its own address (the per-address limit is not what may stop them).
