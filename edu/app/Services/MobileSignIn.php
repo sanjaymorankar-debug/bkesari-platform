@@ -78,16 +78,23 @@ class MobileSignIn
             return ['status' => 'unavailable'];
         }
 
-        foreach ([
+        $limits = [
             [$this->numberKey($mobile), self::SENDS_PER_NUMBER, self::SEND_WINDOW_SECONDS],
             [$this->addressKey($ip), self::SENDS_PER_ADDRESS, self::ADDRESS_WINDOW_SECONDS],
-        ] as [$key, $max, $window]) {
+        ];
+        foreach ($limits as [$key, $max, $window]) {
             if (RateLimiter::tooManyAttempts($key, $max)) {
                 return ['status' => 'throttled', 'retryAfter' => RateLimiter::availableIn($key)];
             }
         }
-        RateLimiter::hit($this->numberKey($mobile), self::SEND_WINDOW_SECONDS);
-        RateLimiter::hit($this->addressKey($ip), self::ADDRESS_WINDOW_SECONDS);
+        // The limit is decided on the count hit() returns (an atomic
+        // increment), not only on the check above: requests that arrive
+        // together all pass that check before any of them is counted.
+        foreach ($limits as [$key, $max, $window]) {
+            if (RateLimiter::hit($key, $window) > $max) {
+                return ['status' => 'throttled', 'retryAfter' => RateLimiter::availableIn($key)];
+            }
+        }
 
         $user = User::where('mobile', $mobile)->first();
         if (! $user) {
@@ -99,7 +106,6 @@ class MobileSignIn
         Cache::put($this->codeKey($mobile), [
             'user_id' => $user->id,
             'hash' => Hash::make($code),
-            'tries' => 0,
             'expires_at' => now()->addSeconds(self::CODE_TTL_SECONDS)->getTimestamp(),
         ], self::CODE_TTL_SECONDS);
 
@@ -142,27 +148,48 @@ class MobileSignIn
             return ['status' => 'expired'];
         }
 
-        // The try is counted before the code is checked, so two requests
-        // racing each other cannot both get a free guess.
-        $entry['tries']++;
+        // The try is counted before the code is checked, with an atomic
+        // increment on a counter of this code's own (its hash is salted, so a
+        // new code starts a new count): requests that arrive together each
+        // get their own number, so no more than MAX_TRIES are ever checked.
+        // Reading the entry, adding one and writing it back would let every
+        // request that read it first through as the first try.
         $remaining = max(1, $entry['expires_at'] - now()->getTimestamp());
-        Cache::put($key, $entry, $remaining);
+        $codeId = hash('sha256', (string) $entry['hash']);
+        $triesKey = $key.':tries:'.$codeId;
+        Cache::add($triesKey, 0, $remaining);
+        $tries = Cache::increment($triesKey);
+
+        if ($tries === false) {
+            return ['status' => 'expired'];
+        }
+        if ($tries > self::MAX_TRIES) {
+            Cache::forget($key);
+
+            return ['status' => 'locked'];
+        }
 
         $code = preg_replace('/\D+/', '', $code);
         if (strlen($code) === self::CODE_LENGTH && Hash::check($code, $entry['hash'])) {
+            // Spent by whichever request claims it first (add() only writes a
+            // key that is not there), so one code signs in once even when
+            // several requests carry it at the same moment.
+            if (! Cache::add($key.':spent:'.$codeId, true, $remaining)) {
+                return ['status' => 'expired'];
+            }
             Cache::forget($key);
             $user = User::find($entry['user_id']);
 
             return $user && $user->mobile === $mobile ? ['status' => 'ok', 'user' => $user] : ['status' => 'expired'];
         }
 
-        if ($entry['tries'] >= self::MAX_TRIES) {
+        if ($tries >= self::MAX_TRIES) {
             Cache::forget($key);
 
             return ['status' => 'locked'];
         }
 
-        return ['status' => 'wrong', 'triesLeft' => self::MAX_TRIES - $entry['tries']];
+        return ['status' => 'wrong', 'triesLeft' => self::MAX_TRIES - $tries];
     }
 
     private function codeKey(string $mobile): string

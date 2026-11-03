@@ -6,12 +6,15 @@ use App\Models\TwoFactorAuthentication;
 use App\Models\User;
 use App\Services\MobileSignIn;
 use App\Support\IndianMobile;
+use Illuminate\Cache\RateLimiter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter as RateLimiterFacade;
 use Livewire\Volt\Volt;
+use Mockery;
 use PragmaRX\Google2FA\Google2FA;
 use Tests\TestCase;
 
@@ -155,6 +158,63 @@ class MobileSignInTest extends TestCase
         }
 
         $this->assertSame('throttled', app(MobileSignIn::class)->send('+919999999999', '203.0.113.9')['status']);
+    }
+
+    /**
+     * Runs $request $times as if every one of them arrived at the same moment:
+     * each reads the code entry as it was before any of them wrote to it,
+     * which is what requests racing each other on a tier see. (Twelve real
+     * processes against the database cache store got 12 "wrong" from 12
+     * wrong codes, and 12 sign-ins from one code, before the fix.)
+     */
+    private function atOnce(int $times, callable $request): array
+    {
+        $key = 'mobile-sign-in:code:'.hash('sha256', self::MOBILE);
+        $before = Cache::get($key);
+
+        return array_map(function (int $i) use ($key, $before, $request) {
+            Cache::put($key, $before, MobileSignIn::CODE_TTL_SECONDS);
+
+            return $request($i);
+        }, range(1, $times));
+    }
+
+    public function test_wrong_codes_sent_together_still_get_only_five_tries(): void
+    {
+        $this->asha();
+        $code = $this->askForCode()->get('shownCode');
+        $wrong = $code === '000000' ? '111111' : '000000';
+        $service = app(MobileSignIn::class);
+
+        // Twelve wrong codes and, last, the right one, all at once: only five
+        // are ever checked, so the right one is no use either.
+        $statuses = $this->atOnce(13, fn (int $i) => $service->verify(self::MOBILE, $i === 13 ? $code : $wrong)['status']);
+
+        $this->assertSame([...array_fill(0, 4, 'wrong'), ...array_fill(0, 9, 'locked')], $statuses);
+        $this->assertGuest();
+    }
+
+    public function test_a_code_carried_by_several_requests_at_once_signs_in_once(): void
+    {
+        $this->asha();
+        $code = $this->askForCode()->get('shownCode');
+        $service = app(MobileSignIn::class);
+
+        $this->assertSame(['ok', 'expired', 'expired'], $this->atOnce(3, fn () => $service->verify(self::MOBILE, $code)['status']));
+    }
+
+    public function test_codes_asked_for_together_still_stop_at_the_limit(): void
+    {
+        $this->asha();
+        // Requests that arrive together all pass the limiter's check before
+        // any of them has been counted.
+        $limiter = Mockery::mock(RateLimiter::class, [app('cache')->driver(config('cache.limiter'))])->makePartial();
+        $limiter->shouldReceive('tooManyAttempts')->andReturnFalse();
+        RateLimiterFacade::swap($limiter);
+
+        $statuses = array_map(fn (int $i) => app(MobileSignIn::class)->send(self::MOBILE, "203.0.113.{$i}")['status'], range(1, 6));
+
+        $this->assertSame(['sent', 'sent', 'sent', 'throttled', 'throttled', 'throttled'], $statuses);
     }
 
     public function test_an_unknown_number_gets_the_same_answer_and_no_code(): void
