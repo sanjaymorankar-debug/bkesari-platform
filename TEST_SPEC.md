@@ -452,7 +452,7 @@ fails on a skip.
 | PORTAL-CR-19 | Neon provisioning: one Singapore PostgreSQL 16 project per app with its tier branches… (unchanged) | `neon-provision.test.js` (all 11) |
 | PORTAL-CR-20 | `database/portal/01_portal_schema.sql` and `02_hub_schema.sql` stay the schemas the app applies; each project's sign-in tables are in its own schema file under its own prefix | `schema-copy.test.js` (all 4); `hub.test.js` :: each project's sign-in tables are in its own schema file…; S3 #8 |
 | PORTAL-CR-21 | LadWani served by the hub (`portal/ladwani.js`): no hub gate and no hub token; no path, however encoded, reaches a file outside the export; a build-asset miss is a bare 404; any id is answered by its `_` page; the hub names the visitor to LadWani's rate limits by address (`ip:<req.ip>`, trust-proxy aware) and drops any visitor header or token a client sent; the API off or failing to start is a 503 while the hub and the pages stay up; the engine's worker-thread cap is set before it loads; `lw_sid` is scoped to `/ladwani` | `ladwani.test.js` (all 16); S5 LadWani step; S6 LadWani loop |
-| PORTAL-CR-22 | **Per-project sign-in.** Each project's session cookie is its own (`tl_sid` Path=/tasklist, `hub_admin_sid` Path=/), HttpOnly, SameSite=Lax, Secure except plain http to localhost; signing in or out of one never affects another; one project's session grants nothing in another | `tasklist.pg.test.js` :: mobile + OTP…; accounts are isolated…; `hub.pg.test.js` :: the hub admin has its own login…; `ladwani.test.js` :: LadWani's own session cookie…; S5 TaskList and admin lines |
+| PORTAL-CR-22 | **Per-project sign-in.** Each project's session cookie is its own (`tl_sid` Path=/tasklist, `hub_admin_sid` Path=/), HttpOnly, SameSite=Lax, Secure except plain http to localhost; signing in or out of one never affects another; one project's session grants nothing in another; the hub admin's two cookies (Path=/) are removed before a request is forwarded to a project app, whose own cookies pass as sent (D-027) | `tasklist.pg.test.js` :: mobile + OTP…; accounts are isolated…; `hub.pg.test.js` :: the hub admin has its own login…; `ladwani.test.js` :: LadWani's own session cookie…; `proxy.test.js` :: the hub admin's session cookie never reaches a project app…; S5 TaskList and admin lines; S5 proxy `"cookie"` lines |
 | PORTAL-CR-23 | **Sign-in protections.** 5 wrong passwords lock for 15 minutes (even against the right password); unknown accounts answer like a wrong password; OTP codes are single use, 5 tries, rate-limited, hashed; a code is never shown on production and is refused there without a provider; resets are single use and end every session; session tokens are stored hashed | `tasklist.pg.test.js` (sign-in tests); `hub.pg.test.js` (admin lockout); `hub.test.js` (helpers) |
 | PORTAL-CR-24 | **CSRF and cross-site.** Every state-changing request carries the session's (or, signed out, the double-submit) token; JSON only; a foreign `Origin` is refused; the contact form's token, signed time stamp, honeypot and rate limit hold | `tasklist.pg.test.js` :: cross-site and non-JSON requests are refused; `hub.pg.test.js` :: the contact form…; S6 cross-site line |
 | PORTAL-CR-25 | **Kesari.** The committed build matches the source; ≤ 30 KB gzipped with the shell; every text pair AA in light and dark; system and pinned dark identical; fonts swap and include Devanagari; the hub and TaskList pages carry no inline script | `kesari-ui.test.js` (all 11); `menu.test.js` :: every hub page carries the shell…; S1 #5 |
@@ -470,7 +470,7 @@ fails on a skip.
 | `tools/migrate_shared_id.mjs` | `migrate.pg.test.js`; CR-26 |
 | `mobile/**` | `mobile.test.js` |
 | `portal/db.js`, `portal/sql/**`, `database/portal/**`, `package.json`, `package-lock.json` | R1; S3 #8; S4; **S7**; CR-07 to CR-10, CR-20 |
-| `portal/proxy.js` | `proxy.test.js`; S5 proxy step; CR-11 to CR-14 |
+| `portal/proxy.js` | `proxy.test.js`; S5 proxy step; CR-11 to CR-14, CR-22 |
 | `portal/ladwani.js` | `ladwani.test.js`; S5 LadWani step; S6 LadWani loop; CR-11, CR-21. A change to a setting it gives LadWani (`ENGINE_THREADS`, `LADWANI_*`) also: DEPLOY.md Part 7 and section 2.3 read against it |
 | `ladwani/**` | #6a–#6c, #9a; S5 LadWani step; CR-21. A change to its settings (`apps/api/src/common/env.ts`, `next.config.js`) also: DEPLOY.md Part 7 read against it. A change to its fonts (`apps/web/src/app/fonts/`, `layout.tsx`, the `font-family` and `font-weight` rules in `globals.css`) also: `ladwani-fonts.test.js` |
 | `portal/public/shared/menu.js`, `portal/public/**/*.html`, `page.css`, `hub.css` | `menu.test.js`; `kesari-ui.test.js`; S1 #5; S5; CR-04, CR-14 to CR-16, CR-25 |
@@ -597,6 +597,11 @@ First run on this branch (portal-tester, 3 Nov 2026, with its fixes; `/edu/` sen
 Education stand-in, as no real tier was to be contacted): S5 **39** probes ok, smoke-dev.sh 33 / 0 / 0;
 S6 **27** ok; S7 **18** passed (the 17 plus TaskList's own sign-in through the pooler); R1 **161**
 (`tasklist.pg` **14**: +2, OTP codes and passwords sent together stay within 5 tries).
+Then the proxy keeps the hub admin's cookies to the hub (`b02fe47`, D-027; portal-tester, 3 Nov 2026):
+R1 **162** (`proxy` **33**: +1, the hub admin's session cookie never reaches a project app), S2 **131**;
+S5 **42** probes ok (+3: the owner's jar is live on the proxy hub, it reaches `/edu/` with only the
+shell's `k_admin` hint, and a mixed header keeps only the project's own cookies); smoke-dev.sh 33 / 0 / 0
+(its dead `credForm` branch is gone, which changes no count); #6a–#6c, #9a, S6 (27) and S7 (18) unchanged.
 
 For reference, the suite as merged (before this spec, the same commit, clean tree): 80 tests,
 63 pass, 9 fail, 8 skip, all from the MySQL/SQLite `tests/db-dialects.test.js` that the move to
