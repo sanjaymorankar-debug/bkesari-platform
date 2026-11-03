@@ -108,7 +108,7 @@ drop_connections() {
 
 # survives <label>: idle, drop, then the hub must still be up and answer a read and a write.
 survives() {
-  curl -s -o /dev/null -u "$U:$PW" "$BASE/tasks/api/overview"   # make sure it holds a connection
+  tl_read >/dev/null   # make sure it holds a connection
   sleep "$IDLE"
   drop_connections
   if [ "${DROPPED:-0}" -gt 0 ]; then ok "$1: the server dropped $DROPPED idle connection(s) of $role"
@@ -120,8 +120,8 @@ survives() {
   fi
   ok "$1: the hub is still running after its connections were dropped"
   local r w
-  r=$(code -u "$U:$PW" "$BASE/tasks/api/overview")
-  w=$(code -u "$U:$PW" -X POST -H 'content-type: application/json' -d '{"name":"after the drop"}' "$BASE/tasks/api/projects")
+  r=$(tl_read)
+  w=$(tl_write "after the drop")
   if [ "$r" = 200 ] && [ "$w" = 201 ]; then ok "$1: the next read and write work ($r, $w)"
   else bad "$1: the next read and write work" "read answered $r, write $w"; fi
 }
@@ -171,8 +171,10 @@ if out=$(bash "$ROOT/scripts/smoke-dev.sh" "$BASE" --env dev 2>&1); then
 else
   bad "scripts/smoke-dev.sh passes" "$(printf '%s\n' "$out" | grep -E 'FAIL' | sed 's/\x1b\[[0-9;]*m//g' | head -3 | tr '\n' ' ')"
 fi
-c=$(code -u "$U:$PW" -X POST -H 'content-type: application/json' -d '{"name":"parity"}' "$BASE/tasks/api/projects")
-[ "$c" = 201 ] && ok "a project is saved through the pooler (201)" || bad "a project is saved through the pooler" "answered $c"
+tl_sign_in && ok "a TaskList account signs in through the pooler (mobile + OTP)" \
+  || bad "a TaskList account signs in through the pooler" "no session; is APP_ENV=dev showing the code? $(tail -3 "$LOG" | tr '\n' ' ')"
+c=$(tl_write "parity")
+[ "$c" = 201 ] && ok "a TaskList list is saved through the pooler (201)" || bad "a TaskList list is saved through the pooler" "answered $c"
 c=$(code -X POST -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
   -d '{"html":"<html><body>parity</body></html>"}' "$BASE/ATIP/api/snapshot")
 [ "$c" = 200 ] && ok "an ATIP snapshot is stored through the pooler (200)" || bad "an ATIP snapshot is stored through the pooler" "answered $c"
@@ -181,7 +183,7 @@ echo; echo "Connections dropped while idle"
 survives "pooled"
 stop_hub
 if start_hub "$DIRECT"; then
-  curl -s -o /dev/null -u "$U:$PW" "$BASE/tasks/api/overview"
+  tl_read >/dev/null
   tls=$(sql "SELECT count(*) FILTER (WHERE s.ssl), count(*) FROM pg_stat_ssl s JOIN pg_stat_activity a USING (pid)
              WHERE a.usename = current_user AND a.pid <> pg_backend_pid()")
   IFS='|' read -r enc total <<<"$tls"

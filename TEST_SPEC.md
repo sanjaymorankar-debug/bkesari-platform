@@ -352,6 +352,8 @@ kill $HUB; wait $HUB 2>/dev/null
 # (A new event id each run: LadWani answers 500 to an unsigned event id it already holds.)
 A=$(cd ladwani/apps/web/out && ls _next/static/chunks/*.js | head -1)
 start_hub LADWANI_DATABASE_URL="$LADWANI_SMOKE_DATABASE_URL"
+# The hub answers before LadWani's API has started (it is a 503 until then), so wait for its line.
+for i in $(seq 1 40); do grep -q 'LadWani API:' "$HUBLOG" && break; sleep 0.25; done
 has "$(cat "$HUBLOG")" 'LadWani API: ready (database engine: 2 worker threads; the server shows '
 has "$(curl -sI "$BASE/ladwani/$A" | tr -d '\r')" 'Cache-Control: public, max-age=31536000, immutable'
 has "$(curl -sI "$BASE/ladwani?x=1" | tr -d '\r')" 'Location: /ladwani/?x=1'
