@@ -226,9 +226,9 @@ describe('LadWani auth over HTTP', () => {
   })
 
   describe('GET /auth/session (the app shell)', () => {
-    it('answers 401 with where to sign in when there is no session', async () => {
+    it('answers 200 with no user and where to sign in when there is no session (not an error the browser logs)', async () => {
       const r = await call('GET', '/auth/session')
-      expect(r.status).toBe(401)
+      expect(r.status).toBe(200)
       expect(r.body).toEqual({ user: null, signInUrl: '/ladwani/sign-in/' })
     })
 

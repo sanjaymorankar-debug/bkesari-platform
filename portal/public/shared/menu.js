@@ -233,10 +233,12 @@
 .ks-panel button.ks-item,.ks-panel a.ks-plain{display:flex;width:100%;align-items:center;min-height:48px;padding:0 10px;border:0;border-radius:10px;
   background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;text-decoration:none}
 .ks-panel button.ks-item:hover,.ks-panel a.ks-plain:hover{background:var(--ks-tint)}
-.ks-label{max-width:9em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ks-label,.ks-acct-name{max-width:9em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ks-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @media (max-width:640px){.ks-label,.ks-hide-sm{display:none}.ks-in{padding:6px 6px}.ks-lang select{width:52px;padding:0;color:transparent}
   .ks-lang select option{color:#1C1917}.ks-lang .ks-ico{left:13px}.ks-bar .ks-proj{font-size:16px;padding:0 4px}.ks-brand{font-size:17px}
-  .ks-account .ks-btn{padding:0 8px}}
+  .ks-account .ks-btn{padding:0 8px}
+  .ks-acct-name{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}
 /* Phones: inside a project the logo alone stands for bkesari, so the
    project's own name always fits beside it. */
 @media (max-width:480px){.ks-bar[data-project] .ks-brand-name{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
@@ -306,7 +308,7 @@
     const opts = options || {};
     const lang = STRINGS[opts.lang] ? opts.lang : 'en';
     const year = opts.year || new Date().getFullYear();
-    return `<footer class="ks-foot k-footer" data-ks-footer>
+    return `<footer class="ks-foot k-footer" data-ks-footer data-ks-lang="${lang}">
   <div class="ks-foot-in">
     <nav aria-label="${escapeHtml(s(lang, 'about'))}"><ul>
       <li><a href="/about">${escapeHtml(s(lang, 'about'))}</a></li>
@@ -344,8 +346,11 @@
     const display = u.name || u.email || u.mobile || '';
     const initials = (display.trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 2) || '?').toUpperCase();
     const links = (me.links || []).map((l) => `<a class="ks-plain" href="${escapeHtml(l.href)}">${escapeHtml(l.label)}</a>`).join('');
-    slot.innerHTML = `<details class="ks-pop"><summary class="ks-btn" aria-label="${escapeHtml(s(lang, 'account'))}: ${escapeHtml(display)}">` +
-      `<span class="ks-avatar" aria-hidden="true">${escapeHtml(initials)}</span><span class="ks-label">${escapeHtml(display)}</span></summary>` +
+    // The spoken name starts with the visible text (WCAG 2.5.3); on phones the
+    // name is only visually hidden, so it is still what a screen reader says.
+    slot.innerHTML = `<details class="ks-pop"><summary class="ks-btn">` +
+      `<span class="ks-avatar" aria-hidden="true">${escapeHtml(initials)}</span><span class="ks-acct-name">${escapeHtml(display)}</span>` +
+      `<span class="ks-sr">, ${escapeHtml(s(lang, 'account'))}</span></summary>` +
       `<div class="ks-panel"><div class="ks-acct-head"><strong>${escapeHtml(s(lang, 'signedInTo', { project }))}</strong><small>${escapeHtml(u.email || u.mobile || '')}</small><br>` +
       `<small>${escapeHtml(s(lang, 'separate', { project }))}</small></div>${links}` +
       (me.signOut ? `<button class="ks-item" type="button" data-ks-signout>${escapeHtml(s(lang, 'signOut'))}</button>` : '') + '</div></details>';
@@ -430,6 +435,10 @@
         while (holder.lastChild) d.body.insertBefore(holder.lastChild, d.body.firstChild);
       }
     }
+    // A footer rendered ahead of time (LadWani's static pages) is kept unless
+    // the visitor reads another language.
+    const ready = d.querySelector('[data-ks-footer]');
+    if (ready && ready.getAttribute('data-ks-lang') && ready.getAttribute('data-ks-lang') !== lang) ready.outerHTML = renderFooter({ lang });
     if (cfg.footer !== false && !d.querySelector('[data-ks-footer]')) {
       const fslot = d.querySelector('[data-kesari-footer]');
       const fhtml = renderFooter({ lang });

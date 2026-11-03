@@ -31,6 +31,9 @@ hr{border:0;border-top:1px solid var(--k-border);margin:var(--k-6) 0}
   padding:var(--k-3) var(--k-4);border-radius:var(--k-radius-sm);box-shadow:var(--k-shadow-2);font-weight:600}
 .k-skip:focus{top:var(--k-2)}
 [hidden]{display:none!important}
+/* The app shell's slot keeps the header's height before the script fills it,
+   so nothing below jumps when it arrives (the audit's CLS 0.13). */
+[data-bkesari-menu]{display:block;min-height:64px}
 
 /* Layout */
 .k-main{flex:1;width:100%;max-width:var(--k-content);margin:0 auto;padding:var(--k-8) var(--k-4) var(--k-12)}

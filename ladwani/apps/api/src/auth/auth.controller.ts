@@ -132,10 +132,9 @@ export class AuthController {
     res.set('Cache-Control', 'no-store')
     const base = appBase()
     const person = await this.auth.sessionPerson(readSessionCookie(req))
-    if (!person) {
-      res.status(HttpStatus.UNAUTHORIZED)
-      return { user: null, signInUrl: `${base}/sign-in/` }
-    }
+    // Signed out is an answer, not an error: a 401 here would be logged to the
+    // browser's console on every page a visitor opens.
+    if (!person) return { user: null, signInUrl: `${base}/sign-in/` }
     const lang = String(req.cookies?.k_lang ?? 'en')
     return {
       user: person,

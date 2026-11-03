@@ -20,7 +20,11 @@ export default function SignUpPage() {
   const t = useT()
   const router = useRouter()
   const { user, loading } = useAuth()
-  const [progress, setProgress] = useState<SignUpProgress | null>(null)
+  // Step 1 is in the page as built, so a first visit paints the form at once
+  // and nothing moves; saved progress (another step, typed values) replaces it
+  // once read, remounting the step so its fields pick the values up.
+  const [progress, setProgress] = useState<SignUpProgress>({ step: 1 })
+  const [restored, setRestored] = useState(false)
 
   useEffect(() => {
     let saved = loadProgress()
@@ -30,27 +34,21 @@ export default function SignUpPage() {
     } catch {
       // no query
     }
-    setProgress(saved ?? { step: 1 })
+    if (saved) setProgress(saved)
+    setRestored(true)
   }, [])
 
   const update = useCallback((patch: Partial<SignUpProgress>) => {
     setProgress((prev) => {
-      const next = { ...(prev ?? { step: 1 }), ...patch } as SignUpProgress
+      const next = { ...prev, ...patch } as SignUpProgress
       saveProgress(next)
       return next
     })
   }, [])
 
-  if (!progress || loading) {
-    return (
-      <AuthFrame title={t('signUp.title')}>
-        <ListSkeleton rows={2} />
-      </AuthFrame>
-    )
-  }
-
-  // Steps 2-4 save to the account, so they need its session: without one, step 1 signs in again.
-  const step: Step = user ? (progress.step === 1 ? 2 : progress.step) : 1
+  // Steps 2-4 save to the account, so they need its session: without one (or
+  // until it is known), step 1, which signs in again.
+  const step: Step = user && !loading ? (progress.step === 1 ? 2 : progress.step) : 1
 
   return (
     <AuthFrame
@@ -73,7 +71,7 @@ export default function SignUpPage() {
         ))}
       </ol>
 
-      {step === 1 && <StepMobile progress={progress} onDone={(patch) => update({ ...patch, step: 2 })} />}
+      {step === 1 && <StepMobile key={restored ? 'restored' : 'built'} progress={progress} onDone={(patch) => update({ ...patch, step: 2 })} />}
       {step === 2 && <StepProfile progress={progress} onDone={(patch) => update({ ...patch, step: 3 })} />}
       {step === 3 && <StepPlace progress={progress} onBack={() => update({ step: 2 })} onDone={(patch) => update({ ...patch, step: 4 })} />}
       {step === 4 && (

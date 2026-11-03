@@ -2,6 +2,7 @@ const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
+const compression = require('compression');
 const createDb = require('./db');
 // The Kesari app shell (header + footer), shared with every browser page.
 const menu = require('./public/shared/menu.js');
@@ -211,6 +212,9 @@ function createApp(db, extra = {}) {
     next();
   });
   app.use(securityHeaders());
+  // gzip for everything the hub sends, LadWani's export and API included. A
+  // response that is already encoded (a proxied app's) is left as it is.
+  app.use(compression());
 
   // LadWani runs in this process (portal/ladwani.js) when its build is here:
   // main() asks for it, tests pass their own options. It signs its own people
@@ -272,6 +276,12 @@ function createApp(db, extra = {}) {
     if (await hub.isOwner(req)) return next();
     if (env.ATIP_USER && env.ATIP_PASSWORD) return atipBasic(req, res, next);
     res.status(404).type('text/plain').send('Not found');
+  });
+
+  // Browsers ask for /favicon.ico whatever a page links; answer with the icon
+  // rather than a 404 that every page would log to its console.
+  app.get('/favicon.ico', (req, res) => {
+    res.type('image/png').set('Cache-Control', 'public, max-age=86400').sendFile(path.join(__dirname, 'public', 'icons', 'icon-192.png'));
   });
 
   // The renamed page. 301 so links and bookmarks to /global-warming keep working.

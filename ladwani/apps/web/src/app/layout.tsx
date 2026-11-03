@@ -9,6 +9,9 @@ import { AuthProvider } from '../lib/auth-context'
  * Under `next dev` on its own these do not exist; the app still works, plainly.
  */
 const KESARI = '/kesari-ui/1.0.0'
+// The shell's own footer markup, from the one file that defines it (the hub's
+// portal/public/shared/menu.js), rendered at build time.
+const FOOTER: string = require('../../../../../portal/public/shared/menu.js').renderFooter({ lang: 'en' })
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? ''
 
 export const metadata = {
@@ -39,7 +42,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             browser. React leaves their contents alone: empty innerHTML of its own. */}
         <div data-bkesari-menu="" data-me-url={`${BASE}/api/v1/auth/session`} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: '' }} />
         <AuthProvider>{children}</AuthProvider>
-        <div data-kesari-footer="" suppressHydrationWarning dangerouslySetInnerHTML={{ __html: '' }} />
+        {/* The footer is in the page as built (English), so the browser paints it
+            straight away instead of when the shell's script arrives; the shell
+            swaps it only for a visitor who reads Marathi or Hindi. */}
+        <div data-kesari-footer="" suppressHydrationWarning dangerouslySetInnerHTML={{ __html: FOOTER }} />
         <script src="/shared/menu.js" defer />
       </body>
     </html>

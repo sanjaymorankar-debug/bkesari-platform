@@ -1,0 +1,28 @@
+{
+  "appId": "com.bkesari.education",
+  "appName": "bkesari Education",
+  "webDir": "www",
+  "server": {
+    "url": "https://bkesari.com/edu/",
+    "cleartext": false,
+    "allowNavigation": [
+      "bkesari.com"
+    ],
+    "errorPath": "index.html"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#FAF8F5"
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "backgroundColor": "#FAF8F5",
+    "limitsNavigationsToAppBoundDomains": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "backgroundColor": "#0F766E",
+      "launchShowDuration": 600
+    }
+  }
+}

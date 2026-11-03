@@ -147,6 +147,8 @@ test('the account menu shows only the current project\'s own user, and signs out
   assert.match(slot.innerHTML, /Signed in to TaskList/);
   assert.match(slot.innerHTML, /This is a separate account for TaskList\./);
   assert.match(slot.innerHTML, />SM</, 'initials');
+  assert.match(slot.innerHTML, /<summary class="ks-btn"><span class="ks-avatar" aria-hidden="true">SM<\/span><span class="ks-acct-name">Sanjay More<\/span><span class="ks-sr">, Account<\/span><\/summary>/,
+    'the spoken name begins with the visible name (WCAG 2.5.3)');
   assert.match(slot.innerHTML, /data-ks-signout/);
   const out = { innerHTML: '', hidden: true, querySelector: () => null };
   menu.renderAccount(d, out, { user: null, signInUrl: '/tasklist/sign-in' }, tab, 'en');

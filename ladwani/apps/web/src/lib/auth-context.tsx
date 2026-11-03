@@ -76,16 +76,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     async function restore() {
       try {
+        // Ask first whether the lw_sid cookie holds a session, without rotating
+        // it. A visitor with none is told so (200, user null) and nothing else
+        // is called; the shell may also have signed out since (its menu posts
+        // /auth/logout).
         const stored = readStoredUser()
-        if (getAccessToken() && stored) {
-          // The app shell may have signed out since (its menu posts /auth/logout):
-          // ask whether the cookie still holds a session, without rotating it.
-          const res = await fetch(`${API_BASE}/auth/session`, { credentials: 'include', headers: { Accept: 'application/json' } })
-          if (cancelled) return
-          if (res.status === 401) forget()
-          else setUserState(stored) // a 5xx or network trouble is not a sign-out
+        const res = await fetch(`${API_BASE}/auth/session`, { credentials: 'include', headers: { Accept: 'application/json' } })
+        if (cancelled) return
+        if (!res.ok) {
+          if (stored) setUserState(stored) // a 5xx or network trouble is not a sign-out
           return
         }
+        const body = (await res.json().catch(() => null)) as { user?: unknown } | null
+        if (cancelled) return
+        if (!body || !body.user) { forget(); return }
+        if (getAccessToken() && stored) { setUserState(stored); return }
         const result = await api.post<SessionResult>('/auth/refresh')
         if (!cancelled) adopt(result)
       } catch (err) {

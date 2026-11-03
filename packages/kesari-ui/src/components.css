@@ -178,7 +178,8 @@
   background:var(--k-surface);border:1.5px solid var(--k-border-strong);color:var(--k-ink);font:inherit;cursor:pointer;text-align:left}
 .k-node:hover{border-color:var(--k-accent)}
 .k-node[aria-expanded="true"]{border-color:var(--k-accent);box-shadow:inset 0 -3px 0 var(--k-accent)}
-.k-node--expired{opacity:.62;border-style:dashed}
+/* Deceased: dashed, quieter background and a dagger; never faded below AA contrast. */
+.k-node--expired{border-style:dashed;background:var(--k-surface-2);color:var(--k-muted)}
 .k-node--expired .k-node__name::after{content:" †";color:var(--k-muted)}
 .k-node--spouse{border-color:var(--k-accent);border-style:double;border-width:3px}
 .k-node__meta{display:block;font-size:var(--k-text-xs);color:var(--k-muted)}
@@ -212,8 +213,10 @@
 }
 
 /* ---- Footer ------------------------------------------------------------- */
-.k-footer{border-top:1px solid var(--k-border);background:var(--k-surface);color:var(--k-muted);font-size:var(--k-text-sm);padding:var(--k-6) var(--k-4)}
-.k-footer__inner{max-width:var(--k-content);margin:0 auto;display:flex;flex-wrap:wrap;gap:var(--k-3) var(--k-6);align-items:center;justify-content:space-between}
-.k-footer nav ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:var(--k-1) var(--k-4)}
-.k-footer a{color:var(--k-muted);display:inline-flex;align-items:center;min-height:40px}
+/* Matches the shell's own footer (.ks-foot), so one rendered ahead of the shell's script does not move when it arrives. */
+.k-footer{border-top:1px solid var(--k-border);background:var(--k-surface);color:var(--k-muted);font-size:14px;line-height:1.4;padding:20px 16px;margin-top:auto}
+.k-footer__inner,.k-footer .ks-foot-in{max-width:var(--k-content);margin:0 auto;display:flex;flex-wrap:wrap;gap:8px 24px;align-items:center;justify-content:space-between}
+.k-footer p{margin:0}
+.k-footer nav ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:0 16px}
+.k-footer a{color:var(--k-muted);display:inline-flex;align-items:center;min-height:44px}
 .k-footer a:hover{color:var(--k-ink)}
