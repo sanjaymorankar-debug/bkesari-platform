@@ -142,6 +142,24 @@ class Complaint extends Model
         return sprintf('EDU-%s-%s-%d-', strtoupper($state->code), strtoupper($district->code), now()->year);
     }
 
+    /**
+     * Move the complaint's status and record the transition.
+     *
+     * `changed_by_user_id` names the member of staff or the officer who made
+     * the change. It is **never** the submitter: `complaints` carries no
+     * `user_id` column precisely so that nothing links a complaint to the
+     * person who filed it (see SECURITY_PRIVACY.md), and a history row
+     * holding the submitter's id beside `complaint_id` would rebuild that
+     * link in a table the school and every officer can read — without the
+     * permission, the reason or the log entry that
+     * `IdentityResolutionService` requires.
+     *
+     * So the invariant is enforced here rather than at the call sites: a
+     * submitter's id is dropped to null whatever is passed in, the way the
+     * reason gate is enforced inside IdentityResolutionService rather than
+     * in the form. Submitter-driven transitions are still legible from the
+     * note ("Submitter confirmed: yes"), which is what the timeline shows.
+     */
     public function recordStatusChange(string $toStatus, ?int $changedByUserId, ?string $note = null): void
     {
         $from = $this->status;
@@ -151,8 +169,26 @@ class Complaint extends Model
         $this->statusHistory()->create([
             'from_status' => $from,
             'to_status' => $toStatus,
-            'changed_by_user_id' => $changedByUserId,
+            'changed_by_user_id' => $this->isSubmitter($changedByUserId) ? null : $changedByUserId,
             'note' => $note,
         ]);
+    }
+
+    /**
+     * Whether this user is the one behind the complaint's anonymous_ref.
+     *
+     * A forward lookup on a user id the caller already holds — it answers
+     * "is this the submitter?" and reveals no identity, so it is not a
+     * reversal and does not belong behind IdentityResolutionService.
+     */
+    public function isSubmitter(?int $userId): bool
+    {
+        if ($userId === null || $this->anonymous_ref === null) {
+            return false;
+        }
+
+        return AnonymousIdentity::where('anonymous_ref', $this->anonymous_ref)
+            ->where('user_id', $userId)
+            ->exists();
     }
 }

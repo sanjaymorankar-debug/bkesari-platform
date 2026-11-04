@@ -25,7 +25,7 @@ edu-tester agent".
 | App code: models, services, Livewire/Volt pages | `edu/app/`, `edu/resources/views/` | PHP 8.3, Laravel 13, Livewire 3.6, Volt 1.7 |
 | Serving under `/edu/` | `edu/app/Providers/AppServiceProvider.php`, `edu/app/Routing/BasePathRedirector.php`, `edu/bootstrap/app.php` | Laravel |
 | Database settings for Neon | `edu/config/database.php`, `edu/app/Database/PostgresConnector.php`, `edu/app/Providers/DatabaseServiceProvider.php` | Laravel, pdo_pgsql |
-| Schema and demo data | `edu/database/migrations/` (68), `edu/database/seeders/` | Laravel migrations, PostgreSQL 16 |
+| Schema and demo data | `edu/database/migrations/` (69), `edu/database/seeders/` | Laravel migrations, PostgreSQL 16 |
 | Hand-run SQL | `database/edu/01`–`04_*.sql`, `edu/database/sql/*.sql` | PostgreSQL |
 | PHPUnit suite | `edu/tests/Unit`, `edu/tests/Feature` (`edu/phpunit.xml`) | PHPUnit 12 |
 | Smoke and check scripts | `edu/tests/smoke/` | bash, Python 3, Node + Playwright |
@@ -172,7 +172,7 @@ Run in order, from `edu/`. Each row's command is literal; the "passes when" colu
 | 6 | S2 | `php artisan test --testsuite=Unit` | all pass |
 | 7 | S3a | `php artisan test` (SQLite, in memory) | all pass; exactly the 5 skips section 5 names (`vendor/bin/phpunit --display-skipped` lists them) |
 | 8 | S3a | `DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=bk_edu_test DB_USERNAME=bk_edu DB_PASSWORD=$BK_EDU_PASS php artisan test` | all pass, **0 skipped** |
-| 9 | S3b | `DB_CONNECTION=pgsql DB_URL="$PG:5432/bk_edu_test" php artisan migrate:fresh --seed --force`, then `psql "$PG:5432/bk_edu_test" -Atc "select (select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'), (select count(*) from migrations), (select count(*) from users), (select count(*) from schools), (select count(*) from complaints), (select extname from pg_extension where extname='citext')"` | exit 0; `74\|68\|289\|20\|100\|citext` |
+| 9 | S3b | `DB_CONNECTION=pgsql DB_URL="$PG:5432/bk_edu_test" php artisan migrate:fresh --seed --force`, then `psql "$PG:5432/bk_edu_test" -Atc "select (select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'), (select count(*) from migrations), (select count(*) from users), (select count(*) from schools), (select count(*) from complaints), (select extname from pg_extension where extname='citext')"` | exit 0; `74\|69\|289\|20\|100\|citext` |
 | 10 | S3c | the SQL load, below | every file exit 0; `compare_schema.py` prints `schemas match` (it refuses a dump with no `CREATE TABLE`, so a failed `pg_dump` cannot pass); re-running 02 and 03 exits 0; `migrate --pretend` says `Nothing to migrate` |
 | 11 | S3d | the incremental scripts, below | every file exit 0; `compare_schema.py` prints `schemas match` |
 | 12 | S4 | `npm ci && rm -rf /tmp/edu-build && npx vite build --outDir /tmp/edu-build --emptyOutDir && diff -r /tmp/edu-build public/build` | `diff` prints nothing: the committed build is exactly what the sources produce |
@@ -211,7 +211,7 @@ that stopped at migration 40):
 ```bash
 psql -d postgres -c 'DROP DATABASE IF EXISTS bk_edu_sql' -c 'CREATE DATABASE bk_edu_sql OWNER bk_edu'   # as a superuser
 export DB_CONNECTION=pgsql DB_URL="$PG:5432/bk_edu_sql"
-php artisan migrate --force && php artisan migrate:rollback --step=28 --force   # 40 migrations left
+php artisan migrate --force && php artisan migrate:rollback --step=29 --force   # 40 migrations left
 # --step is (total migrations - 40): bump it with every migration added, or the first script
 # below hits a table the extra migration already created.
 for f in 2026_09_02_student_growth_career_modules 2026_09_03_school_core_udise_fees_facilities \
@@ -219,8 +219,8 @@ for f in 2026_09_02_student_growth_career_modules 2026_09_03_school_core_udise_f
          2026_09_03_courses_and_ratings 2026_09_03_replies_and_data_rights; do
   psql "$PG:5432/bk_edu_sql?sslmode=require" -q -v ON_ERROR_STOP=1 -1 -f database/sql/$f.sql > /dev/null || echo "FAIL $f"
 done
-php artisan migrate --force                     # runs only the migrations after the scripts (3: citext,
-                                                # hub_user_id, decision attribution)
+php artisan migrate --force                     # runs only the migrations after the scripts (4: citext,
+                                                # hub_user_id, decision attribution, status-history clear)
 unset DB_CONNECTION DB_URL
 pg_dump --schema-only --no-owner --no-privileges "$PG:5432/bk_edu_sql" > /tmp/edu-incremental.sql
 python3 tests/smoke/compare_schema.py /tmp/edu-migrated.sql /tmp/edu-incremental.sql
@@ -309,7 +309,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | EDU-CR-01 | Every URL the app writes under the hub starts with `/edu` (routes, assets, Livewire's update URI and script), and Livewire's signed upload URL carries one prefix and passes its signature check | `tests/Feature/Platform/BasePathTest.php` (13 tests); `http.sh` URL and asset blocks; `browser.cjs` steps 1 and 3 |
 | EDU-CR-02 | A guest sent to sign in from a protected page returns to that page, query string kept | `BasePathTest::test_a_guest_redirect_remembers_the_prefixed_page_it_came_from`, `::test_the_remembered_page_keeps_its_query_string`; `browser.cjs` step 1 |
 | EDU-CR-03 | Signing out (and every literal link) stays inside `/edu/` | `BasePathTest::test_no_view_hardcodes_a_root_relative_link`; `browser.cjs` step 2 |
-| EDU-CR-04 | A complaint or feedback row never carries the submitter's identity; reversing an anonymous ref needs the permission and a reason, and is logged | `AnonymizationTest` |
+| EDU-CR-04 | A complaint or feedback row never carries the submitter's identity, and neither does its status-history row — `recordStatusChange()` drops a submitter id at the chokepoint; reversing an anonymous ref needs the permission and a reason, and is logged | `AnonymizationTest` (11 tests, mutation-tested) |
 | EDU-CR-05 | School, district and state boundaries; government roles never reach an individual child's records | `RbacBoundaryTest`, `GrowthAccessBoundaryTest` (mutation-tested), `HealthAccessMatrixTest` |
 | EDU-CR-06 | DPDP consent gates growth, career, life-skills and health data, per purpose, withdrawable at once | `ConsentGateTest`, `HealthPortalTest` |
 | EDU-CR-07 | Safeguarding cases are invisible to school admins; a POCSO case cannot close without an external report | `SafeguardingTest` |
@@ -341,7 +341,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | `app/Services/*Access*`, `ConsentService`, `SafeguardingService`, `DataSubjectRequestService`, `Health*`, `IdentityResolutionService` | CR-04 to CR-09 and their test files |
 | `app/Models/AuditLog.php`, `app/Models/Concerns/RecordsVerificationDecision.php`, `School::markRecognitionVerified`, any new `AuditLog::record*` call site | `AuditLoggingTest`, CR-21, and CR-04 if the call site touches a complaint or feedback |
 | `dashboards/school.blade.php`'s `decide()` (the one path behind all six approve/reject buttons) | `AuditLoggingTest`, `NotificationsTest` (an approval notifies, a rejection notifies nobody), `RegistrationFlowTest` (the cross-school refusal), CR-05, CR-21 |
-| `app/Models/Complaint.php`, `resources/views/livewire/complaints/**`, `app/Http/Controllers/ComplaintEvidenceController.php`, `app/Policies/ComplaintPolicy.php` | `ComplaintNumberTest`, `ComplaintEvidenceTest`, `ComplaintFlowTest`, `RbacBoundaryTest`, `browser.cjs` step 3, S7.8, CR-11, CR-19 |
+| `app/Models/Complaint.php`, `resources/views/livewire/complaints/**`, `app/Http/Controllers/ComplaintEvidenceController.php`, `app/Policies/ComplaintPolicy.php` | `ComplaintNumberTest`, `ComplaintEvidenceTest`, `ComplaintFlowTest`, `RbacBoundaryTest`, `browser.cjs` step 3, S7.8, CR-11, CR-19; `recordStatusChange()` also → `AnonymizationTest`, CR-04 |
 | `tests/TestCase.php`, `phpunit.xml` | the S6 refusal check, R1 on both engines, CR-19 |
 | `resources/views/**`, `resources/css/**`, `resources/js/**`, `tailwind.config.js`, `vite.config.js`, `package*.json` | S4: rebuild with `npm run build` and commit `public/build/` with the change (Hostinger has no Node), then S5 |
 | `composer.json`, `composer.lock` | S1 rows 1–3, R1, S6 `composer audit` |

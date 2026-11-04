@@ -140,7 +140,10 @@ new #[Layout('layouts.app')] class extends Component
             'no' => 'escalated',
         };
 
-        $this->complaint->recordStatusChange($newStatus, Auth::id(), 'Submitter confirmed: '.$this->confirmChoice);
+        // null, not Auth::id(): this transition is the submitter's, and the
+        // history row must not link them to the complaint. recordStatusChange()
+        // would drop it anyway — passing null says so at the call site too.
+        $this->complaint->recordStatusChange($newStatus, null, 'Submitter confirmed: '.$this->confirmChoice);
 
         // The submitter, not a member of staff — so no user_id and no IP go
         // into the trail (AuditLog::recordAnonymous). Logging who confirmed

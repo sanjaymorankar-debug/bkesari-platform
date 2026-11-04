@@ -3,10 +3,14 @@
 namespace Tests\Feature\Platform;
 
 use App\Models\AnonymousIdentity;
+use App\Models\Complaint;
+use App\Models\ComplaintStatusHistory;
 use App\Models\IdentityAccessLog;
+use App\Models\School;
 use App\Models\User;
 use App\Services\IdentityResolutionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Livewire\Volt\Volt;
 use Tests\Feature\Platform\Concerns\SetsUpPlatformData;
@@ -112,6 +116,170 @@ class AnonymizationTest extends TestCase
             'action' => 'investigation-review',
         ]);
         $this->assertSame(1, IdentityAccessLog::count());
+    }
+
+    /**
+     * The complaint timeline must not become the back door the rest of the
+     * anonymisation design closes.
+     *
+     * `complaint_status_history.changed_by_user_id` sits beside
+     * `complaint_id` in a table the school and every officer in the
+     * jurisdiction can read. A submitter's id there links them to their own
+     * complaint with none of the controls `IdentityResolutionService`
+     * enforces — no permission, no reason, no `identity_access_logs` row.
+     */
+    public function test_a_submitters_confirmation_leaves_no_actor_on_the_timeline(): void
+    {
+        [$school, $complaint, $submitter] = $this->confirmedComplaint();
+
+        $rows = ComplaintStatusHistory::where('complaint_id', $complaint->id)->get();
+
+        $this->assertTrue($rows->isNotEmpty(), 'the transitions must actually be recorded');
+
+        foreach ($rows as $row) {
+            $this->assertNotSame(
+                $submitter->id,
+                $row->changed_by_user_id,
+                "the {$row->to_status} row names the submitter"
+            );
+        }
+
+        // The submitter's own confirmation is on the timeline, with no actor.
+        $confirmation = $rows->firstWhere('note', 'Submitter confirmed: yes');
+        $this->assertNotNull($confirmation, 'the confirmation must still be recorded');
+        $this->assertNull($confirmation->changed_by_user_id);
+    }
+
+    /** The school's own transitions still name the staff member — that is the trail's purpose. */
+    public function test_a_schools_transition_still_names_the_staff_member(): void
+    {
+        [$school, $complaint] = $this->confirmedComplaint();
+        $staffIds = $school->staff()->pluck('user_id');
+
+        $responded = ComplaintStatusHistory::where('complaint_id', $complaint->id)
+            ->where('to_status', 'school_responded')->sole();
+
+        $this->assertContains($responded->changed_by_user_id, $staffIds->all());
+    }
+
+    /**
+     * Enforced in `recordStatusChange()`, not at the call sites — so a future
+     * caller that reaches for `Auth::id()` on a submitter-driven transition
+     * cannot reintroduce the link, the way the reason gate lives inside
+     * `IdentityResolutionService` rather than in the form.
+     */
+    public function test_recording_a_transition_drops_a_submitter_id_even_when_one_is_passed(): void
+    {
+        $school = $this->makeSchool();
+        $category = $this->makeCategory();
+        $parent = $this->makeVerifiedParent($school);
+
+        Volt::actingAs($parent)->test('complaints.create')
+            ->set('schoolId', (string) $school->id)
+            ->set('complaintCategoryId', (string) $category->id)
+            ->set('subject', 'Chemistry lab has no running water')
+            ->set('description', 'The lab tap has been dry all term and practicals go ahead anyway.')
+            ->set('severity', 'high')
+            ->call('submit');
+
+        $complaint = Complaint::firstOrFail();
+
+        $this->assertTrue($complaint->isSubmitter($parent->id));
+
+        // A caller passing the submitter explicitly, as confirmResolution used to.
+        $complaint->recordStatusChange('investigating', $parent->id, 'Submitter confirmed: partially');
+
+        $row = ComplaintStatusHistory::where('complaint_id', $complaint->id)
+            ->where('to_status', 'investigating')->sole();
+
+        $this->assertNull($row->changed_by_user_id, 'a submitter id must be dropped at the chokepoint');
+        $this->assertSame('Submitter confirmed: partially', $row->note, 'the note still says who acted');
+
+        // A staff id passed the same way is kept.
+        $admin = $this->makeSchoolAdmin($school);
+        $complaint->recordStatusChange('action_taken', $admin->id, 'School proposed a fix.');
+
+        $staffRow = ComplaintStatusHistory::where('complaint_id', $complaint->id)
+            ->where('to_status', 'action_taken')->sole();
+
+        $this->assertSame($admin->id, $staffRow->changed_by_user_id);
+    }
+
+    /**
+     * The rows written before the chokepoint existed are cleared by
+     * `2026_11_04_000001_clear_submitter_ids_from_complaint_status_history`,
+     * which matches a row by resolving its user against its own complaint's
+     * `anonymous_ref` — not by reading the note text, so a row counts as the
+     * submitter's because the identity says so.
+     */
+    public function test_the_migration_clears_submitter_ids_already_on_the_timeline(): void
+    {
+        [$school, $complaint, $submitter] = $this->confirmedComplaint();
+        $admin = $school->staff()->first()->user_id;
+
+        // Put the pre-fix state back: a submitter-stamped row, as
+        // confirmResolution used to write.
+        $legacyId = DB::table('complaint_status_history')->insertGetId([
+            'complaint_id' => $complaint->id,
+            'from_status' => 'action_taken',
+            'to_status' => 'resolved',
+            'changed_by_user_id' => $submitter->id,
+            'note' => 'Submitter confirmed: yes',
+            'created_at' => now(),
+        ]);
+
+        $staffRowId = ComplaintStatusHistory::where('complaint_id', $complaint->id)
+            ->where('to_status', 'school_responded')->sole()->id;
+
+        $this->assertSame(
+            $submitter->id,
+            DB::table('complaint_status_history')->where('id', $legacyId)->value('changed_by_user_id')
+        );
+
+        (require database_path('migrations/2026_11_04_000001_clear_submitter_ids_from_complaint_status_history.php'))->up();
+
+        $this->assertNull(
+            DB::table('complaint_status_history')->where('id', $legacyId)->value('changed_by_user_id'),
+            'the submitter-stamped row must be cleared'
+        );
+        $this->assertSame(
+            $admin,
+            DB::table('complaint_status_history')->where('id', $staffRowId)->value('changed_by_user_id'),
+            'a staff row must survive — it is the point of the trail'
+        );
+    }
+
+    /** @return array{0: School, 1: Complaint, 2: User} */
+    private function confirmedComplaint(): array
+    {
+        $school = $this->makeSchool();
+        $category = $this->makeCategory();
+        $parent = $this->makeVerifiedParent($school);
+        $admin = $this->makeSchoolAdmin($school);
+
+        Volt::actingAs($parent)->test('complaints.create')
+            ->set('schoolId', (string) $school->id)
+            ->set('complaintCategoryId', (string) $category->id)
+            ->set('subject', 'Fee receipt not issued')
+            ->set('description', 'Paid the term fee two weeks ago and still no receipt has been issued.')
+            ->set('severity', 'medium')
+            ->call('submit');
+
+        $complaint = Complaint::firstOrFail();
+
+        Volt::actingAs($admin)->test('complaints.show', ['complaint' => $complaint])
+            ->set('responseMessage', 'We have located the payment and are issuing the receipt.')
+            ->call('respond');
+
+        Volt::actingAs($admin)->test('complaints.show', ['complaint' => $complaint->fresh()])
+            ->set('responseMessage', 'Receipt issued.')
+            ->call('markResolutionProposed');
+
+        Volt::actingAs($parent)->test('complaints.show', ['complaint' => $complaint->fresh()])
+            ->set('confirmChoice', 'yes')
+            ->call('confirmResolution');
+
+        return [$school, $complaint->fresh(), $parent];
     }
 
     public function test_anonymous_ref_is_stable_across_multiple_submissions_by_same_user(): void

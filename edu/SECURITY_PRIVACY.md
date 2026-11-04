@@ -57,6 +57,19 @@ reason gate entirely. The row still records *that* the action happened, with
 the `anonymous_ref`, which is safe: it is already on the record itself and
 reversing it still goes through the audited service.
 
+The same rule binds the **complaint timeline**.
+`complaint_status_history.changed_by_user_id` names the member of staff or the
+officer who moved a complaint's status, and never the submitter.
+`Complaint::recordStatusChange()` drops a submitter's id before the row is
+written, whatever the caller passes — enforced there rather than at the call
+sites, so a future caller reaching for `Auth::id()` on a submitter-driven
+transition cannot reintroduce the link. Submitter-driven transitions stay
+legible from the note ("Submitter confirmed: yes"), which is what the timeline
+renders; it never renders the actor. The rows written before that gate existed
+were cleared by `2026_11_04_000001_clear_submitter_ids_from_complaint_status_history`,
+which matched them by resolving each row's user against its own complaint's
+`anonymous_ref` rather than by reading the note.
+
 `AuditLoggingTest` enforces this directly — if a future call site reaches for
 `record()` where it should have used `recordAnonymous()`,
 `test_no_audit_row_ever_names_a_user_alongside_a_complaint_or_feedback` fails.
