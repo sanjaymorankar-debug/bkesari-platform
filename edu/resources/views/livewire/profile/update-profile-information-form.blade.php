@@ -1,6 +1,9 @@
 <?php
 
 use App\Models\User;
+use App\Rules\NotReservedEmail;
+use App\Support\BuiltinAdmins;
+use App\Support\IndianMobile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\Rule;
@@ -10,6 +13,7 @@ new class extends Component
 {
     public string $name = '';
     public string $email = '';
+    public string $mobile = '';
 
     /**
      * Mount the component.
@@ -18,6 +22,7 @@ new class extends Component
     {
         $this->name = Auth::user()->name;
         $this->email = Auth::user()->email;
+        $this->mobile = (string) Auth::user()->mobile;
     }
 
     /**
@@ -29,8 +34,24 @@ new class extends Component
 
         $validated = $this->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', Rule::unique(User::class)->ignore($user->id)],
+            // No account takes a built-in administrator's address, and a
+            // built-in administrator keeps its own (D-036): it is how their
+            // username finds the same row every time.
+            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', Rule::unique(User::class)->ignore($user->id),
+                BuiltinAdmins::isBuiltin($user) ? Rule::in([$user->email]) : new NotReservedEmail],
+            'mobile' => ['nullable', 'string', 'max:20', function (string $attribute, mixed $value, Closure $fail) use ($user): void {
+                $normalized = IndianMobile::normalize($value);
+                if ($normalized === null) {
+                    $fail(__('Enter a 10-digit Indian mobile number, like 98765 43210.'));
+                } elseif (User::where('mobile', $normalized)->whereKeyNot($user->id)->exists()) {
+                    $fail(__('This mobile number is already used by another account.'));
+                }
+            }],
+        ], [
+            'email.in' => __('A built-in administrator account keeps its email address.'),
         ]);
+
+        $validated['mobile'] = filled($validated['mobile'] ?? null) ? IndianMobile::normalize($validated['mobile']) : null;
 
         $user->fill($validated);
 
@@ -40,6 +61,7 @@ new class extends Component
 
         $user->save();
 
+        $this->mobile = (string) $user->mobile;
         $this->dispatch('profile-updated', name: $user->name);
     }
 
@@ -64,12 +86,12 @@ new class extends Component
 
 <section>
     <header>
-        <h2 class="text-lg font-medium text-gray-900">
+        <h2 class="text-lg font-semibold text-gray-900">
             {{ __('Profile Information') }}
         </h2>
 
         <p class="mt-1 text-sm text-gray-600">
-            {{ __("Update your account's profile information and email address.") }}
+            {{ __("Update your account's profile information, email address and mobile number.") }}
         </p>
     </header>
 
@@ -102,6 +124,13 @@ new class extends Component
                     @endif
                 </div>
             @endif
+        </div>
+
+        <div>
+            <x-input-label for="mobile" :value="__('Mobile number (optional)')" />
+            <x-text-input wire:model="mobile" id="mobile" name="mobile" type="tel" inputmode="tel" class="mt-1 block w-full" autocomplete="tel-national" placeholder="98765 43210" aria-describedby="profile-mobile-hint" />
+            <p id="profile-mobile-hint" class="k-hint mt-1">{{ __('Sign-in codes go by email for now; a code by text message will come later.') }}</p>
+            <x-input-error class="mt-2" :messages="$errors->get('mobile')" />
         </div>
 
         <div class="flex items-center gap-4">

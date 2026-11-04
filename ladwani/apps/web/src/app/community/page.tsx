@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { api } from '../../lib/api-client'
 import { errorMessage } from '../../lib/auth-context'
-import { RequireAuth, TopBar, Shell, ErrorBanner, Avatar, StatusPill } from '../../components/ui'
+import { RequireAuth, TopBar, Shell, ErrorBanner, Avatar, StatusPill, ListSkeleton, EmptyList } from '../../components/ui'
 
 interface FeedPost {
   id: string
@@ -50,7 +50,8 @@ export default function CommunityFeedPage() {
         <ErrorBanner message={error} />
 
         <div className="stack" style={{ marginTop: 16 }}>
-          {posts?.length === 0 && <p className="muted">No posts yet — be the first to share something.</p>}
+          {posts === null && !error && <ListSkeleton />}
+          {posts?.length === 0 && <EmptyList message="empty.posts" />}
           {posts?.map((p) => (
             <div key={p.id} className="card stack">
               <div className="row" style={{ justifyContent: 'space-between' }}>

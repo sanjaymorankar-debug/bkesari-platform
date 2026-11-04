@@ -42,7 +42,7 @@ new #[Layout('layouts.app')] class extends Component
 
         <div class="bg-white rounded-lg shadow divide-y divide-gray-100">
             @forelse ($notifications as $notification)
-                <div class="p-4 flex justify-between items-start gap-4 {{ $notification->read_at ? '' : 'bg-indigo-50/50' }}">
+                <div class="p-4 flex justify-between items-start gap-4 {{ $notification->read_at ? '' : 'bg-indigo-50' }}">
                     <div>
                         <p class="text-sm text-gray-800">{{ $notification->data['message'] ?? 'Notification' }}</p>
                         <p class="text-xs text-gray-400 mt-1">{{ $notification->created_at->diffForHumans() }}</p>

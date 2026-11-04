@@ -1,12 +1,15 @@
 'use strict';
 
-// LadWani's web fonts ship with the app (ladwani/apps/web/src/app/fonts), loaded
-// by next/font/local in layout.tsx and used through the font-family stacks in
-// globals.css. Nothing else checks what those files can draw: a weight the app
-// sets with no face of its own is faked by the browser (faux bold), and a
-// character outside the bundled subsets is drawn by whatever system font is
-// there. These read the font files themselves (WOFF2, brotli from node:zlib),
-// so they need neither LadWani's build nor its node_modules.
+// LadWani's text is set in Kesari's fonts: layout.tsx links the hub's
+// /kesari-ui/1.0.0/kesari.css, whose @font-face rules (packages/kesari-ui/src/
+// tokens.css) load the Mukta subsets in packages/kesari-ui/fonts, and
+// globals.css uses only Kesari's font tokens. LadWani bundles no fonts of its
+// own any more (it had Fraunces, Work Sans and IBM Plex Mono until 2026-11).
+// Nothing else checks what those files can draw: a weight the app sets with no
+// face of its own is faked by the browser (faux bold), and a character outside
+// the subsets -- Marathi and Hindi included -- is drawn by whatever system font
+// is there. These read the font files themselves (WOFF2, brotli from
+// node:zlib), so they need neither LadWani's build nor its node_modules.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -16,10 +19,11 @@ const zlib = require('node:zlib');
 
 const WEB = path.join(__dirname, '..', 'ladwani', 'apps', 'web', 'src');
 const APP = path.join(WEB, 'app');
+const KESARI = path.join(__dirname, '..', 'packages', 'kesari-ui');
 
-// Characters the app writes that no subset of Fraunces, Work Sans or IBM Plex
-// Mono has (Google's or Fontsource's): they always came from a system font.
-const NO_SUBSET_HAS = new Set([...'→←★✓']);
+// Characters the app writes that no Mukta subset has: they come from a system font.
+// † marks a member who has passed away; Kesari's own k-node--expired writes it too.
+const NO_SUBSET_HAS = new Set([...'→←★✓†']);
 
 /** The tables of a WOFF2 file, by tag (https://www.w3.org/TR/WOFF2/, section 5). */
 function readWoff2(file) {
@@ -84,72 +88,78 @@ function hasGlyph(cmap, cp) {
   return false;
 }
 
-/** The faces each localFont() call in layout.tsx declares, by its CSS variable. */
-function bundledFaces() {
-  const layout = fs.readFileSync(path.join(APP, 'layout.tsx'), 'utf8');
-  const byVariable = {};
-  for (const [, call] of layout.matchAll(/localFont\(\{([\s\S]*?)\n\}\)/g)) {
-    const variable = /variable:\s*'([^']+)'/.exec(call)[1];
-    const range = /prop:\s*'unicode-range',\s*value:\s*'([^']+)'/.exec(call);
-    const inRange = !range ? () => true : (cp) => range[1].split(',').some((r) => {
+/** Kesari's @font-face rules for one family: file, weights, unicode-range. */
+function kesariFaces(family) {
+  const css = fs.readFileSync(path.join(KESARI, 'src', 'tokens.css'), 'utf8');
+  const faces = [];
+  for (const [, body] of css.matchAll(/@font-face\{([^}]*)\}/g)) {
+    if (!body.includes(`font-family:'${family}'`)) continue;
+    const [lo, hi = lo] = /font-weight:(\d+)(?: (\d+))?/.exec(body).slice(1).filter(Boolean).map(Number);
+    const file = /url\(fonts\/([^)]+)\)/.exec(body)[1];
+    const ranges = /unicode-range:([^;]+)/.exec(body)[1].split(',').map((r) => {
       const [a, b = a] = r.trim().replace(/^U\+/i, '').split('-').map((h) => parseInt(h, 16));
-      return cp >= a && cp <= b;
+      return [a, b];
     });
-    byVariable[variable] = [...call.matchAll(/path:\s*'([^']+)',\s*weight:\s*'(\d+)'/g)].map(([, file, weight]) => {
-      const tables = readWoff2(path.join(APP, file));
-      return { file: path.basename(file), weight: Number(weight), tables, draws: (cp) => inRange(cp) && hasGlyph(tables.cmap, cp) };
+    const tables = readWoff2(path.join(KESARI, 'fonts', file));
+    faces.push({
+      file, lo, hi, tables,
+      hasWeight: (w) => w >= lo && w <= hi,
+      draws: (cp) => ranges.some(([a, b]) => cp >= a && cp <= b) && hasGlyph(tables.cmap, cp),
     });
   }
-  assert.ok(Object.keys(byVariable).length >= 3, 'layout.tsx declares its fonts with localFont()');
-  return byVariable;
-}
-
-/** Each font-family stack in globals.css that uses the bundled fonts: the faces its text can use. */
-function stacks(faces) {
-  const css = fs.readFileSync(path.join(APP, 'globals.css'), 'utf8');
-  const out = new Map();
-  for (const [, value] of css.matchAll(/font-family:\s*([^;]+);/g)) {
-    const vars = [...value.matchAll(/var\((--[\w-]+)\)/g)].map((m) => m[1]);
-    if (vars.length) out.set(vars.join(', '), vars.flatMap((v) => faces[v] || assert.fail(`${v} is not a localFont() variable`)));
-  }
-  assert.ok(out.size >= 3, 'globals.css sets the three families');
-  return out;
+  assert.ok(faces.length >= 3, `tokens.css declares ${family}`);
+  return faces;
 }
 
 function sourceFiles(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory() ? sourceFiles(path.join(dir, e.name)) : /\.(tsx?|css)$/.test(e.name) ? [path.join(dir, e.name)] : []);
+    e.isDirectory() ? sourceFiles(path.join(dir, e.name)) : /\.(tsx?|css|json)$/.test(e.name) ? [path.join(dir, e.name)] : []);
 }
 
-test('every bundled font file is WOFF2 and of the weight layout.tsx declares for it', () => {
-  for (const list of Object.values(bundledFaces())) {
-    for (const f of list) assert.equal(f.tables['OS/2'].readUInt16BE(4), f.weight, `${f.file}: OS/2 usWeightClass`);
-  }
-});
-
-test('every weight the app sets has a face of its own in each family (no faux bold)', () => {
-  // An explicit weight lands on any family: inline weights reach .mono text by inheritance
-  // (the Total and Outstanding rows), so each family carries every weight the app sets.
-  const weights = new Set();
+/** Every weight LadWani sets: inline fontWeight in its pages, font-weight in globals.css. */
+function weightsUsed() {
+  const weights = new Set([400]);
   for (const f of sourceFiles(WEB)) {
     for (const [, w] of fs.readFileSync(f, 'utf8').matchAll(/font(?:-w|W)eight:\s*'?(\d{3})/g)) weights.add(Number(w));
   }
-  assert.ok(weights.has(600), 'the app sets 600 somewhere');
-  for (const [stack, list] of stacks(bundledFaces())) {
-    for (const w of weights) {
-      assert.ok(list.some((f) => f.weight === w), `font-family ${stack}: no face at ${w}, so the browser fakes it (have ${[...new Set(list.map((f) => f.weight))]})`);
-    }
-  }
+  return weights;
+}
+
+test('LadWani bundles no fonts of its own and loads Kesari\'s', () => {
+  assert.equal(fs.existsSync(path.join(APP, 'fonts')), false, 'apps/web/src/app/fonts is gone');
+  const layout = fs.readFileSync(path.join(APP, 'layout.tsx'), 'utf8');
+  assert.doesNotMatch(layout, /next\/font/, 'layout.tsx loads no next/font');
+  assert.match(layout, /\/kesari-ui\/1\.0\.0/, 'layout.tsx links the pinned Kesari build');
+  assert.match(layout, /kesari\.css/);
+  const version = JSON.parse(fs.readFileSync(path.join(KESARI, 'package.json'), 'utf8')).version;
+  assert.equal(version, '1.0.0', 'layout.tsx pins the version kesari-ui builds');
 });
 
-test("every character the app writes is drawn by its own fonts, in each family and weight (₹ included)", () => {
+test('globals.css names no font family: only Kesari\'s tokens', () => {
+  const css = fs.readFileSync(path.join(APP, 'globals.css'), 'utf8');
+  const families = [...css.matchAll(/font-family:\s*([^;]+);/g)].map((m) => m[1].trim());
+  assert.ok(families.length >= 2, 'globals.css sets the body and the mono family');
+  for (const value of families) assert.match(value, /^var\(--k-font(?:-mono)?\)$/, `font-family: ${value}`);
+});
+
+test('every Mukta file is WOFF2 and of the weight tokens.css declares for it', () => {
+  for (const f of kesariFaces('Mukta')) assert.equal(f.tables['OS/2'].readUInt16BE(4), f.lo, `${f.file}: OS/2 usWeightClass`);
+});
+
+test('every weight LadWani sets has a Mukta face of its own (no faux bold)', () => {
+  const faces = kesariFaces('Mukta');
+  assert.ok(weightsUsed().has(600), 'the app sets 600 somewhere');
+  for (const w of weightsUsed()) assert.ok(faces.some((f) => f.hasWeight(w)), `Mukta has no face at ${w}`);
+});
+
+test('every character LadWani writes, Marathi and Hindi included, is drawn by Mukta at every weight it uses (₹ included)', () => {
   const chars = new Set();
   for (const f of sourceFiles(WEB)) for (const ch of fs.readFileSync(f, 'utf8')) if (ch.codePointAt(0) > 0x7e) chars.add(ch);
   assert.ok(chars.has('₹'), 'the app writes ₹');
-  for (const [stack, list] of stacks(bundledFaces())) {
-    for (const w of new Set(list.map((f) => f.weight))) {
-      const missing = [...chars].filter((ch) => !NO_SUBSET_HAS.has(ch) && !list.some((f) => f.weight === w && f.draws(ch.codePointAt(0))));
-      assert.deepEqual(missing, [], `font-family ${stack} at ${w}: drawn by a system font instead`);
-    }
+  assert.ok([...chars].some((ch) => /[\u0900-\u097F]/.test(ch)), 'the app writes Devanagari (src/i18n)');
+  const faces = kesariFaces('Mukta');
+  for (const w of weightsUsed()) {
+    const missing = [...chars].filter((ch) => !NO_SUBSET_HAS.has(ch) && !faces.some((f) => f.hasWeight(w) && f.draws(ch.codePointAt(0))));
+    assert.deepEqual(missing, [], `Mukta at ${w}: drawn by a system font instead`);
   }
 });

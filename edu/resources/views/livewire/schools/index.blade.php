@@ -16,6 +16,14 @@ new #[Layout('layouts.app')] class extends Component
     public string $districtId = '';
     public string $board = '';
 
+    /** The bkesari.com/edu front page shows the welcome above the search. */
+    public bool $isHome = false;
+
+    public function mount(): void
+    {
+        $this->isHome = request()->routeIs('home');
+    }
+
     public function updating($property): void
     {
         if (in_array($property, ['search', 'stateId', 'districtId', 'board'], true)) {
@@ -61,43 +69,77 @@ new #[Layout('layouts.app')] class extends Component
 }; ?>
 
 <div>
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">School Search</h2>
-    </x-slot>
+    @if ($isHome)
+        <section class="edu-hero" aria-labelledby="edu-hero-title">
+            <p class="k-chip k-chip--accent">{{ __('Education') }}</p>
+            <h1 id="edu-hero-title" class="mt-3">{{ __('Know your school. Be heard, safely.') }}</h1>
+            <p class="k-lead">{{ __('Search verified schools, see what families actually experience, and raise a concern without your name ever reaching the school.') }}</p>
+            <div class="k-row mt-4">
+                @auth
+                    <a href="{{ route('dashboard') }}" wire:navigate class="k-btn">{{ __('Go to your dashboard') }}</a>
+                @else
+                    <a href="{{ route('sign-up') }}" wire:navigate class="k-btn">{{ __('Create a free account') }}</a>
+                    <a href="{{ route('sign-in') }}" wire:navigate class="k-btn k-btn--secondary">{{ __('Sign in') }}</a>
+                @endauth
+                <a href="#school-search" class="k-btn k-btn--ghost">{{ __('Find a school') }}</a>
+            </div>
 
-    <div class="py-8 max-w-7xl mx-auto sm:px-6 lg:px-8">
-        <div class="bg-indigo-50 border border-indigo-100 rounded-lg p-4 mb-6 flex flex-wrap items-center justify-between gap-3">
-            <p class="text-sm text-indigo-900">Don't see your school? Register it and get verified by a District Officer.</p>
-            <a href="{{ route('schools.register') }}" wire:navigate class="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700 shrink-0">Register a School</a>
+            <ul class="grid gap-4 md:grid-cols-3 mt-6 list-none p-0" role="list">
+                <li class="k-card">
+                    <h3>{{ __('Compare schools honestly') }}</h3>
+                    <p class="k-muted mb-0">{{ __('Fees year by year, the facilities a school claims next to what families report, and how it has changed over time.') }}</p>
+                </li>
+                <li class="k-card">
+                    <h3>{{ __('Raise a concern safely') }}</h3>
+                    <p class="k-muted mb-0">{{ __('Complaints are faceless: the school sees that a verified parent or student raised it, never who. Follow it until it is actually resolved.') }}</p>
+                </li>
+                <li class="k-card">
+                    <h3>{{ __('Follow your child’s growth') }}</h3>
+                    <p class="k-muted mb-0">{{ __('With your consent, teachers and family keep a shared record of what is going well and what comes next. No ranks, no labels.') }}</p>
+                </li>
+            </ul>
+        </section>
+    @endif
+
+    <section id="school-search" aria-labelledby="school-search-title" class="{{ $isHome ? 'mt-10' : '' }}">
+        @if ($isHome)
+            <h2 id="school-search-title" class="text-2xl font-bold text-gray-900">{{ __('School Search') }}</h2>
+        @else
+            <h1 id="school-search-title" class="text-2xl font-bold text-gray-900">{{ __('School Search') }}</h1>
+        @endif
+
+        <div class="k-banner mt-4 flex-wrap items-center justify-between">
+            <p>{{ __('Don’t see your school? Register it and get verified by a District Officer.') }}</p>
+            <a href="{{ route('schools.register') }}" wire:navigate class="k-btn k-btn--secondary shrink-0">{{ __('Register a School') }}</a>
         </div>
 
-        <div class="bg-white p-6 rounded-lg shadow mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div>
-                <x-input-label for="search" value="Name, city or PIN" />
-                <x-text-input wire:model.live.debounce.400ms="search" id="search" class="mt-1 w-full" placeholder="Search schools..." />
+        <div class="k-card mb-6 grid grid-cols-1 md:grid-cols-4 gap-x-4">
+            <div class="k-field">
+                <x-input-label for="search" :value="__('Name, city or PIN')" />
+                <x-text-input wire:model.live.debounce.400ms="search" id="search" type="search" :placeholder="__('Search schools...')" />
             </div>
-            <div>
-                <x-input-label for="stateId" value="State" />
-                <select wire:model.live="stateId" id="stateId" class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm mt-1 w-full">
-                    <option value="">All states</option>
+            <div class="k-field">
+                <x-input-label for="stateId" :value="__('State')" />
+                <select wire:model.live="stateId" id="stateId" class="k-select">
+                    <option value="">{{ __('All states') }}</option>
                     @foreach ($states as $state)
                         <option value="{{ $state->id }}">{{ $state->name }}</option>
                     @endforeach
                 </select>
             </div>
-            <div>
-                <x-input-label for="districtId" value="District" />
-                <select wire:model.live="districtId" id="districtId" class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm mt-1 w-full">
-                    <option value="">All districts</option>
+            <div class="k-field">
+                <x-input-label for="districtId" :value="__('District')" />
+                <select wire:model.live="districtId" id="districtId" class="k-select">
+                    <option value="">{{ __('All districts') }}</option>
                     @foreach ($districts as $district)
                         <option value="{{ $district->id }}">{{ $district->name }}</option>
                     @endforeach
                 </select>
             </div>
-            <div>
-                <x-input-label for="board" value="Board" />
-                <select wire:model.live="board" id="board" class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm mt-1 w-full">
-                    <option value="">All boards</option>
+            <div class="k-field">
+                <x-input-label for="board" :value="__('Board')" />
+                <select wire:model.live="board" id="board" class="k-select">
+                    <option value="">{{ __('All boards') }}</option>
                     @foreach (['CBSE', 'ICSE', 'STATE', 'IB', 'OTHER'] as $b)
                         <option value="{{ $b }}">{{ $b }}</option>
                     @endforeach
@@ -105,30 +147,33 @@ new #[Layout('layouts.app')] class extends Component
             </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" wire:loading.class="opacity-60" wire:target="search,stateId,districtId,board">
             @forelse ($schools as $school)
-                <a href="{{ route('schools.show', $school) }}" wire:navigate class="block bg-white rounded-lg shadow hover:shadow-md transition p-6">
-                    <div class="flex justify-between items-start">
+                <a href="{{ route('schools.show', $school) }}" wire:navigate class="k-card k-card--link">
+                    <div class="flex justify-between items-start gap-3">
                         <h3 class="font-semibold text-lg text-gray-900">{{ $school->name }}</h3>
-                        <span class="text-xs font-medium px-2 py-1 rounded bg-indigo-50 text-indigo-700">{{ $school->board }}</span>
+                        <span class="k-chip k-chip--accent k-chip--plain shrink-0">{{ $school->board }}</span>
                     </div>
-                    <p class="text-sm text-gray-500 mt-1">{{ $school->city }}, {{ $school->district->name }}, {{ $school->state->name }}</p>
+                    <p class="text-sm text-gray-600 mt-1 mb-0">{{ $school->city }}, {{ $school->district->name }}, {{ $school->state->name }}</p>
                     <div class="mt-4 flex items-center justify-between">
                         @if ($school->latestQualityScore)
-                            <span class="text-sm font-medium text-gray-700">
-                                SQI: {{ $school->latestQualityScore->score }}
-                                <span class="text-xs text-gray-400">({{ str_replace('_', ' ', $school->latestQualityScore->confidence) }} confidence)</span>
+                            <span class="text-sm font-semibold text-gray-800">
+                                {{ __('SQI') }}: {{ $school->latestQualityScore->score }}
+                                <span class="text-xs font-normal text-gray-600">({{ __(':level confidence', ['level' => str_replace('_', ' ', $school->latestQualityScore->confidence)]) }})</span>
                             </span>
                         @else
-                            <span class="text-sm text-gray-400">No rating data yet</span>
+                            <span class="text-sm text-gray-600">{{ __('No rating data yet') }}</span>
                         @endif
                     </div>
                 </a>
             @empty
-                <p class="text-gray-500 col-span-3">No schools match your search.</p>
+                <div class="k-empty col-span-full">
+                    <h3>{{ __('No schools match your search.') }}</h3>
+                    <p>{{ __('Try fewer words, another district, or register the school if it is missing.') }}</p>
+                </div>
             @endforelse
         </div>
 
         <div class="mt-6">{{ $schools->links() }}</div>
-    </div>
+    </section>
 </div>

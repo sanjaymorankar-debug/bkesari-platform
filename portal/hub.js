@@ -1,357 +1,329 @@
+'use strict';
+
 /* ============================================================
-   The hub's access layer (blueprint sheet A-02).
+   The hub: bkesari.com's own pages and its admin.
 
-   One bkesari ID (Neon Auth) answers "who are you". This module answers
-   "what may you open": a permission per project in project_access, requested
-   on /access/request and decided on /admin/access.
+   Since 3 Nov 2026 the hub signs NO end users in. Each project (LadWani,
+   Education, TaskList) owns its accounts in its own database; the hub only
+   points people to them. What the hub keeps:
 
-   - Open projects (Driving Simulator, Environmental Activities) need nothing.
-   - ATIP is the owner's alone. Anyone else gets a plain 404, with no request
-     path and no hint that the page exists.
-   - The owners are HUB_OWNER_EMAILS (a verified address) and the built-in
-     administrators, smorankar and sonalimorankar (portal/builtin-admins.js).
-   - LadWani and Education forward the request with a short-lived signed token
-     (RS256, 60 s): user id, email and the role for that project. The apps
-     verify it against /.well-known/jwks.json and map `sub` to a hub_user_id
-     on their own users table. The hub database is never read by an app.
+     /                     home: hero, the project tiles, announcement
+     /about /privacy /terms   prose pages
+     /contact              form -> hub_contact_messages (spam-protected)
+     /auth/sign-in         "Choose a project to sign in" (the old shared
+                           sign-in's address, kept so links and bookmarks land
+                           somewhere useful); /auth/* and the old access pages
+                           redirect here
+     /admin                the hub's separate admin login (hub_admin_* tables,
+                           no sign-up) and the editor for tiles, the
+                           announcement and the contact inbox
 
-   The signing key is HUB_TOKEN_PRIVATE_KEY (PEM). Without it a key is made at
-   start-up: fine for one dev process, but tokens then die on every restart and
-   two processes cannot verify each other's, so set it on every real tier.
+   The admin's session cookie is hub_admin_sid on Path=/ — the one cookie the
+   hub sets for everything under it, because the owner's ATIP viewer (/ATIP/)
+   is behind it too. No project reads it. Alongside it goes k_admin=1, a
+   readable hint (no secret, grants nothing) that tells the shell's project
+   switcher to list ATIP.
    ============================================================ */
 
 const crypto = require('crypto');
 const express = require('express');
-const menu = require('./public/shared/menu.js');
-const neonAuth = require('./neon-auth');
-const { isBuiltinUser } = require('./builtin-admins');
+const bcrypt = require('bcryptjs');
+const { createProjectAuth, normalizeEmail, normalizeMobile } = require('./project-auth');
+const { EMAIL_DOMAIN: BUILTIN_DOMAIN } = require('./builtin-admins');
+const pages = require('./hub-pages');
+const { escapeHtml } = require('./public/shared/menu.js');
 
-const TOKEN_TTL_SECONDS = 60;
-const TOKEN_HEADER = 'x-bkesari-token';
-// The role that may decide requests for a project, besides the owner.
-const PROJECT_ADMIN_ROLE = { ladwani: 'admin', edu: 'admin', tasklist: 'owner' };
+function safeEqual(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a || '')).digest();
+  const hb = crypto.createHash('sha256').update(String(b || '')).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
 
-// A row id from the URL: digits only and within BIGINT, else 0 (matches no row).
-// Number() alone let 1.5, 1e400 and 20-digit ids through to PostgreSQL as a 500.
+const TILE_STATUSES = ['live', 'beta', 'soon', 'private'];
+const ANNOUNCE_KINDS = ['info', 'warning', 'success', 'brand'];
+const CONTACT_MIN_SECONDS = 3;
+const CONTACT_MAX_AGE_SECONDS = 2 * 60 * 60;
 const rowId = (v) => (/^\d{1,15}$/.test(String(v ?? '')) ? Number(v) : 0);
-const b64u = (buf) => Buffer.from(buf).toString('base64url');
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/** The owner's address(es): the first admin is created with the owner role. */
 function ownerEmails(env = process.env) {
   return new Set(String(env.HUB_OWNER_EMAILS || 'agtcipl@gmail.com')
     .split(/[\s,]+/).map((e) => e.trim().toLowerCase()).filter(Boolean));
 }
 
-function loadKeys(env = process.env, log = console) {
-  let privateKey;
-  if (env.HUB_TOKEN_PRIVATE_KEY) {
-    privateKey = crypto.createPrivateKey(env.HUB_TOKEN_PRIVATE_KEY.replace(/\\n/g, '\n'));
-  } else {
-    log.warn('HUB_TOKEN_PRIVATE_KEY is not set: using a key made at start-up. Set it so tokens survive restarts.');
-    privateKey = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey;
-  }
-  const publicKey = crypto.createPublicKey(privateKey);
-  const kid = crypto.createHash('sha256').update(publicKey.export({ type: 'spki', format: 'der' })).digest('hex').slice(0, 16);
-  const jwk = { ...publicKey.export({ format: 'jwk' }), kid, use: 'sig', alg: 'RS256' };
-  return { privateKey, publicKey, kid, jwks: { keys: [jwk] } };
-}
-
-function signToken(keys, claims, { now = Date.now(), issuer = 'bkesari-hub' } = {}) {
-  const iat = Math.floor(now / 1000);
-  const header = { alg: 'RS256', typ: 'JWT', kid: keys.kid };
-  const payload = { iss: issuer, iat, exp: iat + TOKEN_TTL_SECONDS, ...claims };
-  const input = `${b64u(JSON.stringify(header))}.${b64u(JSON.stringify(payload))}`;
-  const sig = crypto.sign('RSA-SHA256', Buffer.from(input), keys.privateKey);
-  return `${input}.${b64u(sig)}`;
-}
-
-/** What an app does with a token, kept here so the tests can play the app. */
-function verifyToken(jwks, token, { audience, now = Date.now() } = {}) {
-  const [h, p, s] = String(token || '').split('.');
-  if (!h || !p || !s) throw new Error('malformed token');
-  const header = JSON.parse(Buffer.from(h, 'base64url').toString());
-  const jwk = jwks.keys.find((k) => k.kid === header.kid);
-  if (header.alg !== 'RS256' || !jwk) throw new Error('unknown key');
-  const key = crypto.createPublicKey({ key: jwk, format: 'jwk' });
-  if (!crypto.verify('RSA-SHA256', Buffer.from(`${h}.${p}`), key, Buffer.from(s, 'base64url'))) throw new Error('bad signature');
-  const claims = JSON.parse(Buffer.from(p, 'base64url').toString());
-  if (claims.exp * 1000 < now) throw new Error('token expired');
-  if (audience && claims.aud !== audience) throw new Error('token is for another project');
-  return claims;
-}
-
-const STYLE = `<style>
-:root{--bg:#F6F4EF;--surface:#fff;--ink:#1B1D24;--soft:#5F6472;--line:#E6E2D9;--accent:#C2560A;--accent-d:#9A4308;--ok:#1F7A4D;--bad:#A3321F}
-@media (prefers-color-scheme:dark){:root{--bg:#111315;--surface:#181B1E;--ink:#ECEDEE;--soft:#B9BFC6;--line:#30353A;--accent:#F08A3C;--accent-d:#F5A869;--ok:#6FCF9B;--bad:#F29484}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 'Inter',system-ui,sans-serif}
-main{max-width:720px;margin:0 auto;padding:32px 16px 64px}h1{font-size:26px;margin:0 0 6px}p{margin:0 0 12px;color:var(--soft)}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;margin:12px 0}
-label{display:block;font-weight:600;font-size:14px;margin:12px 0 4px}select,textarea,input{width:100%;padding:10px;border:1.5px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font:inherit}
-button,.btn{display:inline-block;min-height:44px;padding:10px 16px;border:0;border-radius:9px;background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer;text-decoration:none}
-button.alt{background:transparent;color:var(--ink);border:1.5px solid var(--line)}button:disabled{opacity:.6}
-.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}.msg{min-height:22px;margin-top:10px;font-size:14px}.ok{color:var(--ok)}.bad{color:var(--bad)}
-.tag{display:inline-block;padding:2px 10px;border-radius:999px;border:1px solid var(--line);font-size:13px}
-</style>`;
-
-function page({ title, body, user, req, envName }) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
-<title>${esc(title)} — bkesari</title>${STYLE}</head><body>
-${menu.renderHtml({ pathname: req.path, env: envName, isOwner: user && user.isOwner })}
-<main>${body}</main></body></html>`;
+function hubSecret(env, log) {
+  if (env.HUB_AUTH_SECRET && env.HUB_AUTH_SECRET.length >= 32) return env.HUB_AUTH_SECRET;
+  if (env.HUB_TOKEN_PRIVATE_KEY) return crypto.createHash('sha256').update(`hub-auth|${env.HUB_TOKEN_PRIVATE_KEY}`).digest('hex');
+  log.warn('HUB_AUTH_SECRET is not set: using a secret made at start-up (contact forms and codes do not survive a restart).');
+  return crypto.randomBytes(32).toString('hex');
 }
 
 /**
- * @param db        the hub database (hub_schema.sql applied)
- * @param getUser   async (req, res) => { id, email, name, emailVerified } | null
+ * @param db       the hub database (hub_schema.sql applied)
+ * @param envName  (req) => 'dev' | 'test' | 'prod'
+ * @param notify   { sms?, mail? } (notify.js) for admin password resets
  */
-function createHub({ db, getUser = neonAuth.currentUser, env = process.env, log = console, envName = () => 'prod' } = {}) {
-  const keys = loadKeys(env, log);
-  const owners = ownerEmails(env);
+function createHub({ db, env = process.env, log = console, envName = () => 'prod', notify = {} } = {}) {
+  const secret = hubSecret(env, log);
+  const admin = createProjectAuth({
+    db, key: 'hub-admin', name: 'bkesari hub admin', base: '/admin', cookie: 'hub_admin_sid', cookiePath: '/',
+    prefix: 'hub_admin_', allowSignUp: false, methods: ['password'], notify, tier: envName, log,
+    builtinAdmins: { role: 'owner', env },
+    secret: crypto.createHash('sha256').update(`admin|${secret}`).digest('hex'),
+    accountLinks: [{ label: 'Hub admin', href: '/admin' }],
+    hooks: {
+      afterSignIn: (req, res, user, { setCookie }) => setCookie(`k_admin=${user.role === 'owner' ? 1 : 0}`, { httpOnly: false, path: '/', maxAge: 30 * 86400 }),
+      afterSignOut: (req, res, { setCookie }) => setCookie('k_admin=', { httpOnly: false, path: '/', maxAge: 0 }),
+    },
+  });
 
-  const isOwnerEmail = (email) => owners.has(String(email || '').toLowerCase());
-
-  let cache = { at: 0, rows: [] };
-  async function projects() {
-    if (Date.now() - cache.at > 30_000) cache = { at: Date.now(), rows: await db.all('SELECT * FROM hub_projects ORDER BY sort_order') };
-    return cache.rows;
-  }
-  const projectByKey = async (key) => (await projects()).find((p) => p.key === key) || null;
-
-  /**
-   * The request's user with isOwner set. Only a verified address on
-   * HUB_OWNER_EMAILS counts as the owner, or a built-in administrator (a user
-   * object builtin-admins.js made, which nothing from Neon Auth can pass for).
-   */
-  async function whoami(req, res) {
-    if (req.hubUser !== undefined) return req.hubUser;
-    const u = await getUser(req, res);
-    req.hubUser = u && u.email ? {
-      id: String(u.id), email: String(u.email).toLowerCase(), name: u.name || null,
-      emailVerified: Boolean(u.emailVerified),
-      isOwner: isBuiltinUser(u) || (Boolean(u.emailVerified) && isOwnerEmail(u.email)),
-    } : null;
-    return req.hubUser;
-  }
-
-  async function accessFor(user) {
-    const rows = await db.all("SELECT project_key, role FROM project_access WHERE user_id = $1 AND status = 'active'", [user.id]);
-    return Object.fromEntries(rows.map((r) => [r.project_key, r.role]));
+  /** Creates the first admin from HUB_ADMIN_EMAIL + HUB_ADMIN_PASSWORD(_HASH) when there is none. */
+  async function bootstrapAdmin() {
+    const email = normalizeEmail(env.HUB_ADMIN_EMAIL);
+    if (!email) return null;
+    // The built-in administrators' rows (D-036) are not a first admin: they appear at their first sign-in.
+    const any = await db.get("SELECT id FROM hub_admin_users WHERE email IS NULL OR lower(email) NOT LIKE '%@' || $1 LIMIT 1", [BUILTIN_DOMAIN]);
+    if (any) return null;
+    let hash = env.HUB_ADMIN_PASSWORD_HASH || null;
+    if (!hash && env.HUB_ADMIN_PASSWORD) hash = await bcrypt.hash(env.HUB_ADMIN_PASSWORD, 11);
+    if (!hash) { log.warn('HUB_ADMIN_EMAIL is set but neither HUB_ADMIN_PASSWORD_HASH nor HUB_ADMIN_PASSWORD: no admin created.'); return null; }
+    const role = ownerEmails(env).has(email) ? 'owner' : 'editor';
+    const row = await db.get(`INSERT INTO hub_admin_users (email, name, password_hash, role, email_verified)
+      VALUES ($1, $2, $3, $4, TRUE) ON CONFLICT DO NOTHING RETURNING id`, [email, 'Hub admin', hash, role]);
+    if (row) log.log(`Hub admin ${email} created (${role}). Remove HUB_ADMIN_PASSWORD from the environment now.`);
+    return row;
   }
 
-  async function roleFor(user, key) {
-    const project = await projectByKey(key);
-    if (!project) return null;
-    if (user.isOwner) return project.roles.split(',').pop(); // the owner holds the top role everywhere
-    if (project.visibility === 'owner') return null;
-    return (await accessFor(user))[key] || null;
+  /* ---------- tiles and the announcement, cached briefly ---------- */
+  let cache = { at: 0, tiles: null, announcement: null };
+  async function content() {
+    if (cache.tiles && Date.now() - cache.at < 30_000) return cache;
+    const tiles = await db.all('SELECT * FROM hub_tiles WHERE visible ORDER BY sort_order, key');
+    const announcement = await db.get(`SELECT * FROM hub_announcements WHERE active
+      AND (starts_at IS NULL OR starts_at <= now()) AND (ends_at IS NULL OR ends_at > now()) ORDER BY id DESC LIMIT 1`);
+    cache = { at: Date.now(), tiles, announcement };
+    return cache;
+  }
+  const invalidate = () => { cache = { at: 0, tiles: null, announcement: null }; };
+
+  /** Is this request the owner's (hub admin with the owner role)? For ATIP. */
+  async function isOwner(req) {
+    const s = await admin.currentSession(req);
+    return Boolean(s && s.user.role === 'owner');
   }
 
-  const wantsJson = (req) => /\bjson\b/.test(req.headers.accept || '') || req.originalUrl.includes('/api/');
-  const signInUrl = (req) => `/auth/sign-in?next=${encodeURIComponent(req.originalUrl)}`;
-  const notFound = (res) => res.status(404).type('text/plain').send('Not found');
+  const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-  /** Middleware for one project: sign-in, permission, then the signed token. */
-  function gate(key) {
-    return async (req, res, next) => {
-      try {
-        delete req.headers[TOKEN_HEADER];
-        const project = await projectByKey(key);
-        if (!project) return notFound(res);
-        if (project.visibility === 'open') return next();
-        const user = await whoami(req, res);
-        // ATIP never reveals itself: signed in or not, a non-owner sees a 404.
-        if (project.visibility === 'owner') return user && user.isOwner ? next() : notFound(res);
-        if (!user) return wantsJson(req) ? res.status(401).json({ error: 'Sign in required' }) : res.redirect(302, signInUrl(req));
-        if (!user.emailVerified) return wantsJson(req) ? res.status(401).json({ error: 'Verify your email first' }) : res.redirect(302, `/auth/sign-in?verify=1&next=${encodeURIComponent(req.originalUrl)}`);
-        const role = project.visibility === 'signed_in' ? project.roles.split(',')[0] : await roleFor(user, key);
-        if (!role) {
-          return wantsJson(req) ? res.status(403).json({ error: 'No access to this project', request: `/access/request?project=${key}` })
-            : res.redirect(302, `/access/request?project=${encodeURIComponent(key)}`);
-        }
-        req.headers[TOKEN_HEADER] = signToken(keys, { sub: user.id, email: user.email, role, project: key, aud: key });
-        res.set('Cache-Control', 'private, no-store');
-        return next();
-      } catch (err) { return next(err); }
+  function send(req, res, { title, description, body, status = 200, isOwner: owner = false, scripts, pathname }) {
+    const lang = pages.langOf(req);
+    res.status(status).set({ 'Cache-Control': 'no-cache', Vary: 'Cookie' }).type('html')
+      .send(pages.layout({ req, lang, env: envName(req), title, description, body: body(lang), isOwner: owner, scripts, pathname }));
+  }
+
+  const page = (titleKey, render, opts = {}) => wrap(async (req, res) => {
+    const lang = pages.langOf(req);
+    const data = opts.data ? await opts.data(req) : {};
+    send(req, res, {
+      title: `${pages.t(lang, titleKey)}${titleKey === 'home.title' ? '' : ' — bkesari'}`,
+      body: (l) => render({ lang: l, ...data }),
+      isOwner: await isOwner(req),
+    });
+  });
+
+  /* ---------- contact form: CSRF (double submit), honeypot, fill time, rate limit ---------- */
+  const sign = (v) => crypto.createHmac('sha256', secret).update(`contact|${v}`).digest('base64url');
+  function contactTokens(req, res) {
+    let csrf = admin.readCookie(req, 'hub_csrf');
+    if (!csrf || !/^[A-Za-z0-9_-]{20,64}$/.test(csrf)) {
+      csrf = crypto.randomBytes(24).toString('base64url');
+      admin.setCookie(req, res, `hub_csrf=${csrf}`, { path: '/contact', maxAge: CONTACT_MAX_AGE_SECONDS });
+    }
+    const now = String(Date.now());
+    return { csrf, stamp: `${now}.${sign(now)}` };
+  }
+
+  function readContact(body) {
+    const b = body || {};
+    const values = {
+      name: String(b.name || '').trim().slice(0, 120),
+      email: String(b.email || '').trim().slice(0, 254),
+      mobile: String(b.mobile || '').trim().slice(0, 15),
+      topic: pages.TOPICS.includes(b.topic) ? b.topic : 'general',
+      message: String(b.message || '').trim().slice(0, 4000),
+      consent: b.consent === 'yes',
     };
+    const errors = {};
+    if (!values.name) errors.name = 'contact.err.name';
+    if (!values.email && !values.mobile) errors.email = 'contact.err.reach';
+    if (values.email && !normalizeEmail(values.email)) errors.email = 'contact.err.email';
+    if (values.mobile && !normalizeMobile(values.mobile)) errors.mobile = 'contact.err.mobile';
+    if (values.message.length < 10) errors.message = 'contact.err.message';
+    if (!values.consent) errors.consent = 'contact.err.consent';
+    return { values, errors };
   }
-
-  const sameOrigin = (req) => {
-    const origin = req.headers.origin;
-    if (!origin) return true; // non-browser callers carry no Origin
-    try { return new URL(origin).host === req.headers.host; } catch { return false; }
-  };
-  const audit = (actor, action, target, detail) =>
-    db.run('INSERT INTO audit_log (actor, action, target, detail) VALUES ($1,$2,$3,$4)', [actor, action, target, String(detail || '').slice(0, 500)]);
-
-  async function adminProjects(user) {
-    const all = await projects();
-    if (user.isOwner) return all.filter((p) => p.visibility === 'approval').map((p) => p.key);
-    const mine = await accessFor(user);
-    return all.filter((p) => p.visibility === 'approval' && mine[p.key] === PROJECT_ADMIN_ROLE[p.key]).map((p) => p.key);
-  }
-
-  const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
   function mount(app) {
-    app.get('/.well-known/jwks.json', (req, res) => { res.set('Cache-Control', 'public, max-age=300').json(keys.jwks); });
+    // Old shared sign-in and access pages: everyone lands on the chooser.
+    app.get(['/auth', '/auth/*', '/access/request', '/access', '/access/*'], (req, res, next) => {
+      if (req.path === '/auth/sign-in') return next();
+      res.redirect(301, '/auth/sign-in');
+    });
+    app.get(['/admin/access', '/admin/access/*'], (req, res) => res.redirect(301, '/admin'));
+    app.all(['/hub/api/me', '/hub/api/access-requests', '/hub/api/admin/*'], (req, res) =>
+      res.status(410).json({ error: 'The shared bkesari ID has been retired. Each project now has its own sign-in.', chooser: '/auth/sign-in' }));
+    // The old key set: nothing verifies hub tokens any more.
+    app.get('/.well-known/jwks.json', (req, res) => res.status(410).json({ keys: [], note: 'retired 3 Nov 2026' }));
 
-    app.get('/hub/api/me', wrap(async (req, res) => {
-      res.set('Cache-Control', 'private, no-store');
-      const user = await whoami(req, res);
-      const list = await projects();
-      if (!user) return res.json({ user: null, owner: false, projects: list.filter((p) => p.visibility !== 'owner').map((p) => ({ key: p.key, name: p.name, path: p.path, state: p.visibility === 'open' ? 'open' : 'signin' })) });
-      const access = await accessFor(user);
-      const pending = new Set((await db.all("SELECT project_key FROM access_requests WHERE user_id = $1 AND status = 'pending'", [user.id])).map((r) => r.project_key));
-      const admin = await adminProjects(user);
-      res.json({
-        user: { email: user.email, name: user.name }, owner: user.isOwner, canAdmin: admin.length > 0,
-        projects: list.filter((p) => p.visibility !== 'owner' || user.isOwner).map((p) => ({
-          key: p.key, name: p.name, path: p.path,
-          state: p.visibility === 'open' || user.isOwner || access[p.key] ? 'open' : pending.has(p.key) ? 'pending' : 'request',
-          role: user.isOwner ? p.roles.split(',').pop() : access[p.key] || null,
-        })),
-      });
+    app.get('/', page('home.title', pages.home, { data: () => content() }));
+    app.get('/about', page('about.title', pages.about, { data: () => content() }));
+    app.get('/privacy', page('privacy.title', pages.privacy));
+    app.get('/terms', page('terms.title', pages.terms));
+    app.get('/auth/sign-in', page('chooser.title', pages.chooser));
+
+    app.get('/contact', wrap(async (req, res) => {
+      const lang = pages.langOf(req);
+      const sent = req.query.sent === '1';
+      const tokens = contactTokens(req, res);
+      send(req, res, { title: `${pages.t(lang, 'contact.title')} — bkesari`, body: (l) => pages.contact({ lang: l, ...tokens, sent }), isOwner: await isOwner(req) });
     }));
 
-    app.get('/access/request', wrap(async (req, res) => {
-      const user = await whoami(req, res);
-      if (!user) return res.redirect(302, signInUrl(req));
-      const project = await projectByKey(String(req.query.project || ''));
-      if (!project || project.visibility !== 'approval') return notFound(res);
-      const existing = await roleFor(user, project.key);
-      if (existing) return res.redirect(302, project.path);
-      const pending = await db.get("SELECT id FROM access_requests WHERE user_id = $1 AND project_key = $2 AND status = 'pending'", [user.id, project.key]);
-      const roles = project.roles.split(',');
-      const body = `<h1>Request access to ${esc(project.name)}</h1>
-<p>You are signed in as <strong>${esc(user.email)}</strong>. Your bkesari ID works everywhere, but each project decides who may enter.</p>
-<div class="card">${pending ? '<p class="ok"><strong>Your request is waiting for a decision.</strong> You will be able to open the project as soon as it is approved.</p><a class="btn alt" href="/">Back to home</a>' : `
-<form id="f"><label for="role">Role you need</label>
-<select id="role">${roles.map((r) => `<option>${esc(r)}</option>`).join('')}</select>
-<label for="note">Why do you need it? (optional)</label><textarea id="note" rows="3" maxlength="500"></textarea>
-<div class="row" style="margin-top:14px"><button type="submit" id="go">Send request</button><a href="/">Cancel</a></div>
-<div class="msg" id="msg" role="status"></div></form>`}</div>
-<script>
-const f=document.getElementById('f');if(f)f.onsubmit=async(e)=>{e.preventDefault();const m=document.getElementById('msg');const b=document.getElementById('go');b.disabled=true;
-const r=await fetch('/hub/api/access-requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:${JSON.stringify(project.key)},role:document.getElementById('role').value,note:document.getElementById('note').value})});
-const d=await r.json().catch(()=>({}));if(r.ok){f.outerHTML='<p class="ok"><strong>Request sent.</strong> You will be able to open the project once it is approved.</p><a class="btn alt" href="/">Back to home</a>';}else{m.className='msg bad';m.textContent=d.error||'Could not send the request';b.disabled=false;}};
-</script>`;
-      res.set('Cache-Control', 'private, no-store').type('html').send(page({ title: 'Request access', body, user, req, envName: envName(req) }));
-    }));
-
-    app.post('/hub/api/access-requests', wrap(async (req, res) => {
-      if (!sameOrigin(req)) return res.status(403).json({ error: 'Cross-site request refused' });
-      const user = await whoami(req, res);
-      if (!user) return res.status(401).json({ error: 'Sign in required' });
-      if (!user.emailVerified) return res.status(401).json({ error: 'Verify your email first' });
-      const { project: key, role, note } = req.body || {};
-      const project = await projectByKey(String(key || ''));
-      if (!project || project.visibility !== 'approval') return res.status(404).json({ error: 'Unknown project' });
-      if (!project.roles.split(',').includes(role)) return res.status(400).json({ error: 'Unknown role' });
-      if (await roleFor(user, project.key)) return res.status(409).json({ error: 'You already have access' });
-      try {
-        const r = await db.get('INSERT INTO access_requests (user_id, email, project_key, role_wanted, note) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-          [user.id, user.email, project.key, role, String(note || '').trim().slice(0, 500) || null]);
-        await audit(user.email, 'request', project.key, `role ${role}`);
-        res.status(201).json({ id: r.id });
-      } catch (err) {
-        if (err.code === '23505') return res.status(409).json({ error: 'You already have a request waiting' });
+    app.post('/contact', express.urlencoded({ extended: false, limit: '20kb' }), wrap(async (req, res) => {
+      const lang = pages.langOf(req);
+      const b = req.body || {};
+      const again = (extra, status = 400) => {
+        const tokens = contactTokens(req, res);
+        send(req, res, { status, title: `${pages.t(lang, 'contact.title')} — bkesari`, body: (l) => pages.contact({ lang: l, ...tokens, ...extra }) });
+      };
+      // Cross-site posts and expired or forged forms: show the form again, nothing stored.
+      const origin = req.headers.origin;
+      let sameOrigin = true;
+      if (origin) { try { sameOrigin = new URL(origin).host === req.headers.host; } catch { sameOrigin = false; } }
+      const cookie = admin.readCookie(req, 'hub_csrf');
+      const [at, mac] = String(b.stamp || '').split('.');
+      const age = (Date.now() - Number(at)) / 1000;
+      const stampOk = Boolean(at && mac) && safeEqual(sign(at), mac);
+      if (!sameOrigin || !cookie || !safeEqual(cookie, b.csrf) || !stampOk || !(age >= 0 && age <= CONTACT_MAX_AGE_SECONDS)) {
+        return again({ formError: 'contact.err.expired', values: readContact(b).values }, 403);
+      }
+      // A filled hidden field or an inhumanly fast submit: answer as if sent, store nothing.
+      if (b.website || age < CONTACT_MIN_SECONDS) return res.redirect(303, '/contact?sent=1');
+      const { values, errors } = readContact(b);
+      if (Object.keys(errors).length) return again({ values, errors, formError: 'contact.err.form' });
+      const ip = String(req.ip || '').slice(0, 45);
+      try { await admin.limit(`contact:ip:${ip}`, 5, 60 * 60); } catch (err) {
+        if (err.status === 429) return again({ values, formError: 'contact.err.limit' }, 429);
         throw err;
       }
+      await db.run(`INSERT INTO hub_contact_messages (name, email, mobile, topic, message, lang, ip) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [values.name, normalizeEmail(values.email), normalizeMobile(values.mobile), values.topic, values.message, lang, ip]);
+      res.redirect(303, '/contact?sent=1');
     }));
 
-    async function adminUser(req, res) {
-      const user = await whoami(req, res);
-      if (!user || !user.emailVerified) { res.status(user ? 401 : 401).json({ error: 'Sign in required' }); return null; }
-      const keys = await adminProjects(user);
-      if (!keys.length) { res.status(403).json({ error: 'Not an access admin' }); return null; }
-      return { user, keys };
-    }
-
-    app.get('/hub/api/admin/requests', wrap(async (req, res) => {
-      const a = await adminUser(req, res); if (!a) return;
-      const status = ['pending', 'approved', 'declined'].includes(req.query.status) ? req.query.status : 'pending';
-      const rows = await db.all('SELECT id, email, project_key, role_wanted, note, status, decided_by, created_at FROM access_requests WHERE status = $1 AND project_key = ANY($2) ORDER BY id', [status, a.keys]);
-      res.set('Cache-Control', 'private, no-store').json({ requests: rows });
-    }));
-
-    app.post('/hub/api/admin/requests/:id', wrap(async (req, res) => {
-      if (!sameOrigin(req)) return res.status(403).json({ error: 'Cross-site request refused' });
-      const a = await adminUser(req, res); if (!a) return;
-      const id = rowId(req.params.id);
-      const { decision, role } = req.body || {};
-      if (!['approve', 'decline'].includes(decision)) return res.status(400).json({ error: 'decision must be approve or decline' });
-      const out = await db.tx(async (q) => {
-        const r = await q.get("SELECT * FROM access_requests WHERE id = $1 AND status = 'pending' FOR UPDATE", [id]);
-        if (!r || !a.keys.includes(r.project_key)) return null;
-        if (decision === 'decline') {
-          await q.run("UPDATE access_requests SET status = 'declined', decided_by = $1, decided_at = now() AT TIME ZONE 'utc' WHERE id = $2", [a.user.email, r.id]);
-          return r;
-        }
-        const project = await q.get('SELECT roles FROM hub_projects WHERE key = $1', [r.project_key]);
-        const granted = role || r.role_wanted;
-        if (!project.roles.split(',').includes(granted)) return { bad: true };
-        await q.run("UPDATE access_requests SET status = 'approved', decided_by = $1, decided_at = now() AT TIME ZONE 'utc' WHERE id = $2", [a.user.email, r.id]);
-        await q.run(`INSERT INTO project_access (user_id, email, project_key, role, status, approved_by) VALUES ($1,$2,$3,$4,'active',$5)
-          ON CONFLICT (user_id, project_key) DO UPDATE SET role = EXCLUDED.role, status = 'active', approved_by = EXCLUDED.approved_by`,
-        [r.user_id, r.email, r.project_key, granted, a.user.email]);
-        return { ...r, granted };
+    /* ---------- admin ---------- */
+    admin.mount(app, '/admin/api/auth');
+    app.get(['/admin', '/admin/'], wrap(async (req, res) => {
+      const s = await admin.currentSession(req);
+      const lang = pages.langOf(req);
+      res.set('X-Robots-Tag', 'noindex');
+      if (!s) {
+        return send(req, res, {
+          title: `${pages.t(lang, 'admin.title')} — bkesari`, pathname: '/admin', scripts: ['/shared/admin.js'],
+          body: (l) => `<div class="k-main--narrow"><h1>${pages.t(l, 'admin.h1')}</h1><p class="k-muted">${pages.t(l, 'admin.signInLead')}</p>
+<form class="k-card hub-form" data-admin-signin novalidate>
+<div class="k-field"><label class="k-label" for="a-email">${pages.t(l, 'admin.email')}</label><input class="k-input" id="a-email" type="text" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" required aria-describedby="a-err"></div>
+<div class="k-field"><label class="k-label" for="a-pass">${pages.t(l, 'admin.password')}</label><input class="k-input" id="a-pass" type="password" autocomplete="current-password" required aria-describedby="a-err"></div>
+<p class="k-error" id="a-err" role="alert"></p>
+<button class="k-btn k-btn--brand k-btn--block" type="submit">${pages.t(l, 'admin.signIn')}</button></form></div>`,
+        });
+      }
+      send(req, res, {
+        title: `${pages.t(lang, 'admin.title')} — bkesari`, pathname: '/admin', isOwner: s.user.role === 'owner', scripts: ['/shared/admin.js'],
+        body: () => `<div class="hub-admin" data-admin-app><h1>Hub admin</h1><p class="k-muted">Signed in as ${escapeHtml(s.user.email || '')} (${escapeHtml(s.user.role)}).</p>
+<div class="hub-admin-grid" id="admin-root"><div class="k-skel k-skel--card"></div><div class="k-skel k-skel--card"></div></div></div>`,
       });
-      if (!out) return res.status(404).json({ error: 'No such pending request' });
-      if (out.bad) return res.status(400).json({ error: 'Unknown role' });
-      await audit(a.user.email, decision, out.project_key, `${out.email}${out.granted ? ` as ${out.granted}` : ''}`);
+    }));
+
+    const api = express.Router();
+    api.use(express.json({ limit: '100kb' }), (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+    api.use(admin.requireUser, admin.csrfGuard);
+
+    api.get('/state', wrap(async (req, res) => {
+      const tiles = await db.all('SELECT * FROM hub_tiles ORDER BY sort_order, key');
+      const announcement = await db.get('SELECT * FROM hub_announcements ORDER BY id DESC LIMIT 1');
+      const messages = await db.all(`SELECT id, name, email, mobile, topic, message, lang, status, created_at
+        FROM hub_contact_messages ORDER BY id DESC LIMIT 100`);
+      res.json({ user: admin.publicUser(req.user), csrf: req.session.csrf, tiles, announcement, messages, statuses: TILE_STATUSES, kinds: ANNOUNCE_KINDS });
+    }));
+
+    api.put('/tiles', wrap(async (req, res) => {
+      const list = Array.isArray((req.body || {}).tiles) ? req.body.tiles : null;
+      if (!list || list.length > 30) return res.status(400).json({ error: 'Send { tiles: [...] }' });
+      const clean = [];
+      for (const x of list) {
+        const key = String(x.key || '');
+        const name = String(x.name || '').trim().slice(0, 80);
+        const href = String(x.href || '').trim().slice(0, 200);
+        const benefit = String(x.benefit_en || '').trim().slice(0, 200);
+        if (!/^[a-z_-]{1,40}$/.test(key) || !name || !benefit) return res.status(400).json({ error: `Tile ${key || '?'}: name and English text are required` });
+        if (!/^\/[^/\\]/.test(href) && !/^https:\/\/[^\s"<>]+$/.test(href) && href !== '/') return res.status(400).json({ error: `Tile ${key}: the link must start with / or https://` });
+        if (!TILE_STATUSES.includes(x.status)) return res.status(400).json({ error: `Tile ${key}: unknown status` });
+        clean.push({ key, name, href, benefit_en: benefit,
+          benefit_mr: String(x.benefit_mr || '').trim().slice(0, 200) || null, benefit_hi: String(x.benefit_hi || '').trim().slice(0, 200) || null,
+          status: x.status, sort_order: Number.isInteger(Number(x.sort_order)) ? Number(x.sort_order) : 0, visible: x.visible !== false, external: Boolean(x.external) });
+      }
+      await db.tx(async (q) => {
+        for (const x of clean) {
+          await q.run(`UPDATE hub_tiles SET name=$2, href=$3, benefit_en=$4, benefit_mr=$5, benefit_hi=$6, status=$7, sort_order=$8, visible=$9, external=$10,
+            updated_at=now(), updated_by=$11 WHERE key=$1`,
+          [x.key, x.name, x.href, x.benefit_en, x.benefit_mr, x.benefit_hi, x.status, x.sort_order, x.visible, x.external, req.user.email]);
+        }
+      });
+      await admin.audit(req.user.id, req.user.email, 'tiles-saved', clean.map((x) => x.key).join(','), req);
+      invalidate();
       res.json({ ok: true });
     }));
 
-    app.get('/hub/api/admin/access', wrap(async (req, res) => {
-      const a = await adminUser(req, res); if (!a) return;
-      const rows = await db.all("SELECT id, email, project_key, role, created_at FROM project_access WHERE status = 'active' AND project_key = ANY($1) ORDER BY project_key, email", [a.keys]);
-      res.set('Cache-Control', 'private, no-store').json({ access: rows });
-    }));
-
-    app.post('/hub/api/admin/access/:id/revoke', wrap(async (req, res) => {
-      if (!sameOrigin(req)) return res.status(403).json({ error: 'Cross-site request refused' });
-      const a = await adminUser(req, res); if (!a) return;
-      const r = await db.get("UPDATE project_access SET status = 'revoked' WHERE id = $1 AND status = 'active' AND project_key = ANY($2) RETURNING email, project_key",
-        [rowId(req.params.id), a.keys]);
-      if (!r) return res.status(404).json({ error: 'No such access' });
-      await audit(a.user.email, 'revoke', r.project_key, r.email);
+    api.put('/announcement', wrap(async (req, res) => {
+      const b = req.body || {};
+      const message = String(b.message_en || '').trim().slice(0, 300);
+      const active = Boolean(b.active) && Boolean(message);
+      const kind = ANNOUNCE_KINDS.includes(b.kind) ? b.kind : 'info';
+      const link = String(b.link || '').trim();
+      if (link && !/^\/[^/\\]/.test(link) && !/^https:\/\/[^\s"<>]+$/.test(link)) return res.status(400).json({ error: 'The link must start with / or https://' });
+      const when = (v) => (v ? new Date(v) : null);
+      const starts = when(b.starts_at); const ends = when(b.ends_at);
+      if ((starts && Number.isNaN(starts.getTime())) || (ends && Number.isNaN(ends.getTime()))) return res.status(400).json({ error: 'Invalid date' });
+      await db.tx(async (q) => {
+        await q.run('UPDATE hub_announcements SET active = FALSE WHERE active');
+        if (message) {
+          await q.run(`INSERT INTO hub_announcements (message_en, message_mr, message_hi, kind, link, active, starts_at, ends_at, created_by)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [message, String(b.message_mr || '').trim().slice(0, 300) || null, String(b.message_hi || '').trim().slice(0, 300) || null,
+            kind, link || null, active, starts, ends, req.user.email]);
+        }
+      });
+      await admin.audit(req.user.id, req.user.email, 'announcement-saved', active ? message.slice(0, 80) : 'off', req);
+      invalidate();
       res.json({ ok: true });
     }));
 
-    app.get('/admin/access', wrap(async (req, res) => {
-      const user = await whoami(req, res);
-      if (!user) return res.redirect(302, signInUrl(req));
-      if (!(await adminProjects(user)).length) return notFound(res);
-      const body = `<h1>Access admin</h1><p>Approve or decline requests, and see who can open what.</p>
-<h2 style="font-size:18px">Waiting for a decision</h2><div id="pending" aria-live="polite">Loading…</div>
-<h2 style="font-size:18px;margin-top:28px">Who has access</h2><div id="access">Loading…</div>
-<script>
-const E=(s)=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-async function api(u,b){const r=await fetch(u,b?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{});return r.json().catch(()=>({}));}
-async function load(){
- const p=await api('/hub/api/admin/requests');const el=document.getElementById('pending');
- el.innerHTML=(p.requests||[]).map(r=>'<div class="card"><div class="row"><div><strong>'+E(r.email)+'</strong><br><span class="tag">'+E(r.project_key)+'</span> wants <span class="tag">'+E(r.role_wanted)+'</span>'+(r.note?'<p>'+E(r.note)+'</p>':'')+'</div><div><button data-i="'+r.id+'" data-d="approve">Approve</button> <button class="alt" data-i="'+r.id+'" data-d="decline">Decline</button></div></div></div>').join('')||'<p>Nothing is waiting.</p>';
- const a=await api('/hub/api/admin/access');
- document.getElementById('access').innerHTML=(a.access||[]).map(r=>'<div class="card"><div class="row"><div><strong>'+E(r.email)+'</strong> <span class="tag">'+E(r.project_key)+'</span> <span class="tag">'+E(r.role)+'</span></div><button class="alt" data-r="'+r.id+'">Revoke</button></div></div>').join('')||'<p>No one has been approved yet.</p>';
-}
-document.addEventListener('click',async(e)=>{const b=e.target.closest('button');if(!b)return;
- if(b.dataset.d){b.disabled=true;await api('/hub/api/admin/requests/'+b.dataset.i,{decision:b.dataset.d});load();}
- if(b.dataset.r){b.disabled=true;await api('/hub/api/admin/access/'+b.dataset.r+'/revoke',{});load();}});
-load();
-</script>`;
-      res.set('Cache-Control', 'private, no-store').type('html').send(page({ title: 'Access admin', body, user, req, envName: envName(req) }));
+    api.post('/messages/:id', wrap(async (req, res) => {
+      const status = ['new', 'read', 'closed'].includes((req.body || {}).status) ? req.body.status : null;
+      if (!status) return res.status(400).json({ error: 'status must be new, read or closed' });
+      const r = await db.get('UPDATE hub_contact_messages SET status = $1 WHERE id = $2 RETURNING id', [status, rowId(req.params.id)]);
+      if (!r) return res.status(404).json({ error: 'No such message' });
+      res.json({ ok: true });
     }));
+
+    api.use((req, res) => res.status(404).json({ error: 'Not found' }));
+    api.use((err, req, res, next) => {
+      if (err instanceof admin.AuthError) return res.status(err.status).json({ error: err.message, code: err.code });
+      return next(err);
+    });
+    app.use('/admin/api', api);
   }
 
-  /** For TaskList: may this signed-in user open /tasks/ through the permission table? */
-  async function allowsTasklist(u) {
-    if (!u || !u.emailVerified) return false;
-    if (isBuiltinUser(u) || isOwnerEmail(u.email)) return true;
-    return Boolean(await db.get("SELECT 1 AS ok FROM project_access WHERE user_id = $1 AND project_key = 'tasklist' AND status = 'active'", [String(u.id)]));
-  }
-
-  return { mount, gate, whoami, keys, isOwnerEmail, allowsTasklist, roleFor };
+  return { mount, admin, isOwner, bootstrapAdmin, content, invalidate };
 }
 
-module.exports = { createHub, signToken, verifyToken, ownerEmails, TOKEN_HEADER, TOKEN_TTL_SECONDS };
+module.exports = { createHub, ownerEmails, TILE_STATUSES };

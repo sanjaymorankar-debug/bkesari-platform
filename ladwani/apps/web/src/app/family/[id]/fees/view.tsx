@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouteParams } from '@/lib/route-params'
 import { api } from '../../../../lib/api-client'
 import { errorMessage } from '../../../../lib/auth-context'
-import { RequireAuth, TopBar, Shell, ErrorBanner, StatusPill } from '../../../../components/ui'
+import { RequireAuth, TopBar, Shell, ErrorBanner, StatusPill, ListSkeleton, EmptyList } from '../../../../components/ui'
 
 interface InvoiceRow {
   id: string
@@ -37,8 +37,8 @@ export default function FamilyFeesPage() {
         <h1>Fee invoices</h1>
         <ErrorBanner message={error} />
 
-        {invoices === null && !error && <p className="muted">Loading…</p>}
-        {invoices?.length === 0 && <p className="muted">No fee invoices yet.</p>}
+        {invoices === null && !error && <ListSkeleton />}
+        {invoices?.length === 0 && <EmptyList message="empty.invoices" />}
 
         <div className="stack">
           {invoices?.map((inv) => (

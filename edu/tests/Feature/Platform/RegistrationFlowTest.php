@@ -2,13 +2,17 @@
 
 namespace Tests\Feature\Platform;
 
+use App\Mail\StaffCredentialsMail;
 use App\Models\District;
 use App\Models\OfficerJurisdiction;
 use App\Models\ParentSchoolRelationship;
 use App\Models\School;
 use App\Models\SchoolStaff;
 use App\Models\User;
+use Illuminate\Auth\Events\Registered;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Mail;
 use Livewire\Volt\Volt;
 use Tests\Feature\Platform\Concerns\SetsUpPlatformData;
 use Tests\TestCase;
@@ -162,5 +166,61 @@ class RegistrationFlowTest extends TestCase
             ->assertForbidden();
 
         $this->assertSame('pending', $school->fresh()->recognition_status);
+    }
+
+    /** Registers a school, signed out, with one additional staff row. */
+    private function registerSchoolWithStaff(string $staffEmail)
+    {
+        $state = \App\Models\State::create(['name' => 'Test State', 'code' => 'TS3']);
+        $district = District::create(['state_id' => $state->id, 'name' => 'Test District', 'code' => 'TD3']);
+
+        return Volt::test('schools.register')
+            ->set('adminName', 'Visitor')->set('adminEmail', 'visitor@example.com')
+            ->set('adminPassword', 'Password123!')->set('adminPassword_confirmation', 'Password123!')
+            ->set('name', 'Visitor School')->set('board', 'CBSE')->set('managementType', 'private')
+            ->set('stateId', (string) $state->id)->set('districtId', (string) $district->id)
+            ->set('address', '1 New Street')->set('city', 'Testville')->set('pincode', '123456')
+            ->set('additionalStaff.0.name', 'Someone')->set('additionalStaff.0.email', $staffEmail)
+            ->call('register');
+    }
+
+    public function test_school_registration_never_makes_an_existing_account_an_admin_of_the_school(): void
+    {
+        // Anyone can register a school; listing someone's address as staff
+        // must not change their account (a system admin who is also a
+        // school_admin sees only that school's complaints).
+        Mail::fake();
+        $sysadmin = User::factory()->create(['email' => 'root@example.com']);
+        $sysadmin->assignRole('system_admin');
+
+        $this->registerSchoolWithStaff('root@example.com')
+            ->assertHasErrors(['additionalStaff.0.email' => 'unique'])
+            ->assertSee('This email already has an account. Only people without an account can be added here.')
+            ->assertSet('submitted', false);
+
+        $this->assertSame(['system_admin'], $sysadmin->fresh()->getRoleNames()->all());
+        $this->assertSame(0, SchoolStaff::where('user_id', $sysadmin->id)->count());
+        $this->assertFalse(School::where('name', 'Visitor School')->exists());
+        Mail::assertNotSent(StaffCredentialsMail::class);
+    }
+
+    public function test_an_account_made_while_the_school_is_registered_is_left_alone(): void
+    {
+        // The address had no account when the form was checked; one is made
+        // before the staff rows are (here: as the registrant's own account is).
+        Mail::fake();
+        Event::listen(Registered::class, function (Registered $event) {
+            if ($event->user->email === 'visitor@example.com') {
+                User::factory()->create(['email' => 'late@example.com'])->assignRole('district_officer');
+            }
+        });
+
+        $component = $this->registerSchoolWithStaff('late@example.com')->assertHasNoErrors()->assertSet('submitted', true);
+
+        $late = User::where('email', 'late@example.com')->firstOrFail();
+        $this->assertSame(['district_officer'], $late->getRoleNames()->all());
+        $this->assertSame(0, SchoolStaff::where('user_id', $late->id)->count());
+        $this->assertSame([], $component->get('generatedCredentials'), 'no temporary password is shown for it');
+        Mail::assertNotSent(StaffCredentialsMail::class);
     }
 }

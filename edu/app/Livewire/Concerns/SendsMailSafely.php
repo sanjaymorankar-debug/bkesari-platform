@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 /**
- * Shared hosting's local sendmail relay (see .env MAIL_MAILER) has no
+ * Shared hosting's mail (Hostinger's SMTP, see .env MAIL_*) has no
  * delivery guarantee — every call site that uses this also keeps its
  * existing on-screen credential/link display as the reliable fallback.
  * A mail failure here must never break the registration/invite flow itself.

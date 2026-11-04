@@ -28,6 +28,10 @@ export async function createApi(): Promise<NestExpressApplication> {
   if (trustProxy !== undefined) app.set('trust proxy', trustProxy)
   app.use(helmet())
   app.use(cookieParser())
+  // JSON up to 4 MB (Express's default is 100 kB): sign-up's ID proof reaches the
+  // DEV storage stand-in as base64 JSON (uploads/dto/dev-put.dto.ts), and the web
+  // app caps that file at 3 MB (apps/web/src/lib/upload.ts).
+  app.useBodyParser('json', { limit: '4mb' })
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   app.enableCors({ origin: env('WEB_ORIGIN') ?? 'http://localhost:3000', credentials: true })
   app.setGlobalPrefix('api/v1')
