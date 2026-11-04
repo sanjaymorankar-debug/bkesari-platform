@@ -2,6 +2,7 @@
 
 use App\Models\AnonymousIdentity;
 use App\Models\Appeal;
+use App\Models\AuditLog;
 use App\Models\OfficerJurisdiction;
 use App\Notifications\AppealDecided;
 use Illuminate\Support\Facades\Auth;
@@ -32,6 +33,16 @@ new #[Layout('layouts.app')] class extends Component
     {
         $user = Auth::user();
 
+        // Not your own appeal, even with the jurisdiction for it: deciding
+        // it writes your id into `appeals.reviewed_by_user_id` beside the
+        // appeal's `anonymous_ref` — and into an `audit_logs` row with your
+        // IP — which links the submitter to their own complaint in tables
+        // every officer reads, outside IdentityResolutionService. Viewing is
+        // unaffected: mount() admits the owner separately.
+        if (AnonymousIdentity::where('user_id', $user->id)->where('anonymous_ref', $appeal->anonymous_ref)->exists()) {
+            return false;
+        }
+
         if ($user->hasRole('state_officer')) {
             return OfficerJurisdiction::where('user_id', $user->id)
                 ->where('level', 'state')->where('state_id', $appeal->state_id)->exists();
@@ -55,6 +66,13 @@ new #[Layout('layouts.app')] class extends Component
         ]);
 
         $this->appeal->refresh();
+
+        AuditLog::record('appeal.decided', Auth::id(), $this->appeal, [
+            'decision' => $decision,
+            'complaint_id' => $this->appeal->complaint_id,
+            'state_id' => $this->appeal->state_id,
+        ]);
+
         $this->decisionNote = '';
 
         $submitter = AnonymousIdentity::where('anonymous_ref', $this->appeal->anonymous_ref)->first()?->user;
@@ -68,6 +86,10 @@ new #[Layout('layouts.app')] class extends Component
         if ($this->appeal->status === 'submitted') {
             $this->appeal->update(['status' => 'under_review']);
             $this->appeal->refresh();
+
+            AuditLog::record('appeal.review_started', Auth::id(), $this->appeal, [
+                'complaint_id' => $this->appeal->complaint_id,
+            ]);
         }
     }
 

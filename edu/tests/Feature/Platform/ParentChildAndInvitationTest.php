@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Platform;
 
+use App\Models\AuditLog;
 use App\Models\Invitation;
 use App\Models\ParentSchoolRelationship;
 use App\Models\StudentSchoolRelationship;
@@ -184,6 +185,162 @@ class ParentChildAndInvitationTest extends TestCase
     {
         Volt::test('invitations.show', ['token' => 'does-not-exist'])
             ->assertSet('invalid', true);
+    }
+
+    /**
+     * Accepting an invite mints `verified` standing with no approval step, so
+     * the school's revocation has to hold at the acceptance itself. `mount()`
+     * runs once: the invitee's page can have been open since before the
+     * revocation, and Livewire re-hydrates the model without re-running it.
+     * Before the status re-check the open page still granted the standing the
+     * school had just withdrawn.
+     */
+    public function test_a_revoked_invitation_cannot_be_accepted_from_an_open_page(): void
+    {
+        $school = $this->makeSchool();
+        $admin = $this->makeSchoolAdmin($school);
+        $parent = User::factory()->create(['email' => 'openpage@example.com']);
+        $parent->assignRole('parent');
+
+        $invitation = Invitation::create([
+            'school_id' => $school->id,
+            'invited_by_user_id' => $admin->id,
+            'email' => 'openpage@example.com',
+            'role' => 'parent',
+            'token' => Invitation::generateToken(),
+            'status' => 'pending',
+        ]);
+
+        // The invitee has the page open ...
+        $page = Volt::actingAs($parent)->test('invitations.show', ['token' => $invitation->token]);
+
+        // ... and the school revokes the invitation meanwhile.
+        $invitation->update(['status' => 'revoked']);
+
+        $page->call('accept')->assertForbidden();
+
+        $this->assertSame('revoked', $invitation->fresh()->status);
+        $this->assertSame(0, ParentSchoolRelationship::where('user_id', $parent->id)->count(),
+            'a revoked invitation must not mint verified standing');
+    }
+
+    /** And a guest on a revoked invitation gets no account out of it either. */
+    public function test_a_guest_cannot_make_an_account_on_a_revoked_invitation(): void
+    {
+        $school = $this->makeSchool();
+        $admin = $this->makeSchoolAdmin($school);
+
+        $invitation = Invitation::create([
+            'school_id' => $school->id,
+            'invited_by_user_id' => $admin->id,
+            'email' => 'guestopen@example.com',
+            'role' => 'parent',
+            'token' => Invitation::generateToken(),
+            'status' => 'pending',
+        ]);
+
+        $page = Volt::test('invitations.show', ['token' => $invitation->token])
+            ->set('name', 'Guest Parent')
+            ->set('password', 'Password123!')
+            ->set('password_confirmation', 'Password123!');
+
+        $invitation->update(['status' => 'revoked']);
+
+        $page->call('accept')->assertForbidden();
+
+        $this->assertNull(User::where('email', 'guestopen@example.com')->first());
+        $this->assertSame(0, ParentSchoolRelationship::count());
+    }
+
+    /** One acceptance, one audit row and one notification, however often it is clicked. */
+    public function test_accepting_an_invitation_twice_records_it_once(): void
+    {
+        $school = $this->makeSchool();
+        $admin = $this->makeSchoolAdmin($school);
+        $parent = User::factory()->create(['email' => 'twice@example.com']);
+        $parent->assignRole('parent');
+
+        $invitation = Invitation::create([
+            'school_id' => $school->id,
+            'invited_by_user_id' => $admin->id,
+            'email' => 'twice@example.com',
+            'role' => 'parent',
+            'token' => Invitation::generateToken(),
+            'status' => 'pending',
+        ]);
+
+        $page = Volt::actingAs($parent)->test('invitations.show', ['token' => $invitation->token]);
+        $page->call('accept');
+        $page->call('accept')->assertForbidden();
+
+        $this->assertSame(1, ParentSchoolRelationship::where('user_id', $parent->id)->count());
+        $this->assertSame(1, AuditLog::where('action', 'invitation.accepted')->count(),
+            'the acceptance is recorded once, not once per click');
+    }
+
+    /**
+     * Deleting the inviter cascades the invitation away (the column is NOT
+     * NULL, ON DELETE CASCADE), so the token is dead: the page says so and
+     * the action refuses rather than failing on an unset property.
+     */
+    public function test_an_invitation_whose_inviter_was_deleted_is_dead_not_fatal(): void
+    {
+        $school = $this->makeSchool();
+        $admin = $this->makeSchoolAdmin($school);
+        $parent = User::factory()->create(['email' => 'orphaned@example.com']);
+        $parent->assignRole('parent');
+
+        $invitation = Invitation::create([
+            'school_id' => $school->id,
+            'invited_by_user_id' => $admin->id,
+            'email' => 'orphaned@example.com',
+            'role' => 'parent',
+            'token' => Invitation::generateToken(),
+            'status' => 'pending',
+        ]);
+        $token = $invitation->token;
+
+        $admin->delete();
+        $this->assertNull($invitation->fresh(), 'the invitation goes with its inviter');
+
+        Volt::actingAs($parent)->test('invitations.show', ['token' => $token])
+            ->assertSet('invalid', true)
+            ->call('accept')->assertForbidden();
+
+        $this->assertSame(0, ParentSchoolRelationship::count());
+    }
+
+    /**
+     * The address the school typed and the address on the account are one
+     * identity when they differ only in case — PostgreSQL's citext column
+     * compares them that way and `EmailSignIn` signs people in that way — so
+     * a genuine invitee must not be turned away for the spelling.
+     */
+    public function test_an_invitee_whose_account_differs_only_in_case_can_accept(): void
+    {
+        $school = $this->makeSchool();
+        $admin = $this->makeSchoolAdmin($school);
+        $parent = User::factory()->create(['email' => 'mixedcase@example.com']);
+        $parent->assignRole('parent');
+
+        $invitation = Invitation::create([
+            'school_id' => $school->id,
+            'invited_by_user_id' => $admin->id,
+            'email' => 'MixedCase@Example.com',
+            'role' => 'parent',
+            'token' => Invitation::generateToken(),
+            'status' => 'pending',
+        ]);
+
+        Volt::actingAs($parent)->test('invitations.show', ['token' => $invitation->token])
+            ->call('accept');
+
+        $this->assertDatabaseHas('parent_school_relationships', [
+            'user_id' => $parent->id,
+            'school_id' => $school->id,
+            'status' => 'verified',
+        ]);
+        $this->assertSame('accepted', $invitation->fresh()->status);
     }
 
     public function test_school_admin_can_revoke_pending_invitation(): void

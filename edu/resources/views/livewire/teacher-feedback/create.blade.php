@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AuditLog;
 use App\Models\FraudFlag;
 use App\Models\ParentSchoolRelationship;
 use App\Models\Setting;
@@ -31,12 +32,34 @@ new #[Layout('layouts.app')] class extends Component
     }
 
     /**
+     * Nobody rates themselves.
+     *
+     * One person can hold two hats: a teacher whose own child attends the
+     * school they teach at is a verified teacher *and* a verified parent
+     * there, which is all `sharedVerifiedSchoolId()` asks for. They may rate
+     * their child's other teachers, but never themselves — the index the
+     * platform publishes must not be gameable by its own subject (the same
+     * objection as "a school cannot verify itself"), and the row would carry
+     * `teacher_user_id` beside an `anonymous_ref` that resolves to the same
+     * person, naming the submitter on their own anonymous feedback, which is
+     * the one thing a feedback row must never do (see SECURITY_PRIVACY.md).
+     */
+    private function ratesThemselves(): bool
+    {
+        return Auth::id() !== null && (int) $this->teacher->id === (int) Auth::id();
+    }
+
+    /**
      * A parent/student may only rate a teacher who is verified at the same
      * school they themselves are verified at — same trust boundary as
      * complaints/school feedback.
      */
     private function sharedVerifiedSchoolId(): ?int
     {
+        if ($this->ratesThemselves()) {
+            return null;
+        }
+
         $user = Auth::user();
         $teacherSchoolIds = TeacherSchoolRelationship::where('user_id', $this->teacher->id)
             ->where('status', 'verified')->pluck('school_id');
@@ -54,13 +77,15 @@ new #[Layout('layouts.app')] class extends Component
 
     public function submit(): void
     {
+        abort_if($this->ratesThemselves(), 403, 'You cannot rate yourself.');
+
         $schoolId = $this->sharedVerifiedSchoolId();
         abort_unless($schoolId !== null, 403, 'You can only rate teachers verified at your own school.');
 
         $role = Auth::user()->hasRole('parent') ? 'parent' : 'student';
         $anonymousRef = Auth::user()->anonymousRefFor(\App\Models\School::findOrFail($schoolId), $role);
 
-        TeacherFeedback::create([
+        $feedback = TeacherFeedback::create([
             'teacher_user_id' => $this->teacher->id,
             'school_id' => $schoolId,
             'anonymous_ref' => $anonymousRef,
@@ -68,6 +93,12 @@ new #[Layout('layouts.app')] class extends Component
             'dimension_scores' => $this->scores,
             'overall_comment' => $this->overallComment ?: null,
             'submitted_at' => now(),
+        ]);
+
+        AuditLog::recordAnonymous('teacher_feedback.submitted', $feedback, [
+            'anonymous_ref' => $anonymousRef,
+            'school_id' => $schoolId,
+            'rater_role' => $role,
         ]);
 
         app(TeacherEffectivenessIndexService::class)->recalculate($this->teacher);

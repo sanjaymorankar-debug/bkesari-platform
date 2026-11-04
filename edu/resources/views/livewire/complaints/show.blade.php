@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\AnonymousIdentity;
+use App\Models\AuditLog;
 use App\Models\Complaint;
 use App\Models\SchoolStaff;
 use App\Models\User;
@@ -68,6 +69,11 @@ new #[Layout('layouts.app')] class extends Component
         ]);
 
         $this->complaint->recordStatusChange('school_responded', Auth::id(), 'School responded.');
+
+        AuditLog::record('complaint.responded', Auth::id(), $this->complaint, [
+            'school_id' => $this->complaint->school_id,
+        ]);
+
         $this->responseMessage = '';
         $this->complaint->refresh()->load(['responses.responder', 'statusHistory']);
         $this->notifySubmitter('The school responded to your complaint '.$this->complaint->complaint_number.'.');
@@ -83,6 +89,11 @@ new #[Layout('layouts.app')] class extends Component
         ]);
 
         $this->complaint->recordStatusChange('action_taken', Auth::id(), 'School proposed resolution — awaiting submitter confirmation.');
+
+        AuditLog::record('complaint.resolution_proposed', Auth::id(), $this->complaint, [
+            'school_id' => $this->complaint->school_id,
+        ]);
+
         $this->complaint->refresh()->load(['resolution', 'statusHistory']);
         $this->notifySubmitter('The school proposed a resolution for complaint '.$this->complaint->complaint_number.' — please confirm whether it\'s resolved.');
     }
@@ -129,7 +140,21 @@ new #[Layout('layouts.app')] class extends Component
             'no' => 'escalated',
         };
 
-        $this->complaint->recordStatusChange($newStatus, Auth::id(), 'Submitter confirmed: '.$this->confirmChoice);
+        // null, not Auth::id(): this transition is the submitter's, and the
+        // history row must not link them to the complaint. recordStatusChange()
+        // would drop it anyway — passing null says so at the call site too.
+        $this->complaint->recordStatusChange($newStatus, null, 'Submitter confirmed: '.$this->confirmChoice);
+
+        // The submitter, not a member of staff — so no user_id and no IP go
+        // into the trail (AuditLog::recordAnonymous). Logging who confirmed
+        // which complaint would undo the anonymisation the complaint itself
+        // is built around.
+        AuditLog::recordAnonymous('complaint.resolution_confirmed', $this->complaint, [
+            'anonymous_ref' => $this->complaint->anonymous_ref,
+            'confirmation' => $this->confirmChoice,
+            'new_status' => $newStatus,
+        ]);
+
         $this->complaint->refresh()->load(['resolution', 'statusHistory']);
         $this->notifySchoolStaff('Complaint '.$this->complaint->complaint_number.' was marked "'.$newStatus.'" by the submitter.');
     }

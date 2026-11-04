@@ -51,7 +51,7 @@ new #[Layout('layouts.app')] class extends Component
                         @foreach ($auditLogs as $log)
                             <tr class="border-b last:border-0">
                                 <td class="py-2 text-gray-500">{{ $log->created_at->diffForHumans() }}</td>
-                                <td>{{ $log->user->name ?? 'System' }}</td>
+                                <td>{{ $log->actorLabel() }}</td>
                                 <td>{{ $log->action }}</td>
                                 <td class="text-gray-500">{{ $log->auditable_type ? class_basename($log->auditable_type).' #'.$log->auditable_id : '—' }}</td>
                             </tr>

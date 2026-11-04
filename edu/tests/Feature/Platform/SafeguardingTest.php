@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Platform;
 
+use App\Models\AnonymousIdentity;
 use App\Models\ComplaintCategory;
 use App\Models\SafeguardingEvent;
 use App\Models\SafeguardingReport;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Livewire\Volt\Volt;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Tests\Feature\Platform\Concerns\AssertsAnonymityInvariants;
 use Tests\Feature\Platform\Concerns\SetsUpPlatformData;
 use Tests\TestCase;
 
@@ -24,7 +26,7 @@ use Tests\TestCase;
  */
 class SafeguardingTest extends TestCase
 {
-    use RefreshDatabase, SetsUpPlatformData;
+    use AssertsAnonymityInvariants, RefreshDatabase, SetsUpPlatformData;
 
     private function makeChildSafetyOfficer(School $school): User
     {
@@ -510,5 +512,144 @@ class SafeguardingTest extends TestCase
         $this->expectException(HttpException::class);
 
         app(SafeguardingService::class)->close($outsider, $report, 'Not my case.');
+    }
+
+    // ---------------------------------------------------------------
+    //  Two hats: the reporter must never handle their own case (CR-04)
+    // ---------------------------------------------------------------
+
+    /**
+     * A Child Safety Officer whose own child attends the school they work at
+     * is both staff and a reporter — the reporting form has a `staff` branch
+     * precisely because staff do file these. They may still report, but they
+     * may not then handle the case: `assigned_officer_user_id`,
+     * `external_report_acknowledged_by` and `closed_by_user_id` sit in the
+     * same row as the report's `anonymous_ref`, so any of them naming the
+     * reporter rebuilds the reporter -> report link that the table carries no
+     * `user_id` column precisely to prevent — in the most sensitive records
+     * the platform holds, and with none of the controls
+     * `IdentityResolutionService` imposes on reversing a ref.
+     */
+    private function reportFiledByItsOwnOfficer(): array
+    {
+        $school = $this->makeSchool();
+        $officer = $this->makeChildSafetyOfficer($school);
+
+        Volt::actingAs($officer)->test('safeguarding.report', ['school' => $school])
+            ->set('category', 'child_sexual_abuse')
+            ->set('description', 'A detailed account of the concern, long enough to be actionable.')
+            ->set('understoodLegalDuty', true)
+            ->call('submit');
+
+        $report = SafeguardingReport::firstOrFail();
+
+        // The ref really is this user's: the leak is reachable.
+        $this->assertTrue(
+            AnonymousIdentity::where('user_id', $officer->id)
+                ->where('anonymous_ref', $report->anonymous_ref)->exists()
+        );
+
+        return [$school, $officer, $report];
+    }
+
+    public function test_the_reporter_cannot_acknowledge_their_own_case(): void
+    {
+        [, $officer, $report] = $this->reportFiledByItsOwnOfficer();
+
+        try {
+            app(SafeguardingService::class)->acknowledge($officer, $report);
+            $this->fail('the reporter was allowed to acknowledge their own case');
+        } catch (HttpException $e) {
+            $this->assertSame(403, $e->getStatusCode());
+        }
+
+        $report->refresh();
+        $this->assertNull(
+            $report->assigned_officer_user_id,
+            'assigned_officer_user_id must never name the reporter beside their own anonymous_ref'
+        );
+    }
+
+    public function test_the_reporter_cannot_record_the_external_report_or_close_their_own_case(): void
+    {
+        [, $officer, $report] = $this->reportFiledByItsOwnOfficer();
+        $service = app(SafeguardingService::class);
+
+        foreach ([
+            fn () => $service->recordExternalReport($officer, $report, 'police', 'FIR/2026/1'),
+            fn () => $service->close($officer, $report, 'Dealt with internally.'),
+            fn () => $service->startInvestigation($officer, $report, 'Looking into it.'),
+            fn () => $service->addNote($officer, $report, 'A note on my own case.'),
+        ] as $act) {
+            try {
+                $act();
+                $this->fail('the reporter was allowed to act officially on their own case');
+            } catch (HttpException $e) {
+                $this->assertSame(403, $e->getStatusCode());
+            }
+        }
+
+        $report->refresh();
+        $this->assertNull($report->external_report_acknowledged_by);
+        $this->assertNull($report->closed_by_user_id);
+        $this->assertNotSame('closed', $report->status);
+    }
+
+    /**
+     * Not even opening it: `recordView()` writes `actor_user_id` beside
+     * `safeguarding_report_id`, so one open by the reporter is the same link
+     * in `safeguarding_events`. Reporters are not an audience for the case
+     * record in any event — `canView()` has no owner branch, and the
+     * reference number is how a reporter follows a case.
+     */
+    public function test_the_reporter_cannot_open_their_own_case(): void
+    {
+        [, $officer, $report] = $this->reportFiledByItsOwnOfficer();
+
+        $this->assertFalse(app(SafeguardingService::class)->canView($officer, $report));
+
+        Volt::actingAs($officer)->test('safeguarding.show', ['report' => $report])->assertForbidden();
+
+        $this->assertSame(
+            0,
+            SafeguardingEvent::where('safeguarding_report_id', $report->id)
+                ->where('actor_user_id', $officer->id)->count(),
+            'no safeguarding_events row may name the reporter beside their own case'
+        );
+
+        $this->assertNoRowNamesASubmitterBesideTheirOwnAnonymousRecord();
+    }
+
+    public function test_another_officer_still_handles_a_case_its_reporter_filed(): void
+    {
+        [$school, $officer, $report] = $this->reportFiledByItsOwnOfficer();
+        $colleague = $this->makeChildSafetyOfficer($school);
+        $service = app(SafeguardingService::class);
+
+        $service->acknowledge($colleague, $report);
+        $service->recordExternalReport($colleague, $report, 'police', 'FIR/2026/2');
+        $service->close($colleague, $report, 'Reported to the police; case closed here.');
+
+        $report->refresh();
+        $this->assertSame($colleague->id, $report->assigned_officer_user_id);
+        $this->assertSame($colleague->id, $report->external_report_acknowledged_by);
+        $this->assertSame($colleague->id, $report->closed_by_user_id);
+        $this->assertSame('closed', $report->status);
+        $this->assertNotSame($officer->id, $report->closed_by_user_id);
+
+        // Handled, and still no row naming the person who reported it.
+        $this->assertNoRowNamesASubmitterBesideTheirOwnAnonymousRecord();
+    }
+
+    /** The reporter's own case is not offered to them in the queue either. */
+    public function test_the_queue_does_not_offer_the_reporter_their_own_case(): void
+    {
+        [$school, $officer, $report] = $this->reportFiledByItsOwnOfficer();
+        $other = $this->makeReport($school, ['reference' => SafeguardingReport::generateReference()]);
+
+        Volt::actingAs($officer)->test('safeguarding.queue')
+            ->assertOk()
+            ->assertSee($other->reference)
+            ->assertDontSee($report->reference);
     }
 }

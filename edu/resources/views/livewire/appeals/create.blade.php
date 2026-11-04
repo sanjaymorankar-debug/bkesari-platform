@@ -2,6 +2,7 @@
 
 use App\Models\AnonymousIdentity;
 use App\Models\Appeal;
+use App\Models\AuditLog;
 use App\Models\Complaint;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Layout;
@@ -40,6 +41,11 @@ new #[Layout('layouts.app')] class extends Component
             'anonymous_ref' => $this->complaint->anonymous_ref,
             'reason' => $this->reason,
             'status' => 'submitted',
+        ]);
+
+        AuditLog::recordAnonymous('appeal.filed', $appeal, [
+            'anonymous_ref' => $appeal->anonymous_ref,
+            'complaint_id' => $this->complaint->id,
         ]);
 
         $this->redirect(route('appeals.show', $appeal), navigate: true);

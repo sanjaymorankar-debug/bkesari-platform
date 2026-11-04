@@ -2,6 +2,7 @@
 
 use App\Livewire\Concerns\SendsMailSafely;
 use App\Mail\SchoolInvitationMail;
+use App\Models\AuditLog;
 use App\Models\Invitation;
 use App\Models\ParentSchoolRelationship;
 use App\Models\SchoolStaff;
@@ -9,6 +10,7 @@ use App\Models\StudentSchoolRelationship;
 use App\Models\TeacherSchoolRelationship;
 use App\Notifications\RelationshipApproved;
 use App\Rules\NotReservedEmail;
+use App\Services\EmailSignIn;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -39,6 +41,22 @@ new #[Layout('layouts.app')] class extends Component
             'inviteStudentName' => ['nullable', 'string', 'max:255'],
         ]);
 
+        // A school-initiated invite is pre-trusted: accepting it creates the
+        // relationship already `verified`, with no approval step. Inviting
+        // your own address would therefore be the same self-grant the
+        // approval queue refuses, by a different door. Blocked here for a
+        // clear message, and again in the acceptance itself, which is where
+        // the standing is actually minted.
+        // Lowercased the way PostgreSQL's citext does (`EmailSignIn::normalize`,
+        // the same mapping `BuiltinAdmins::isReservedEmail` needs), not with
+        // `strcasecmp`: that only folds ASCII, so a dotted capital I would
+        // slip an address the database considers your own past the guard.
+        if (EmailSignIn::normalize($validated['inviteEmail']) === EmailSignIn::normalize((string) Auth::user()->email)) {
+            $this->addError('inviteEmail', 'You cannot invite your own address — another member of staff has to decide your own link to this school.');
+
+            return;
+        }
+
         $invitation = Invitation::create([
             'school_id' => $school->id,
             'invited_by_user_id' => Auth::id(),
@@ -47,6 +65,12 @@ new #[Layout('layouts.app')] class extends Component
             'student_name' => $validated['inviteStudentName'] ?: null,
             'token' => Invitation::generateToken(),
             'status' => 'pending',
+        ]);
+
+        AuditLog::record('invitation.created', Auth::id(), $invitation, [
+            'school_id' => $school->id,
+            'role' => $invitation->role,
+            'email' => $invitation->email,
         ]);
 
         $this->inviteLink = route('invitations.show', $invitation->token);
@@ -63,6 +87,11 @@ new #[Layout('layouts.app')] class extends Component
         abort_unless($mySchoolIds->contains($invitation->school_id), 403);
 
         $invitation->update(['status' => 'revoked']);
+
+        AuditLog::record('invitation.revoked', Auth::id(), $invitation, [
+            'school_id' => $invitation->school_id,
+            'role' => $invitation->role,
+        ]);
     }
 
     private function myFirstSchool()
@@ -74,38 +103,57 @@ new #[Layout('layouts.app')] class extends Component
 
     public function approveParent(int $id): void
     {
-        $relationship = $this->authorizeRelationship(ParentSchoolRelationship::findOrFail($id));
-        $relationship->update(['status' => 'verified', 'verified_at' => now()]);
-        $relationship->user?->notify(new RelationshipApproved($relationship->school, 'parent'));
+        $this->decide(ParentSchoolRelationship::findOrFail($id), 'parent', 'verified');
     }
 
     public function rejectParent(int $id): void
     {
-        $this->authorizeRelationship(ParentSchoolRelationship::findOrFail($id))->update(['status' => 'rejected']);
+        $this->decide(ParentSchoolRelationship::findOrFail($id), 'parent', 'rejected');
     }
 
     public function approveStudent(int $id): void
     {
-        $relationship = $this->authorizeRelationship(StudentSchoolRelationship::findOrFail($id));
-        $relationship->update(['status' => 'verified', 'verified_at' => now()]);
-        $relationship->user?->notify(new RelationshipApproved($relationship->school, 'student'));
+        $this->decide(StudentSchoolRelationship::findOrFail($id), 'student', 'verified');
     }
 
     public function rejectStudent(int $id): void
     {
-        $this->authorizeRelationship(StudentSchoolRelationship::findOrFail($id))->update(['status' => 'rejected']);
+        $this->decide(StudentSchoolRelationship::findOrFail($id), 'student', 'rejected');
     }
 
     public function approveTeacher(int $id): void
     {
-        $relationship = $this->authorizeRelationship(TeacherSchoolRelationship::findOrFail($id));
-        $relationship->update(['status' => 'verified', 'verified_at' => now()]);
-        $relationship->user?->notify(new RelationshipApproved($relationship->school, 'teacher'));
+        $this->decide(TeacherSchoolRelationship::findOrFail($id), 'teacher', 'verified');
     }
 
     public function rejectTeacher(int $id): void
     {
-        $this->authorizeRelationship(TeacherSchoolRelationship::findOrFail($id))->update(['status' => 'rejected']);
+        $this->decide(TeacherSchoolRelationship::findOrFail($id), 'teacher', 'rejected');
+    }
+
+    /**
+     * The one path all six approve/reject buttons go through, so the
+     * jurisdiction check, the attribution, the audit entry and the
+     * notification can't drift apart between roles — which is how the
+     * rejections ended up with no record of who made them.
+     */
+    private function decide(
+        ParentSchoolRelationship|StudentSchoolRelationship|TeacherSchoolRelationship $relationship,
+        string $role,
+        string $status
+    ): void {
+        $relationship = $this->authorizeRelationship($relationship);
+        $relationship->recordDecision($status, Auth::user());
+
+        AuditLog::record('relationship.'.($status === 'verified' ? 'approved' : 'rejected'), Auth::id(), $relationship, [
+            'role' => $role,
+            'school_id' => $relationship->school_id,
+            'subject_user_id' => $relationship->user_id,
+        ]);
+
+        if ($status === 'verified') {
+            $relationship->user?->notify(new RelationshipApproved($relationship->school, $role));
+        }
     }
 
     /**
@@ -117,6 +165,17 @@ new #[Layout('layouts.app')] class extends Component
     {
         $mySchoolIds = SchoolStaff::where('user_id', Auth::id())->pluck('school_id');
         abort_unless($mySchoolIds->contains($relationship->school_id), 403);
+
+        // And never your own request. A member of staff whose own child
+        // attends the school they work at files this link like any other
+        // parent, but approving it themselves is the self-grant that unlocks
+        // everything else: verified standing here is what lets someone file
+        // anonymous complaints, feedback, teacher ratings and safeguarding
+        // reports about this school. Every dual-role refusal elsewhere in the
+        // platform (ComplaintPolicy's respond/review, the appeal screen's
+        // canReview, SafeguardingService::canView) assumes that standing was
+        // granted by somebody else. A colleague decides it instead.
+        abort_if($relationship->user_id === Auth::id(), 403, 'Another member of staff has to decide your own request to link this school.');
 
         return $relationship;
     }
@@ -210,30 +269,45 @@ new #[Layout('layouts.app')] class extends Component
                     @foreach ($pendingParents as $rel)
                         <div class="flex justify-between items-center py-2 border-b text-sm">
                             <span>{{ $rel->user->name }} — Parent</span>
-                            <span class="flex gap-2">
-                                <button wire:click="approveParent({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
-                                <button wire:click="rejectParent({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
-                            </span>
+                            @if ($rel->user_id === auth()->id())
+                                {{-- Your own request: a colleague decides it, so the buttons would only 403. --}}
+                                <span class="text-xs text-gray-500">Your own request — another member of staff has to decide it</span>
+                            @else
+                                <span class="flex gap-2">
+                                    <button wire:click="approveParent({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
+                                    <button wire:click="rejectParent({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
+                                </span>
+                            @endif
                         </div>
                     @endforeach
 
                     @foreach ($pendingStudents as $rel)
                         <div class="flex justify-between items-center py-2 border-b text-sm">
                             <span>{{ $rel->user->name }} — Student (Class {{ $rel->class_grade }})</span>
-                            <span class="flex gap-2">
-                                <button wire:click="approveStudent({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
-                                <button wire:click="rejectStudent({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
-                            </span>
+                            @if ($rel->user_id === auth()->id())
+                                {{-- Your own request: a colleague decides it, so the buttons would only 403. --}}
+                                <span class="text-xs text-gray-500">Your own request — another member of staff has to decide it</span>
+                            @else
+                                <span class="flex gap-2">
+                                    <button wire:click="approveStudent({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
+                                    <button wire:click="rejectStudent({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
+                                </span>
+                            @endif
                         </div>
                     @endforeach
 
                     @foreach ($pendingTeachers as $rel)
                         <div class="flex justify-between items-center py-2 border-b text-sm">
                             <span>{{ $rel->user->name }} — Teacher</span>
-                            <span class="flex gap-2">
-                                <button wire:click="approveTeacher({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
-                                <button wire:click="rejectTeacher({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
-                            </span>
+                            @if ($rel->user_id === auth()->id())
+                                {{-- Your own request: a colleague decides it, so the buttons would only 403. --}}
+                                <span class="text-xs text-gray-500">Your own request — another member of staff has to decide it</span>
+                            @else
+                                <span class="flex gap-2">
+                                    <button wire:click="approveTeacher({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
+                                    <button wire:click="rejectTeacher({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
+                                </span>
+                            @endif
                         </div>
                     @endforeach
                 </div>

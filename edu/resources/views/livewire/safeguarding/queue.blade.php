@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AnonymousIdentity;
 use App\Models\SafeguardingReport;
 use App\Models\SchoolStaff;
 use App\Services\SafeguardingService;
@@ -38,6 +39,15 @@ new #[Layout('layouts.app')] class extends Component
             $query->whereIn('state_id', $user->officerJurisdictions()->pluck('state_id')->filter());
         } else {
             $query->whereRaw('1 = 0');
+        }
+
+        // A case this user reported themselves is not theirs to handle, so it
+        // is not offered here either — SafeguardingService::canView() refuses
+        // it, and a queue row linking to a 403 would be a dead end.
+        $ownRefs = AnonymousIdentity::where('user_id', $user->id)->pluck('anonymous_ref');
+
+        if ($ownRefs->isNotEmpty()) {
+            $query->whereNotIn('anonymous_ref', $ownRefs);
         }
 
         if ($this->filter === 'open') {

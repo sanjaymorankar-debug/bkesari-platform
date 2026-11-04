@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AuditLog;
 use App\Models\FraudFlag;
 use App\Models\ParentSchoolRelationship;
 use App\Models\School;
@@ -51,13 +52,19 @@ new #[Layout('layouts.app')] class extends Component
 
         $anonymousRef = Auth::user()->anonymousRefFor($this->school, $role);
 
-        SchoolFeedback::create([
+        $feedback = SchoolFeedback::create([
             'school_id' => $this->school->id,
             'anonymous_ref' => $anonymousRef,
             'rater_role' => $role,
             'dimension_scores' => $this->scores,
             'overall_comment' => $this->overallComment ?: null,
             'submitted_at' => now(),
+        ]);
+
+        AuditLog::recordAnonymous('school_feedback.submitted', $feedback, [
+            'anonymous_ref' => $anonymousRef,
+            'school_id' => $this->school->id,
+            'rater_role' => $role,
         ]);
 
         app(SchoolQualityIndexService::class)->recalculate($this->school);

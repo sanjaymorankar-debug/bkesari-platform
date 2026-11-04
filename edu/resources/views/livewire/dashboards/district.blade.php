@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AuditLog;
 use App\Models\Complaint;
 use App\Models\OfficerJurisdiction;
 use App\Models\School;
@@ -23,7 +24,15 @@ new #[Layout('layouts.app')] class extends Component
         $school = School::findOrFail($schoolId);
         abort_unless($districtIds->contains($school->district_id), 403);
 
-        $school->update(['recognition_status' => 'verified']);
+        // Accepting a registration is what puts a school into public search,
+        // so it is recorded against the officer who did it — on the school
+        // row (markRecognitionVerified) and in the audit trail.
+        $school->markRecognitionVerified(Auth::user());
+
+        AuditLog::record('school.recognition_verified', Auth::id(), $school, [
+            'district_id' => $school->district_id,
+            'school_code' => $school->school_code,
+        ]);
     }
 
     public function with(): array

@@ -1,5 +1,7 @@
 -- Education (Laravel) database for PostgreSQL: all 74 tables + the migrations log.
--- Generated 2026-10-09 (users.hub_user_id added 2026-10-25, users.mobile 2026-11-03) from the 68 migrations in edu/database/migrations, run with
+-- Generated 2026-10-09 (users.hub_user_id added 2026-10-25, users.mobile 2026-11-03;
+-- verification attribution columns added 2026-11-04) from the 70 migrations in
+-- edu/database/migrations, run with
 -- `php artisan migrate` on PostgreSQL 16 and dumped with `pg_dump --schema-only --no-owner
 -- --no-privileges`. It is therefore exactly what the app's own migrations create on
 -- PostgreSQL: enum() columns are varchar + CHECK constraints, booleans are boolean, json is
@@ -1516,6 +1518,8 @@ CREATE TABLE public.parent_school_relationships (
     verified_at timestamp(0) without time zone,
     created_at timestamp(0) without time zone,
     updated_at timestamp(0) without time zone,
+    decided_at timestamp(0) without time zone,
+    decided_by_user_id bigint,
     CONSTRAINT parent_school_relationships_status_check CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'verified'::character varying, 'rejected'::character varying])::text[])))
 );
 
@@ -2014,6 +2018,8 @@ CREATE TABLE public.schools (
     udise_code character varying(20),
     udise_verified_at timestamp(0) without time zone,
     udise_verified_by_user_id bigint,
+    recognition_verified_at timestamp(0) without time zone,
+    recognition_verified_by_user_id bigint,
     CONSTRAINT schools_board_check CHECK (((board)::text = ANY ((ARRAY['CBSE'::character varying, 'ICSE'::character varying, 'STATE'::character varying, 'IB'::character varying, 'OTHER'::character varying])::text[]))),
     CONSTRAINT schools_management_type_check CHECK (((management_type)::text = ANY ((ARRAY['government'::character varying, 'aided'::character varying, 'private'::character varying, 'international'::character varying])::text[]))),
     CONSTRAINT schools_recognition_status_check CHECK (((recognition_status)::text = ANY ((ARRAY['verified'::character varying, 'pending'::character varying, 'under_review'::character varying])::text[])))
@@ -2187,6 +2193,8 @@ CREATE TABLE public.student_school_relationships (
     verified_at timestamp(0) without time zone,
     created_at timestamp(0) without time zone,
     updated_at timestamp(0) without time zone,
+    decided_at timestamp(0) without time zone,
+    decided_by_user_id bigint,
     CONSTRAINT student_school_relationships_status_check CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'verified'::character varying, 'rejected'::character varying])::text[])))
 );
 
@@ -2350,6 +2358,8 @@ CREATE TABLE public.teacher_school_relationships (
     verified_at timestamp(0) without time zone,
     created_at timestamp(0) without time zone,
     updated_at timestamp(0) without time zone,
+    decided_at timestamp(0) without time zone,
+    decided_by_user_id bigint,
     CONSTRAINT teacher_school_relationships_status_check CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'verified'::character varying, 'rejected'::character varying])::text[])))
 );
 
@@ -4651,6 +4661,13 @@ ALTER TABLE ONLY public.parent_profiles
     ADD CONSTRAINT parent_profiles_user_id_foreign FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 --
+-- Name: parent_school_relationships parent_school_relationships_decided_by_user_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parent_school_relationships
+    ADD CONSTRAINT parent_school_relationships_decided_by_user_id_foreign FOREIGN KEY (decided_by_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+--
 -- Name: parent_school_relationships parent_school_relationships_school_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4847,6 +4864,13 @@ ALTER TABLE ONLY public.schools
     ADD CONSTRAINT schools_district_id_foreign FOREIGN KEY (district_id) REFERENCES public.districts(id) ON DELETE RESTRICT;
 
 --
+-- Name: schools schools_recognition_verified_by_user_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schools
+    ADD CONSTRAINT schools_recognition_verified_by_user_id_foreign FOREIGN KEY (recognition_verified_by_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+--
 -- Name: schools schools_state_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4889,6 +4913,13 @@ ALTER TABLE ONLY public.student_profiles
     ADD CONSTRAINT student_profiles_user_id_foreign FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 --
+-- Name: student_school_relationships student_school_relationships_decided_by_user_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.student_school_relationships
+    ADD CONSTRAINT student_school_relationships_decided_by_user_id_foreign FOREIGN KEY (decided_by_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+--
 -- Name: student_school_relationships student_school_relationships_school_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4929,6 +4960,13 @@ ALTER TABLE ONLY public.teacher_feedback
 
 ALTER TABLE ONLY public.teacher_profiles
     ADD CONSTRAINT teacher_profiles_user_id_foreign FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+--
+-- Name: teacher_school_relationships teacher_school_relationships_decided_by_user_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.teacher_school_relationships
+    ADD CONSTRAINT teacher_school_relationships_decided_by_user_id_foreign FOREIGN KEY (decided_by_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
 
 --
 -- Name: teacher_school_relationships teacher_school_relationships_school_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -5052,5 +5090,7 @@ INSERT INTO public.migrations VALUES
 	(65, '2026_09_03_100019_create_data_subject_requests_table', 1),
 	(66, '2026_10_09_000000_make_user_email_case_insensitive_on_pgsql', 1),
 	(67, '2026_10_25_000000_add_hub_user_id_to_users', 1),
-	(68, '2026_11_03_000000_add_mobile_to_users', 1) ON CONFLICT DO NOTHING;
-SELECT pg_catalog.setval('public.migrations_id_seq', 68, true);
+	(68, '2026_11_03_000000_add_mobile_to_users', 1),
+	(69, '2026_11_04_000000_add_decision_attribution_to_verification_tables', 1),
+	(70, '2026_11_04_000001_clear_submitter_ids_from_complaint_status_history', 1) ON CONFLICT DO NOTHING;
+SELECT pg_catalog.setval('public.migrations_id_seq', 70, true);
