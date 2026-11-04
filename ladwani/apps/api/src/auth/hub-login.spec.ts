@@ -48,7 +48,7 @@ describe('AuthService.hubLogin', () => {
   let prisma: any
   let service: AuthService
   const roles: Record<string, { id: string; code: string }> = {
-    MEMBER: { id: 'r-member', code: 'MEMBER' }, KARTA: { id: 'r-karta', code: 'KARTA' },
+    MEMBER: { id: 'r-member', code: 'MEMBER' }, KARTA: { id: 'r-karta', code: 'KARTA' }, ADMIN: { id: 'r-admin', code: 'ADMIN' },
   }
 
   beforeEach(() => {
@@ -86,6 +86,27 @@ describe('AuthService.hubLogin', () => {
   it('refuses an email already tied to a different bkesari ID', async () => {
     prisma.user.findFirst.mockResolvedValue({ id: 'u0', hubUserId: 'someone-else', status: 'ACTIVE' })
     await expect(service.hubLogin(token(asha))).rejects.toBeInstanceOf(ConflictException)
+  })
+
+  it("never links a built-in administrator to an account someone else registered with its address", async () => {
+    // Registered as sonalimorankar@builtin.bkesari.com with the registrant's own
+    // password: linking it would hand them ADMIN.
+    const admin = { sub: 'builtin:sonalimorankar', email: 'sonalimorankar@builtin.bkesari.com', role: 'admin', aud: 'ladwani' }
+    for (const status of ['PENDING', 'ACTIVE']) {
+      prisma.user.findFirst.mockResolvedValue({ id: 'u-squatter', hubUserId: null, status })
+      await expect(service.hubLogin(token(admin))).rejects.toBeInstanceOf(ConflictException)
+    }
+    expect(prisma.user.update).not.toHaveBeenCalled()
+    expect(prisma.userRole.create).not.toHaveBeenCalled()
+  })
+
+  it("signs a built-in administrator into the account already linked to it", async () => {
+    const admin = { sub: 'builtin:smorankar', email: 'smorankar@builtin.bkesari.com', role: 'admin', aud: 'ladwani' }
+    prisma.user.findFirst.mockResolvedValue({ id: 'u-sm', hubUserId: 'builtin:smorankar', status: 'ACTIVE' })
+    prisma.user.findUnique.mockResolvedValue({ id: 'u-sm', userRoles: [{ role: roles.MEMBER }, { role: roles.ADMIN }], member: { id: 'm-sm' } })
+    const r = await service.hubLogin(token(admin))
+    expect(prisma.userRole.create).toHaveBeenCalledWith({ data: { userId: 'u-sm', roleId: 'r-admin' } })
+    expect(r.user.roles).toEqual(['MEMBER', 'ADMIN'])
   })
 
   it('refuses a missing or forged token', async () => {

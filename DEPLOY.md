@@ -909,8 +909,8 @@ On every tier where the hash below is set, each one is an **owner**:
 
 | Project | What they get |
 |---|---|
-| LadWani | the hub's top role, `admin`, which LadWani maps to `ADMIN` |
-| Education | `system_admin` (every permission). Education grants it to these two bkesari IDs only (`edu/app/Http/Middleware/HubSignIn.php`, `BUILTIN_ADMINS`) |
+| LadWani | the hub's top role, `admin`, which LadWani maps to `ADMIN`. LadWani refuses their addresses at registration and never links them to an account someone else made (`ladwani/apps/api/src/auth/auth.service.ts`) |
+| Education | `system_admin` (every permission). Education grants it to these two bkesari IDs only (`edu/app/Http/Middleware/HubSignIn.php`, `BUILTIN_ADMINS`), and never links them to an account someone else made |
 | TaskList | `owner` |
 | ATIP | the viewer (owner only) |
 | Driving Simulator, Environmental Activities | open to everyone anyway |
