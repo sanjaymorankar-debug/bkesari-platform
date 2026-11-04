@@ -176,7 +176,9 @@ esac
 
 # Security headers on the hub's own pages.
 fetch /
-CSP=$(header content-security-policy)
+# Every Content-Security-Policy header, joined: Hostinger's front end adds its own
+# `upgrade-insecure-requests` one, and a browser enforces each of them.
+CSP=$(tr -d '\r' < "$HEAD" | grep -i '^content-security-policy:' | cut -d' ' -f2- | paste -sd '|' -)
 case "$CSP" in
   *"script-src 'self'"*) ok "the hub sends a Content-Security-Policy ($CSP)" ;;
   *) bad "the hub's Content-Security-Policy is missing or weak" "got '${CSP:-none}'" ;;
