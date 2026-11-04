@@ -242,16 +242,27 @@ export class AuthService {
     const check = await this.checkOtp(user.id, types, otp)
     if (check !== 'ok') throw new UnauthorizedException(otpProblem(check))
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: {
-        failedAttempts: 0,
-        lockedUntil: null,
-        lastLoginAt: new Date(),
-        [VERIFIED_FIELD[channel]]: true,
-        ...(user.status === 'PENDING' ? { status: 'ACTIVE' } : {}),
-      },
-    })
+    // The first code to prove this inbox (or phone) ends what was set up before
+    // that proof: whoever registered the address chose any password and holds
+    // any session, and need not be the person who reads it. Those sessions end
+    // and the password becomes one nobody knows; "Forgot password" sets a real
+    // one, as for every account the web signs up (it sends no password).
+    const firstProof = !user[VERIFIED_FIELD[channel]]
+    const now = new Date()
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          failedAttempts: 0,
+          lockedUntil: null,
+          lastLoginAt: now,
+          [VERIFIED_FIELD[channel]]: true,
+          ...(user.status === 'PENDING' ? { status: 'ACTIVE' } : {}),
+          ...(firstProof ? { passwordHash: await hash(randomBytes(32).toString('hex'), BCRYPT_COST) } : {}),
+        },
+      }),
+      ...(firstProof ? [this.prisma.refreshToken.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: now } })] : []),
+    ])
     return this.issueSession(user)
   }
 

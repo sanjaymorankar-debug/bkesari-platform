@@ -436,6 +436,27 @@ describe('LadWani auth over HTTP', () => {
       expect(user.mobileVerified).toBeFalsy()
     })
 
+    it('an address someone else registered with a password: its first code ends their sessions and their password', async () => {
+      withMail()
+      // Someone registers another person's email with a password of their own, and signs in with it.
+      const reg = await call('POST', '/auth/register', { body: { firstName: 'Ravi', lastName: 'Patil', email: 'ravi@example.com', mobile: '9988776655', password: 'Chosen1pass' } })
+      expect(reg.status).toBe(201)
+      const theirs = await call('POST', '/auth/login', { body: { identifier: 'ravi@example.com', password: 'Chosen1pass' } })
+      expect(theirs.status).toBe(200)
+      // The person who reads that inbox carries on with a code (the web does, after a 409).
+      await call('POST', '/auth/otp/send', { body: { email: 'ravi@example.com' } })
+      const mine = await call('POST', '/auth/otp/login', { body: { email: 'ravi@example.com', otp: mail.lastCode('ravi@example.com') } })
+      expect(mine.status).toBe(200)
+      expect((await call('GET', '/auth/session', { headers: { cookie: `lw_sid=${sid(theirs)}` } })).body.user).toBeNull()
+      expect((await call('POST', '/auth/refresh', { headers: { cookie: `lw_sid=${sid(theirs)}` } })).status).toBe(401)
+      expect((await call('POST', '/auth/login', { body: { identifier: 'ravi@example.com', password: 'Chosen1pass' } })).status).toBe(401)
+      expect((await call('GET', '/auth/session', { headers: { cookie: `lw_sid=${sid(mine)}` } })).body.user).toMatchObject({ email: 'ravi@example.com' })
+      // Once the address is proven, a later code sign-in ends nothing.
+      await call('POST', '/auth/otp/send', { body: { email: 'ravi@example.com' } })
+      expect((await call('POST', '/auth/otp/login', { body: { email: 'ravi@example.com', otp: mail.lastCode('ravi@example.com') } })).status).toBe(200)
+      expect((await call('GET', '/auth/session', { headers: { cookie: `lw_sid=${sid(mine)}` } })).body.user).toMatchObject({ email: 'ravi@example.com' })
+    })
+
     it('voids a code after 5 wrong tries', async () => {
       await addUser(db)
       const sent = await call('POST', '/auth/otp/send', { body: { email: 'asha@example.com' } })

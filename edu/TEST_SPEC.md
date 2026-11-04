@@ -394,7 +394,7 @@ league/commonmark 2.10.0 → 2.10.4, 46 packages in all): every count below is u
 **Re-measured 2026-11-03** after Education's own sign-in (no hub token; `edu_sid`; 15-minute
 lockout; mobile codes; `users.mobile`, migration 68), the Kesari UI and the three languages. Same
 container type and versions (PHP 8.3.6, PostgreSQL 16, PgBouncer 1.22.0, Node 22, Chromium via
-Playwright 1.63). These are now the floor:
+Playwright 1.63). These were the floor until 4 Nov 2026:
 
 | # | Level | Result |
 |---|---|---|
@@ -409,6 +409,27 @@ Playwright 1.63). These are now the floor:
 | 13 | S5 | http 60 passed (3 s); browser 21 passed (9 s), with `KILL_URL` through PgBouncer |
 | 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 1 (symfony/mime CVE-2026-45070, reported 2026-10-28); `npm audit` 5 dev-only, 0 with `--omit=dev` |
 | 15 | S7.1 | 473 passed through the pooler, 38 s; 7.2/7.3/7.5/7.8 as specified |
+
+**Re-measured 2026-11-04** (edu-tester, commit `7c0604e`; `edu/` code unchanged at `df661a9`,
+whose D-034 mailbox change touched only `.env.example`, `DEPLOYMENT.md`, `ROADMAP.md`) after sign-in codes by email through
+Hostinger's SMTP, codes on screen only on `local`/`dev` with nothing to deliver them, SMS on hold
+(owner's decisions D-029 to D-032) and `symfony/mime` 7.4.22. Same container type and versions
+(PHP 8.3.6 with libpq 16.15, PostgreSQL 16.15, PgBouncer 1.22.0, Node 22.23, Chromium via
+Playwright 1.63). These are now the floor:
+
+| # | Level | Result |
+|---|---|---|
+| 2 | S1 php -l | 370 files, 0 errors (364 + `Services/EmailSignIn.php`, `Support/SignInCodes.php`, `Mail/SignInCodeMail.php`, the two `emails/sign-in-code*.blade.php` views and `EmailSignInTest.php`) |
+| 3 | S1 routes, views | 81 routes, views compile |
+| 4 | S1 Pint | the same 15 |
+| 7 | S3a SQLite | 501 tests: 496 passed, 5 skipped (the same 5), 2,911 assertions, 20 s. 28 tests added: `EmailSignInTest` 23, `MobileSignInTest` +2, `OwnAccountTest` +2, `LanguageTest` +1 |
+| 8 | S3a PostgreSQL | 501 tests: 501 passed, 2,919 assertions, 35 s |
+| 9 | S3b | `74\|68\|289\|20\|100\|citext`; 74 s |
+| 10–11 | S3c, S3d | schemas match (5,564 lines, 70 CHECKs); migrations logs identical; 04 twice gives one row |
+| 12 | S4 | byte-identical (`app-DNyD-VXB.css`) |
+| 13 | S5 | http 60 passed (2 s); browser 21 passed (9 s), with `KILL_URL` through PgBouncer |
+| 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 0 (`symfony/mime` 7.4.22 clears CVE-2026-45070); `npm audit` 5 dev-only, 0 with `--omit=dev` |
+| 15 | S7.1 | 501 passed through the pooler, 28 s; 7.2/7.3/7.5/7.8 as specified |
 
 Pint's baseline list: `app/Routing/BasePathRedirector.php`, `bootstrap/app.php`,
 `bootstrap/providers.php`, `database/seeders/FacilitySeeder.php`,
@@ -535,5 +556,6 @@ VERDICT: PASS | FAIL | BLOCKED
   verification would need the same (`DEPLOY.md` Part 7).
 - **Dependency advisories are reported, not fixed** (S6): upgrading the framework is a change of
   its own, reviewed and tested as one. The six PHP advisories of 2026-10 were cleared that way
-  (owner-approved update to Laravel 13.38.0); `npm audit`'s 7 dev-tooling advisories remain.
+  (owner-approved update to Laravel 13.38.0), and `symfony/mime`'s CVE-2026-45070 by the update
+  to 7.4.22 (4 Nov 2026); `npm audit`'s 5 dev-tooling advisories remain.
 - Everything in `TESTING.md`'s "What's not tested" and `ROADMAP.md`'s deferred list.

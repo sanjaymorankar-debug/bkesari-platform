@@ -248,7 +248,8 @@ function createProjectAuth(o) {
       log.error(`${name}: ${kind} to ${kind === 'sms' ? to.slice(0, 2) + '******' + to.slice(-2) : to} failed:`, err.message);
     }
     if (sent) return {};
-    if (echoCodes(req)) return { dev: devValue }; // dev only: no provider configured
+    // Dev only, and only when no provider is set: a configured one that failed is "could not send" (D-029).
+    if (echoCodes(req) && !(kind === 'sms' ? notify.sms : notify.mail)) return { dev: devValue };
     throw new AuthError(503, 'delivery', kind === 'sms'
       ? 'We could not send the SMS right now. Try again later or sign in with email.'
       : 'We could not send the email right now. Try again later.');
@@ -439,14 +440,25 @@ function createProjectAuth(o) {
     if (!(await db.get(`UPDATE ${T.otp} SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id`, [row.id]))) throw expired();
     const col = channel === 'mail' ? 'email' : 'mobile';
     let user = await find();
+    let created = false;
     if (!user) {
       if (row.purpose !== 'sign-up' || !allowSignUp) throw new AuthError(403, 'closed', 'New accounts are not open here.');
       const nm = String(body.name || '').trim().slice(0, 120) || null;
       // Two first sign-ups for one address at once: the unique index lets one in.
-      user = await db.get(`INSERT INTO ${T.users} (${col}, name, ${col}_verified) VALUES ($1,$2,TRUE) ON CONFLICT DO NOTHING RETURNING *`, [target, nm])
-        || await find();
-      await audit(user.id, target, 'sign-up', `otp ${channel}`, req);
-    } else if (!user[`${col}_verified`]) {
+      const fresh = await db.get(`INSERT INTO ${T.users} (${col}, name, ${col}_verified) VALUES ($1,$2,TRUE) ON CONFLICT DO NOTHING RETURNING *`, [target, nm]);
+      created = Boolean(fresh);
+      user = fresh || await find();
+      if (created) await audit(user.id, target, 'sign-up', `otp ${channel}`, req);
+    }
+    if (!created && !user[`${col}_verified`]) {
+      // An email nobody has confirmed is not a way in: whoever put it on the
+      // account (a password sign-up, or added it later) may not be the person
+      // who reads that inbox, and would keep their password and sessions. The
+      // password, or "Forgot password" (which confirms it), still work.
+      if (channel === 'mail') {
+        await audit(user.id, target, 'sign-in-refused', 'otp mail: email not confirmed', req);
+        throw new AuthError(403, 'unconfirmed', `This email is not confirmed for its ${name} account yet. Sign in with your password, or use "Forgot password" to confirm it.`);
+      }
       user = await db.get(`UPDATE ${T.users} SET ${col}_verified = TRUE WHERE id = $1 RETURNING *`, [user.id]);
     }
     if (user.status !== 'active') throw new AuthError(403, 'status', 'This account is suspended.');

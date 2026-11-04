@@ -83,7 +83,7 @@ else may use them:
 |---|---|---|---|---|
 | suite database (`TEST_DATABASE_URL`) | S3 / R1 | **each PostgreSQL test file drops and recreates a schema of its own (`t_db`, `t_hub`, `t_tasklist`, `t_migrate`)** | `bk_portal_test` | `bk_portal_test` in the service container |
 | smoke database (`SMOKE_DATABASE_URL`) | S4, S5, S7 | **S7 drops the tracker tables**; S5 writes rows; S5 and S7 empty the sign-in rate-limit counters before they sign in (`tl_rate_limits`; S5 also `hub_admin_rate_limits`) | `bk_portal_smoke` | not used (CI's smoke runs on the suite database) |
-| LadWani smoke database (`LADWANI_SMOKE_DATABASE_URL`) | S5's LadWani step | LadWani's schema (`prisma migrate deploy`) and reference data (its seed); S5 signs in through the hub, which adds a LadWani user, and stores a webhook event | `bk_ladwani_smoke` | not used |
+| LadWani smoke database (`LADWANI_SMOKE_DATABASE_URL`) | S5's LadWani step | LadWani's schema (`prisma migrate deploy`) and reference data (its seed); S5 stores a webhook event (its LadWani sign-ups on test and production are refused before anything is written) | `bk_ladwani_smoke` | not used |
 
 Never a Neon database, a `_dev`/`_test`/`_prod` database on a server, or anything an app
 uses. The tests read only `TEST_DATABASE_URL`, never `DATABASE_URL` or `DB_*`, so a developer's
@@ -123,10 +123,10 @@ them. LadWani's schema goes into its database once per run (2.5).
 | `HUB_ADMIN_EMAIL`, `HUB_ADMIN_PASSWORD` | the first hub admin, created at start when there is none (the owner role when the address is on `HUB_OWNER_EMAILS`) | `smoke@example.com` / `smoke-local-only` |
 | `HUB_AUTH_SECRET` | the hub's and (derived) TaskList's and LadWani's secrets | any 32+ characters, e.g. `smoke-local-only-secret-0123456789abcdef` |
 | `TRUST_PROXY` | Express `trust proxy` (rate limits, LadWani's visitor) | unset (= `loopback`) |
-| `SMS_WEBHOOK_URL`, `RESEND_API_KEY`, `MAIL_FROM`, `MAIL_WEBHOOK_URL` (each also with a `TASKLIST_`/`HUB_` prefix) | where one-time codes and reset links go (`portal/notify.js`) | **unset**: dev and test then show the code on screen; production refuses |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`, `MAIL_SCHEME`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` / `SMTP_USERNAME`, `SMTP_PASSWORD` / `SMTP_PASS`, `SMS_WEBHOOK_URL`, `RESEND_API_KEY`, `MAIL_FROM`, `MAIL_WEBHOOK_URL` (each also with a `TASKLIST_`/`HUB_` prefix; LadWani's with `LADWANI_`) | where one-time codes and links go (`portal/notify.js`; LadWani's `apps/api/src/mail/mail-settings.ts`) | **unset, every one, in every shell that starts a hub or a test**: a mailbox alone (`MAIL_USERNAME` or `SMTP_USER`) means `smtp.hostinger.com:465`, the real mail server (D-034). Unset, only the dev tier shows a code or link on screen; test and production answer 503 "could not send" (D-029), which S5's tier step checks |
 | `ATIP_USER`, `ATIP_PASSWORD` | `/ATIP/` login (unset = 503: fails closed) | `smoke` / `smoke-local-only` |
 | `ATIP_PUBLISH_TOKEN` | snapshot upload | `smoke-local-token` |
-| `EDU_ORIGIN`, `LADWANI_ORIGIN` | the proxy | blank, except in S5's proxy step (`EDU_ORIGIN=http://127.0.0.1:3111`). Blank `EDU_ORIGIN` while `APP_ENV` names a tier means that tier's live Education site (`TIER_ORIGINS` in `portal/proxy.js`), so a hub that must stay local sets it to a local upstream or leaves `APP_ENV` blank (`server.test.js`, `ladwani.test.js` do). LadWani has no tier default, and `LADWANI_ORIGIN` is ignored while its export is built (server.js serves it itself) |
+| `EDU_ORIGIN`, `LADWANI_ORIGIN` | the proxy | `EDU_ORIGIN=http://127.0.0.1:3111` for every hub S5 and S6 start (`start_hub` sets it; S5 puts `scripts/edu-standin.js`, then its echo upstream, on that port), as S7's script and CI's smoke step do (D-031); `LADWANI_ORIGIN` blank. Blank `EDU_ORIGIN` while `APP_ENV` names a tier means that tier's live Education site (`TIER_ORIGINS` in `portal/proxy.js`), so a hub that must stay local sets it to a local upstream or leaves `APP_ENV` blank (`server.test.js`, `ladwani.test.js` do). LadWani has no tier default, and `LADWANI_ORIGIN` is ignored while its export is built (server.js serves it itself) |
 | `LADWANI_DATABASE_URL` | LadWani's API in the hub (`portal/ladwani.js`) | unset (the pages are served and the API answers 503), except in S5's LadWani step: `$LADWANI_SMOKE_DATABASE_URL`. Never a Neon branch |
 | `LADWANI_JWT_SECRET`, `LADWANI_TRUST_PROXY` | LadWani's API in the hub | unset (the secret is then derived from the hub's key; the rate limits count per signed-in person, not per address, so no trust-proxy setting is needed for them) |
 | `LADWANI_VISITOR_HEADER` | LadWani's rate limits (`VisitorThrottlerGuard`) | never set by hand: `portal/ladwani.js` sets it in the hub's process. Standalone LadWani without it counts per IP and ignores the header |
@@ -210,7 +210,7 @@ Record each command's exit code, counts and duration.
 | 8 | S3 integration | the hand-run SQL load below | exit 0 |
 | 9 | S4 build | the deploy-bundle boot below | `bundle boots: 200` |
 | 9a | S4 LadWani build | the LadWani build below (`build:embedded` without its `npm install`) | exit 0; `ladwani/apps/web/out/index.html` and `ladwani/apps/api/dist/main.js` exist; the route list shows the ten `[param]` pages each built once, as `/…/_` |
-| 10 | S5 smoke | the smoke run below (needs #9a's export) | smoke-dev.sh `0 failed, 0 warnings` (`APP_ENV=dev` fills in the Education dev site, whose own sign-in page now answers `/edu/`, so its Livewire checks run; the hub serves LadWani); every probe `ok`; `S5 failures: 0` |
+| 10 | S5 smoke | the smoke run below (needs #9a's export) | smoke-dev.sh `0 failed, 0 warnings` (`/edu/` goes to `scripts/edu-standin.js`, as in CI (D-031), whose sign-in page carries Livewire's markup, so the Livewire checks run; the hub serves LadWani); every probe `ok`; `S5 failures: 0` |
 | 11 | S6 security | the security checks below | `S6 failures: 0` |
 | 12 | S6 hygiene | `npm audit --omit=dev`; `npm --prefix ladwani audit --omit=dev` | report only: list advisories in the report; fix only if trivial. LadWani's run in the hub's process (Nest, Prisma); its Next.js only builds the export |
 | 13 | S7 Neon parity | `bash scripts/neon-parity.sh` (2.6) | `Neon parity passed.`, exit 0 |
@@ -286,9 +286,11 @@ test -f ladwani/apps/web/out/index.html && test -f ladwani/apps/api/dist/main.js
 **#10, the smoke run.** The hub from the working tree, on the smoke database, on 3101, with
 throwaway settings, then `scripts/smoke-dev.sh` (what CI and the dev deploy run), then the probes
 it cannot make without an account, then the proxy with a throwaway upstream, then LadWani in the
-hub's process with its real API on the LadWani smoke database. Since 3 Nov 2026 nothing sits in
+hub's process with its real API on the LadWani smoke database, then hubs on the test and production
+tiers, which must show no code or link anywhere (D-029). Since 3 Nov 2026 nothing sits in
 front of LadWani or Education: each signs its own people in, so the hub's own `server.js` is
-started every time (there is no signed-in stand-in any more).
+started every time (there is no signed-in stand-in any more). `/edu/` never leaves the machine:
+every hub here sends it to port 3111 (D-031).
 
 ```bash
 export BASE=http://127.0.0.1:3101 U=smoke PW=smoke-local-only TOKEN=smoke-local-token
@@ -298,7 +300,7 @@ start_hub() {  # extra VAR=value pairs are passed to the hub
   env -u DB_HOST -u DB_PORT -u DB_NAME -u DB_USER -u DB_PASSWORD -u DB_SSL -u DATABASE_URL_UNPOOLED \
     DATABASE_URL="$SMOKE_DATABASE_URL" PORT=3101 APP_ENV=dev HUB_AUTH_SECRET=smoke-local-only-secret-0123456789abcdef \
     HUB_ADMIN_EMAIL=smoke@example.com HUB_ADMIN_PASSWORD=$PW HUB_OWNER_EMAILS=smoke@example.com ATIP_PUBLISH_TOKEN=$TOKEN \
-    "$@" node portal/server.js >"$HUBLOG" 2>&1 & HUB=$!
+    EDU_ORIGIN=http://127.0.0.1:3111 "$@" node portal/server.js >"$HUBLOG" 2>&1 & HUB=$!
   for i in $(seq 1 40); do curl -fsS -o /dev/null "$BASE/" 2>/dev/null && return; sleep 0.5; done; echo "FAIL hub did not start"; F=$((F+1))
 }
 code() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@"; }
@@ -308,6 +310,7 @@ has() { if printf '%s' "$1" | grep -qF -- "$2"; then echo "ok    has '$2'"; else
 json() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const o=JSON.parse(s);console.log(process.argv[1].split(".").reduce((a,k)=>a&&a[k],o))})' "$1"; }
 J='content-type: application/json'
 
+node scripts/edu-standin.js 3111 >/dev/null & UP0=$!; sleep 0.5   # /edu/: CI's stand-in, never devedu (D-031)
 start_hub
 bash scripts/smoke-dev.sh "$BASE" --env dev || F=$((F+1))
 has "$(curl -sI "$BASE/" | tr -d '\r')" 'X-Bkesari-Env: dev'
@@ -322,6 +325,10 @@ TL=$(mktemp); C=$(curl -s -c $TL "$BASE/tasklist/api/auth/session" | json csrf)
 OTP=$(curl -s -b $TL -c $TL -H "$J" -H "x-csrf-token: $C" -d '{"mobile":"9876500999","purpose":"sign-up"}' "$BASE/tasklist/api/auth/otp/send" | json devCode)
 C=$(curl -s -b $TL -c $TL -H "$J" -H "x-csrf-token: $C" -d "{\"mobile\":\"9876500999\",\"code\":\"$OTP\",\"name\":\"S5\"}" "$BASE/tasklist/api/auth/otp/verify" | json csrf)
 has "$(awk '$6 == "tl_sid" { print "Path=" $3 }' $TL)" 'Path=/tasklist'   # the session cookie itself, not tl_sid_csrf
+# The sign-in page's first tab: email + code (D-029). Dev shows the code, as no mail is set.
+TE=$(mktemp); C2=$(curl -s -c $TE "$BASE/tasklist/api/auth/session" | json csrf)
+OTP=$(curl -s -b $TE -c $TE -H "$J" -H "x-csrf-token: $C2" -d '{"email":"s5@example.com","purpose":"sign-up"}' "$BASE/tasklist/api/auth/otp/send" | json devCode)
+has "$(curl -s -b $TE -c $TE -H "$J" -H "x-csrf-token: $C2" -d "{\"email\":\"s5@example.com\",\"code\":\"$OTP\",\"name\":\"S5 mail\"}" "$BASE/tasklist/api/auth/otp/verify")" '"email":"s5@example.com"'
 want 201 -b $TL -H "$J" -H "x-csrf-token: $C" -d '{"text":"S5 smoke tomorrow 5pm #s5"}' "$BASE/tasklist/api/quick-add"
 has "$(curl -s -b $TL "$BASE/tasklist/api/tasks")" '"due_time":"17:00"'
 want 403 -b $TL -H "$J" -d '{"title":"no token"}' "$BASE/tasklist/api/tasks"
@@ -338,7 +345,7 @@ want 200 -H "authorization: Bearer $TOKEN" -H "$J" -d '{"html":"<html><body><p>S
 want 404 "$BASE/ATIP/";  want 404 "$BASE/ATIP"
 V=$(curl -s -D - -b $AD "$BASE/ATIP/" | tr -d '\r')
 has "$V" "connect-src 'none'";  has "$V" 'S5 snapshot';  has "$V" 'class="ks-bar';  has "$V" 'id="bk-readonly"'
-kill $HUB; wait $HUB 2>/dev/null
+kill $HUB; wait $HUB 2>/dev/null; kill $UP0; wait $UP0 2>/dev/null; sleep 0.5
 
 # The proxy, with the real server.js: a throwaway upstream on 3111 that echoes what it got.
 # Nothing gates the tabs any more, and no hub token is ever forwarded, forged or not. Nor is the
@@ -381,6 +388,28 @@ want 404 -X POST "$BASE/ladwani/api/v1/auth/hub"          # the hub login is gon
 has "$(curl -s -H "$J" -H 'x-webhook-signature: s5' -d "{\"id\":\"evt_s5_$(date +%s%N)\",\"event\":\"payment.captured\"}" "$BASE/ladwani/api/v1/webhooks/payments")" '"received":true'
 want 404 --path-as-is "$BASE/ladwani/%2e%2e/%2e%2e/%2e%2e/package.json"
 kill $HUB; wait $HUB 2>/dev/null
+
+# No code or link on test or production (D-029): the real server.js, with no mail and no SMS set, as
+# each of those tiers, TaskList, the hub admin and LadWani's API (on the LadWani smoke database).
+# A 503 is "could not send"; no answer may carry a code, a dev link or a token.
+nolink() { local exp=$1; shift; local b c; b=$(curl -s -w '\n%{http_code}' --max-time 10 "$@"); c=${b##*$'\n'}; b=${b%$'\n'*}
+  if [ "$c" = "$exp" ] && ! printf '%s' "$b" | grep -qE 'dev(Code|Otp|VerifyLink|ResetLink)|token=' \
+     && { [ "$exp" != 503 ] || ! printf '%s' "$b" | grep -qE '[0-9]{6}'; }; then echo "ok    $exp, no code or link  ${*: -1}"
+  else echo "FAIL  want $exp with no code or link, got $c: $b  ${*: -1}"; F=$((F+1)); fi; }
+for TIER in test prod; do
+  start_hub APP_ENV=$TIER LADWANI_DATABASE_URL="$LADWANI_SMOKE_DATABASE_URL"   # /edu/ to 3111, where nothing listens now
+  for i in $(seq 1 40); do grep -q 'LadWani API:' "$HUBLOG" && break; sleep 0.25; done
+  TT=$(mktemp); C=$(curl -s -c $TT "$BASE/tasklist/api/auth/session" | json csrf); N=$(date +%s%N)
+  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"email":"s5@example.com"}' "$BASE/tasklist/api/auth/otp/send"
+  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"mobile":"9876500999"}' "$BASE/tasklist/api/auth/otp/send"
+  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"email":"s5@example.com"}' "$BASE/tasklist/api/auth/password/forgot"
+  nolink 201 -b $TT -H "$J" -H "x-csrf-token: $C" -d "{\"name\":\"S5 $TIER\",\"email\":\"s5-$TIER-$N@example.com\",\"password\":\"s5-local-only-1\"}" "$BASE/tasklist/api/auth/sign-up"
+  TA=$(mktemp); C=$(curl -s -c $TA "$BASE/admin/api/auth/session" | json csrf)
+  nolink 503 -b $TA -H "$J" -H "x-csrf-token: $C" -d '{"email":"smoke@example.com"}' "$BASE/admin/api/auth/password/forgot"
+  nolink 503 -H "$J" -d "{\"firstName\":\"Sfive\",\"lastName\":\"Run\",\"email\":\"s5-$TIER-$N@example.com\",\"mobile\":\"9$(printf '%09d' $((N % 1000000000)))\"}" "$BASE/ladwani/api/v1/auth/register"
+  nolink 503 -H "$J" -d '{"email":"s5@example.com"}' "$BASE/ladwani/api/v1/auth/otp/send"
+  kill $HUB; wait $HUB 2>/dev/null; rm -f $TT $TA
+done
 echo "S5 failures: $F"
 ```
 
@@ -458,8 +487,8 @@ fails on a skip.
 | PORTAL-CR-19 | Neon provisioning: one Singapore PostgreSQL 16 project per app with its tier branches… (unchanged) | `neon-provision.test.js` (all 11) |
 | PORTAL-CR-20 | `database/portal/01_portal_schema.sql` and `02_hub_schema.sql` stay the schemas the app applies; each project's sign-in tables are in its own schema file under its own prefix | `schema-copy.test.js` (all 4); `hub.test.js` :: each project's sign-in tables are in its own schema file…; S3 #8 |
 | PORTAL-CR-21 | LadWani served by the hub (`portal/ladwani.js`): no hub gate and no hub token; no path, however encoded, reaches a file outside the export; a build-asset miss is a bare 404; any id is answered by its `_` page; the hub names the visitor to LadWani's rate limits by address (`ip:<req.ip>`, trust-proxy aware) and drops any visitor header or token a client sent; the API off or failing to start is a 503 while the hub and the pages stay up; the engine's worker-thread cap is set before it loads; `lw_sid` is scoped to `/ladwani` | `ladwani.test.js` (all 16); S5 LadWani step; S6 LadWani loop |
-| PORTAL-CR-22 | **Per-project sign-in.** Each project's session cookie is its own (`tl_sid` Path=/tasklist, `hub_admin_sid` Path=/), HttpOnly, SameSite=Lax, Secure except plain http to localhost; signing in or out of one never affects another; one project's session grants nothing in another; the hub admin's two cookies (Path=/) are removed before a request is forwarded to a project app, whose own cookies pass as sent (D-027) | `tasklist.pg.test.js` :: mobile + OTP…; accounts are isolated…; `hub.pg.test.js` :: the hub admin has its own login…; `ladwani.test.js` :: LadWani's own session cookie…; `proxy.test.js` :: the hub admin's session cookie never reaches a project app…; S5 TaskList and admin lines; S5 proxy `"cookie"` lines |
-| PORTAL-CR-23 | **Sign-in protections.** 5 wrong passwords lock for 15 minutes (even against the right password); unknown accounts answer like a wrong password; OTP codes are single use, 5 tries, rate-limited, hashed; a code is never shown on production and is refused there without a provider; resets are single use and end every session; session tokens are stored hashed | `tasklist.pg.test.js` (sign-in tests); `hub.pg.test.js` (admin lockout); `hub.test.js` (helpers) |
+| PORTAL-CR-22 | **Per-project sign-in.** Each project's session cookie is its own (`tl_sid` Path=/tasklist, `hub_admin_sid` Path=/), HttpOnly, SameSite=Lax, Secure except plain http to localhost; signing in or out of one never affects another; one project's session grants nothing in another; the hub admin's two cookies (Path=/) are removed before a request is forwarded to a project app, whose own cookies pass as sent (D-027) | `tasklist.pg.test.js` :: mobile + OTP…; email + code: a new address gets an account…; accounts are isolated…; `hub.pg.test.js` :: the hub admin has its own login…; `ladwani.test.js` :: LadWani's own session cookie…; `proxy.test.js` :: the hub admin's session cookie never reaches a project app…; S5 TaskList (mobile and email code) and admin lines; S5 proxy `"cookie"` lines |
+| PORTAL-CR-23 | **Sign-in protections.** 5 wrong passwords lock for 15 minutes (even against the right password); unknown accounts answer like a wrong password; one-time codes, by email or SMS, are single use, 5 tries, hashed, and rate-limited (5 an hour per address, also when the requests arrive together); **a code or link is shown on screen only on the dev tier, and only when no provider is set; never on test or production**, which answer 503 "could not send" without one (D-029); an email nobody has confirmed signs in to nothing by code (TaskList), and LadWani's first code to an address ends the sessions and the password set before it; resets are single use and end every session; session tokens are stored hashed | `tasklist.pg.test.js` (sign-in tests, among them: on test and production … only dev shows it; on dev a mail provider that fails …; an email nobody has confirmed opens nothing by code …; email codes sent together …); `hub.pg.test.js` (admin lockout); `hub.test.js` (helpers); `notify.test.js` (all 6); #6a `auth.http.spec.ts` (when the code is shown on screen …; an address someone else registered with a password …) and `tier.spec.ts`; S5 tier step |
 | PORTAL-CR-24 | **CSRF and cross-site.** Every state-changing request carries the session's (or, signed out, the double-submit) token; JSON only; a foreign `Origin` is refused; the contact form's token, signed time stamp, honeypot and rate limit hold | `tasklist.pg.test.js` :: cross-site and non-JSON requests are refused; `hub.pg.test.js` :: the contact form…; S6 cross-site line |
 | PORTAL-CR-25 | **Kesari.** The committed build matches the source; ≤ 30 KB gzipped with the shell; every text pair AA in light and dark; system and pinned dark identical; fonts swap and include Devanagari; the hub and TaskList pages carry no inline script | `kesari-ui.test.js` (all 11); `menu.test.js` :: every hub page carries the shell…; S1 #5 |
 | PORTAL-CR-26 | **The migration** (`tools/migrate_shared_id.mjs`): a dry run changes nothing; `--apply` creates TaskList accounts (no password invented, the owner as owner), gives the old tracker's rows to the owner, and is safe to re-run; `--notify` only with `--apply` | `migrate.pg.test.js` (all 3) |
@@ -469,7 +498,7 @@ fails on a skip.
 | When this changes | Emphasise |
 |---|---|
 | `portal/server.js` | all of R1 (`server.test.js` first); S5; S6; CR-01 to CR-04, CR-11, CR-15, CR-17, CR-21, CR-22 |
-| `portal/project-auth.js`, `portal/notify.js` | `tasklist.pg.test.js`, `hub.pg.test.js`, `hub.test.js`; S5 TaskList and admin lines; S6; CR-22 to CR-24 |
+| `portal/project-auth.js`, `portal/notify.js` | `tasklist.pg.test.js`, `hub.pg.test.js`, `hub.test.js`, `notify.test.js`; S5 TaskList and admin lines and its tier step; S6; CR-22 to CR-24 |
 | `portal/tasklist.js`, `portal/public/tasklist/**` | `tasklist.pg.test.js`, `quickadd.test.js`, `server.test.js`, `sw.test.js`; S5; S6 path loop; CR-01, CR-05 to CR-07, CR-22 to CR-24 |
 | `portal/hub.js`, `portal/hub-pages.js`, `portal/i18n/**` | `hub.pg.test.js`, `hub.test.js`; S5; CR-02, CR-12, CR-15, CR-24 |
 | `packages/kesari-ui/**`, `portal/public/kesari-ui/**` | `kesari-ui.test.js` (run `npm run build:kesari` first); S1 #5; CR-25 |
@@ -478,7 +507,7 @@ fails on a skip.
 | `portal/db.js`, `portal/sql/**`, `database/portal/**`, `package.json`, `package-lock.json` | R1; S3 #8; S4; **S7**; CR-07 to CR-10, CR-20 |
 | `portal/proxy.js` | `proxy.test.js`; S5 proxy step; CR-11 to CR-14, CR-22 |
 | `portal/ladwani.js` | `ladwani.test.js`; S5 LadWani step; S6 LadWani loop; CR-11, CR-21. A change to a setting it gives LadWani (`ENGINE_THREADS`, `LADWANI_*`) also: DEPLOY.md Part 7 and section 2.3 read against it |
-| `ladwani/**` | #6a–#6c, #9a; S5 LadWani step; CR-21. A change to its settings (`apps/api/src/common/env.ts`, `next.config.js`) also: DEPLOY.md Part 7 read against it. A change to its fonts (`apps/web/src/app/fonts/`, `layout.tsx`, the `font-family` and `font-weight` rules in `globals.css`) also: `ladwani-fonts.test.js` |
+| `ladwani/**` | #6a–#6c, #9a; S5 LadWani step and tier step; CR-21, CR-23 (its sign-in). A change to its settings (`apps/api/src/common/env.ts`, `next.config.js`) also: DEPLOY.md Part 7 read against it. A change to its fonts (`apps/web/src/app/fonts/`, `layout.tsx`, the `font-family` and `font-weight` rules in `globals.css`) also: `ladwani-fonts.test.js` |
 | `portal/public/shared/menu.js`, `portal/public/**/*.html`, `page.css`, `hub.css` | `menu.test.js`; `kesari-ui.test.js`; S1 #5; S5; CR-04, CR-14 to CR-16, CR-25 |
 | `scripts/smoke-dev.sh` | S5 (it is the smoke); CR-15, CR-17 |
 | `scripts/neon-parity.sh` | S7 |
@@ -608,6 +637,20 @@ R1 **162** (`proxy` **33**: +1, the hub admin's session cookie never reaches a p
 S5 **42** probes ok (+3: the owner's jar is live on the proxy hub, it reaches `/edu/` with only the
 shell's `k_admin` hint, and a mixed header keeps only the project's own cookies); smoke-dev.sh 33 / 0 / 0
 (its dead `credForm` branch is gone, which changes no count); #6a–#6c, #9a, S6 (27) and S7 (18) unchanged.
+Then one-time codes by email (`5095d87`, `993c433`, `df661a9`; D-029 to D-031, D-034; portal-tester,
+4 Nov 2026, with its fixes): R1 **172**: `notify` **6** (new), `tasklist.pg` **18** (+1 the email-code
+flow; +3 from portal-tester: an email nobody has confirmed opens nothing by code, a mail provider that
+fails on dev shows no code, email codes sent together; and the test-and-production test now also asks
+for a reset and makes a password account, where a link would be), every other file as above, plus **32**
+guard cases; S2 **137**. #6a LadWani Jest **310** in **34** suites (its mail module and email codes;
++1 from portal-tester, an address someone else registered with a password). S5 **57** probes ok (+1
+email-code sign-in on dev, +14 the tier step: on test and production no answer from TaskList, the hub
+admin or LadWani carries a code or link), smoke-dev.sh 33 / 0 / 0 with `/edu/` on
+`scripts/edu-standin.js`; CI's smoke step, run locally on 3101 with a database of its own, 33 / 0 / 0.
+#6b, #6c (the two warnings), #9a (46 pages), S6 (27), #12 (root 0; LadWani 11, unchanged) and S7 (18)
+unchanged. S2's duration went from 3 s to 17 s (and R1's from 11 s to 11–14 s) with no change to the
+tests that take it: two `ladwani.test.js` tests leave `fetch` bodies unread, so each `server.close()`
+waits for the connections; the same file on `5010301` takes as long with today's `node_modules`.
 
 For reference, the suite as merged (before this spec, the same commit, clean tree): 80 tests,
 63 pass, 9 fail, 8 skip, all from the MySQL/SQLite `tests/db-dialects.test.js` that the move to
@@ -708,8 +751,11 @@ VERDICT: PASS | FAIL | BLOCKED
 - **No browser test in this suite.** The shell at phone width, dark mode and TaskList's screens are
   checked by the redesign's Playwright + axe runs (`docs/testing-report-2026-11-03.md`) and
   TESTING.md section 4, by hand; none of that is in `npm test`.
-- **No SMS or mail provider anywhere.** The provider adapters (`portal/notify.js`) are tested only
-  through stand-ins; a real gateway is checked on the tier.
+- **No SMS or mail provider anywhere.** The provider adapters (`portal/notify.js`, LadWani's
+  `mail/`) are tested only through stand-ins (an in-memory SMTP transport); a real mailbox
+  (Hostinger SMTP, D-029/D-034) is checked on the tier. The commands here reach no mail server
+  because no mail setting is set (2.3); the portal-tester also runs every hub and test process with
+  a preload that refuses any connection off the machine, and its report gives the count.
 - **No load or concurrency testing** beyond two processes creating the tables at once.
 - **Not run:** `tools/setup_local_postgres.sh` (it creates roles and databases for every project
   and edits sibling repositories' `.env` files), `database/local/00_local_create_databases.sql`
@@ -721,8 +767,11 @@ VERDICT: PASS | FAIL | BLOCKED
   by `smoke-dev.sh` against a deployed tier and by TESTING.md section 4.
 - **LadWani on a real tier.** Inside the hub, LadWani's rate limits count per signed-in person
   (`X-Bkesari-Visitor`), whatever proxies stand in front. Without `LADWANI_TRUST_PROXY` its audit log
-  records the front end's address for everyone, and without `NODE_ENV=production` its sign-up answer
-  carries the one-time code and its cookie is not `Secure` (DEPLOY.md Part 7). No suite here sees
+  records the front end's address for everyone, and its cookie is not `Secure` without
+  `NODE_ENV=production` (DEPLOY.md Part 7). LadWani shows a code (`devOtp`) only when no mail is set
+  and `APP_ENV` is `dev`, or blank with `NODE_ENV` not `production` (`common/tier.ts`); the hub works
+  out its own tier from the host name when `APP_ENV` is blank, so on a tier whose `APP_ENV` is blank
+  `NODE_ENV=production` is what keeps LadWani's codes off the screen. No suite here sees
   the tier's settings; the checks in DEPLOY.md, on the tier, do. Two people's separate budgets are
   proven only by `ladwani.test.js` (the header) and the guard's spec (the count); S5 signs in one person.
 - **LadWani's engine threads are not counted by any suite.** `ladwani.test.js` proves the cap is set

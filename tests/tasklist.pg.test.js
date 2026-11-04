@@ -50,6 +50,15 @@ describe('TaskList on PostgreSQL', { skip }, () => {
   // together: with a cold pool all but one of them wait for a connection, which hides a race.
   const warm = () => Promise.all(Array.from({ length: 10 }, () => new Browser(base).fetch('GET', '/tasklist/api/auth/me', { headers: { cookie: `tl_sid=${'x'.repeat(40)}` } })));
 
+  // A browser at its own address (the hub trusts X-Forwarded-For from loopback), so a test's sends
+  // and sign-ups count against that person's limits, not the 127.0.0.1 budget the other tests share.
+  function from(ip) {
+    const b = new Browser(base);
+    const f = b.fetch.bind(b);
+    b.fetch = (method, path, o = {}) => f(method, path, { ...o, headers: { 'x-forwarded-for': ip, ...(o.headers || {}) } });
+    return b;
+  }
+
   async function signUpByOtp(mobile, name) {
     const b = new Browser(base);
     const s = await b.fetch('GET', '/tasklist/api/auth/session');
@@ -158,6 +167,10 @@ describe('TaskList on PostgreSQL', { skip }, () => {
     const s2 = await new Promise((r) => { const s = made.app.listen(0, '127.0.0.1', () => r(s)); });
     t.after(() => new Promise((r) => s2.close(r)));
     const b = new Browser(`http://127.0.0.1:${s2.address().port}`);
+    // An address with an account, so a reset link would be made (the nobox addresses below have none).
+    const lb = new Browser(b.base);
+    const ls = await lb.fetch('GET', '/tasklist/api/auth/session');
+    assert.equal((await lb.fetch('POST', '/tasklist/api/auth/sign-up', { json: { name: 'Link', email: 'linkbox@example.com', password: 'linkbox-pass-1' }, csrf: ls.json.csrf })).status, 201);
     let i = 0;
     for (const tierName of ['prod', 'test']) {
       process.env.APP_ENV = tierName;
@@ -172,6 +185,17 @@ describe('TaskList on PostgreSQL', { skip }, () => {
         }
         const f = await b.fetch('POST', '/tasklist/api/auth/password/forgot', { json: { email: 'nobox0@example.com' }, csrf: s.json.csrf });
         assert.equal(f.json.devResetLink, undefined);
+        // A reset for an account that exists, and a new password account: no link in either answer.
+        const fr = await b.fetch('POST', '/tasklist/api/auth/password/forgot', { json: { email: 'linkbox@example.com' }, csrf: s.json.csrf });
+        assert.equal(fr.status, 503, `${tierName} forgot: ${fr.text}`);
+        assert.equal(fr.json.devResetLink, undefined);
+        assert.doesNotMatch(fr.text, /token=|https?:/, 'no reset link anywhere in the answer');
+        const nb = new Browser(b.base);
+        const ns = await nb.fetch('GET', '/tasklist/api/auth/session');
+        const up = await nb.fetch('POST', '/tasklist/api/auth/sign-up', { json: { name: 'New', email: `newbox-${tierName}@example.com`, password: 'newbox-pass-1' }, csrf: ns.json.csrf });
+        assert.equal(up.status, 201, up.text);
+        assert.equal(up.json.devVerifyLink, undefined);
+        assert.doesNotMatch(up.text, /token=|https?:/, 'no confirmation link anywhere in the answer');
       } finally {
         process.env.APP_ENV = '';
       }
@@ -183,6 +207,80 @@ describe('TaskList on PostgreSQL', { skip }, () => {
       assert.equal(r.status, 200);
       assert.match(r.json.devCode, /^\d{6}$/);
     }
+  });
+
+  test('on dev a mail provider that fails is "could not send": the code is shown only when no mail is set (D-029)', async (t) => {
+    const failing = () => ({ mail: async () => { throw new Error('535 authentication failed'); } });
+    const made = createApp(db, { notify: failing, log: quiet });
+    const s2 = await new Promise((r) => { const s = made.app.listen(0, '127.0.0.1', () => r(s)); });
+    t.after(() => new Promise((r) => s2.close(r)));
+    const b = new Browser(`http://127.0.0.1:${s2.address().port}`);
+    const s = await b.fetch('GET', '/tasklist/api/auth/session');
+    const r = await b.fetch('POST', '/tasklist/api/auth/otp/send', { json: { email: 'failbox@example.com', purpose: 'sign-up' }, csrf: s.json.csrf, headers: { 'x-forwarded-for': '203.0.113.20' } });
+    assert.equal(r.status, 503, r.text);
+    assert.equal(r.json.devCode, undefined);
+    assert.doesNotMatch(r.text, /\b\d{6}\b/, 'no code anywhere in the answer');
+  });
+
+  test('an email nobody has confirmed opens nothing by code: whoever put it on the account keeps no way into what its owner saves', async () => {
+    // Someone signs up with another person's address and a password of their own (nothing proves the address).
+    const atk = from('203.0.113.21');
+    let s = await atk.fetch('GET', '/tasklist/api/auth/session');
+    const made = await atk.fetch('POST', '/tasklist/api/auth/sign-up', { json: { name: 'Meera', email: 'meera.pre@example.com', password: 'not-meeras-pass-1' }, csrf: s.json.csrf });
+    assert.equal(made.status, 201, made.text);
+    assert.equal(made.json.user.emailVerified, false);
+    // Later the person who reads that inbox asks for a code: it arrives, but signs in to nothing.
+    const codeFor = (to) => [...sent.mail].reverse().find((m) => m.to === to && /code/.test(m.subject)).text.match(/\b(\d{6})\b/)[1];
+    const owner = from('203.0.113.22');
+    s = await owner.fetch('GET', '/tasklist/api/auth/session');
+    assert.equal((await owner.fetch('POST', '/tasklist/api/auth/otp/send', { json: { email: 'meera.pre@example.com', purpose: 'sign-up' }, csrf: s.json.csrf })).status, 200);
+    const v = await owner.fetch('POST', '/tasklist/api/auth/otp/verify', { json: { email: 'meera.pre@example.com', code: codeFor('meera.pre@example.com'), name: 'Meera' }, csrf: s.json.csrf });
+    assert.equal(v.status, 403, v.text);
+    assert.equal(v.json.code, 'unconfirmed');
+    assert.match(v.json.error, /Forgot password/);
+    assert.equal((await owner.fetch('GET', '/tasklist/api/auth/me')).json.user, null, 'no session');
+    // Once the address is confirmed (here by its link), the code signs in as usual.
+    const confirm = sent.mail.find((m) => m.to === 'meera.pre@example.com' && /^Confirm/.test(m.subject)).text.match(/token=([\w-]+)/)[1];
+    assert.equal((await owner.fetch('POST', '/tasklist/api/auth/verify-email', { json: { token: confirm }, csrf: s.json.csrf })).status, 200);
+    assert.equal((await owner.fetch('POST', '/tasklist/api/auth/otp/send', { json: { email: 'meera.pre@example.com' }, csrf: s.json.csrf })).status, 200);
+    const ok = await owner.fetch('POST', '/tasklist/api/auth/otp/verify', { json: { email: 'meera.pre@example.com', code: codeFor('meera.pre@example.com') }, csrf: s.json.csrf });
+    assert.equal(ok.status, 200, ok.text);
+
+    // The same for an address added to an account in its settings (also unconfirmed).
+    const mob = from('203.0.113.23');
+    const ms = await mob.fetch('GET', '/tasklist/api/auth/session');
+    assert.equal((await mob.fetch('POST', '/tasklist/api/auth/otp/send', { json: { mobile: '9876500071', purpose: 'sign-up' }, csrf: ms.json.csrf })).status, 200);
+    const mv = await mob.fetch('POST', '/tasklist/api/auth/otp/verify', { json: { mobile: '9876500071', code: lastCode('9876500071'), name: 'Mobile person' }, csrf: ms.json.csrf });
+    assert.equal(mv.status, 200, mv.text);
+    const add = await mob.fetch('POST', '/tasklist/api/auth/account', { json: { email: 'added.pre@example.com' }, csrf: mv.json.csrf });
+    assert.equal(add.status, 200, add.text);
+    const o2 = from('203.0.113.24');
+    const s3 = await o2.fetch('GET', '/tasklist/api/auth/session');
+    assert.equal((await o2.fetch('POST', '/tasklist/api/auth/otp/send', { json: { email: 'added.pre@example.com' }, csrf: s3.json.csrf })).status, 200);
+    const v2 = await o2.fetch('POST', '/tasklist/api/auth/otp/verify', { json: { email: 'added.pre@example.com', code: codeFor('added.pre@example.com') }, csrf: s3.json.csrf });
+    assert.equal(v2.status, 403, v2.text);
+    assert.equal(v2.json.code, 'unconfirmed');
+    const n = await db.get("SELECT COUNT(*)::int AS sessions FROM tl_sessions s JOIN tl_users u ON u.id = s.user_id WHERE u.email IN ('meera.pre@example.com', 'added.pre@example.com')");
+    assert.equal(n.sessions, 3, 'the two sign-ups\' own sessions and the one after confirming; none from a refused code');
+  });
+
+  test('email codes sent together: 5 an hour per address, and 5 guesses at one code', async () => {
+    const b = from('203.0.113.25');
+    const s = await b.fetch('GET', '/tasklist/api/auth/session');
+    await warm();
+    const sends = await Promise.all(Array.from({ length: 9 }, () => b.fetch('POST', '/tasklist/api/auth/otp/send', { json: { email: 'race.mail@example.com', purpose: 'sign-up' }, csrf: s.json.csrf })));
+    assert.deepEqual(sends.map((r) => r.status).sort(), [200, 200, 200, 200, 200, 429, 429, 429, 429], sends.map((r) => `${r.status} ${r.text}`).join(' | '));
+    assert.equal(sent.mail.filter((m) => m.to === 'race.mail@example.com').length, 5, 'five emails, not more');
+    const code = [...sent.mail].reverse().find((m) => m.to === 'race.mail@example.com').text.match(/\b(\d{6})\b/)[1];
+    const wrong = (k) => String((Number(code) + 1 + k) % 1000000).padStart(6, '0');
+    await warm();
+    const guesses = await Promise.all(Array.from({ length: 10 }, (_, k) => b.fetch('POST', '/tasklist/api/auth/otp/verify', { json: { email: 'race.mail@example.com', code: wrong(k) }, csrf: s.json.csrf })));
+    const checked = guesses.filter((r) => r.status === 400 && r.json.code === 'code').length;
+    assert.ok(checked <= 5, `${checked} of 10 guesses sent together were checked against one code`);
+    const row = await db.get("SELECT attempts FROM tl_otp_codes WHERE target = 'race.mail@example.com' ORDER BY id DESC LIMIT 1");
+    assert.ok(row.attempts <= 5, `the code counted ${row.attempts} tries`);
+    const late = await b.fetch('POST', '/tasklist/api/auth/otp/verify', { json: { email: 'race.mail@example.com', code }, csrf: s.json.csrf });
+    assert.notEqual(late.status, 200, 'after 5 wrong guesses even the right code is refused');
   });
 
   test('email + code: a new address gets an account; the code goes by email only, works once and takes 5 guesses', async () => {
