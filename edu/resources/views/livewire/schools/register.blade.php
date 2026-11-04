@@ -104,7 +104,10 @@ new #[Layout('layouts.app')] class extends Component
             'phone' => ['nullable', 'string', 'max:20'],
             'email' => ['nullable', 'email', 'max:255'],
             'additionalStaff.*.name' => ['nullable', 'string', 'max:255'],
-            'additionalStaff.*.email' => ['nullable', 'email', 'max:255', 'distinct', new NotReservedEmail],
+            // Each person listed gets a new account: an address that already
+            // has one is refused, since nobody's existing account is made an
+            // admin of a school without them.
+            'additionalStaff.*.email' => ['nullable', 'email', 'max:255', 'distinct', new NotReservedEmail, 'unique:users,email'],
             'additionalStaff.*.designation' => ['nullable', 'string', 'max:60'],
         ];
 
@@ -114,7 +117,9 @@ new #[Layout('layouts.app')] class extends Component
             $rules['adminPassword'] = ['required', 'confirmed', Rules\Password::defaults()];
         }
 
-        $validated = $this->validate($rules, [], [
+        $validated = $this->validate($rules, [
+            'additionalStaff.*.email.unique' => 'This email already has an account. Only people without an account can be added here.',
+        ], [
             'adminPassword_confirmation' => 'adminPassword confirmation',
         ]);
 
@@ -161,6 +166,12 @@ new #[Layout('layouts.app')] class extends Component
                 ['email' => $staff['email']],
                 ['name' => $staff['name'], 'password' => Hash::make($tempPassword)]
             );
+            // Only an account made here: one that exists already (the
+            // registrant's own, or one made since the check above) is left as
+            // it is, with no role and no temporary password.
+            if (! $staffUser->wasRecentlyCreated) {
+                continue;
+            }
 
             if (! $staffUser->hasRole('school_admin')) {
                 $staffUser->assignRole('school_admin');

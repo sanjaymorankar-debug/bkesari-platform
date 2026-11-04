@@ -175,6 +175,52 @@ class BuiltinAdminTest extends TestCase
         $this->assertSame(0, $this->builtinRows());
     }
 
+    public function test_a_username_takes_at_most_fifty_tries_per_fifteen_minutes_from_every_address_together(): void
+    {
+        // The address a try is counted under is the one the request names, so
+        // each try here comes as from a new address: that address has no count.
+        $fromANewAddress = fn () => RateLimiterFacade::clear('smorankar|127.0.0.1');
+
+        $real = app('hash');
+        $checked = 0;
+        $hasher = Mockery::mock(HashManager::class, [app()])->makePartial();
+        $hasher->shouldReceive('check')->andReturnUsing(function ($value, $hashed, $options = []) use ($real, &$checked) {
+            if ($hashed === $this->hash) {
+                $checked++;
+            }
+
+            return $real->check($value, $hashed, $options);
+        });
+        Hash::swap($hasher);
+
+        for ($i = 1; $i < LoginForm::BUILTIN_MAX_ATTEMPTS; $i++) {
+            $fromANewAddress();
+            $this->signIn(['smorankar', ' SMORANKAR', 'Smorankar '][$i % 3], 'not-the-password')
+                ->assertHasErrors('form.email')->assertDontSee('Too many failed sign-in attempts');
+        }
+        // The fiftieth is the right password, and signs in.
+        $fromANewAddress();
+        $this->signIn('smorankar', self::PASSWORD)->assertHasNoErrors();
+        Auth::logout();
+
+        // That did not start the count again: the fifty-first is refused unchecked, right or not.
+        $fromANewAddress();
+        $this->signIn('smorankar', self::PASSWORD)->assertSee('Too many failed sign-in attempts');
+        $this->assertGuest();
+        $this->assertSame(LoginForm::BUILTIN_MAX_ATTEMPTS, $checked);
+
+        // The other name has a count of its own.
+        $this->signIn('sonalimorankar', self::PASSWORD)->assertHasNoErrors();
+        Auth::logout();
+
+        // Fifteen minutes on, the name takes tries again.
+        $this->travel(15)->minutes();
+        $this->travel(1)->seconds();
+        $fromANewAddress();
+        $this->signIn('smorankar', self::PASSWORD)->assertHasNoErrors();
+        $this->assertTrue(Auth::user()->hasRole('system_admin'));
+    }
+
     public function test_without_a_bcrypt_hash_the_built_in_sign_in_is_off(): void
     {
         $offs = [
@@ -276,6 +322,49 @@ class BuiltinAdminTest extends TestCase
         $this->assertFalse(Hash::check('Makers-pass-123', $made->password), 'the maker\'s password no longer opens it');
         $this->assertSame(0, DB::table('sessions')->where('user_id', $made->id)->count(), 'the maker\'s sessions have ended');
         $this->assertSame(1, $this->builtinRows());
+    }
+
+    public function test_what_the_maker_set_up_on_the_row_goes_with_it(): void
+    {
+        // A school registered with the address before it was reserved: its
+        // maker made themselves school_admin (and a parent) and turned on
+        // two-factor with their own authenticator.
+        $school = $this->makeSchool();
+        $made = User::factory()->create(['email' => 'smorankar@builtin.bkesari.com', 'password' => Hash::make('Makers-pass-123')]);
+        $made->assignRole(['school_admin', 'parent']);
+        SchoolStaff::create(['user_id' => $made->id, 'school_id' => $school->id, 'designation' => 'Principal']);
+        TwoFactorAuthentication::create([
+            'user_id' => $made->id, 'secret' => (new Google2FA)->generateSecretKey(), 'confirmed_at' => now(),
+            'recovery_codes' => ['AAAA-BBBB'],
+        ]);
+
+        // The owners could not pass the maker's two-factor: it is gone, and so are the maker's roles.
+        $this->signIn('smorankar', self::PASSWORD)
+            ->assertHasNoErrors()
+            ->assertRedirect(route('dashboard', absolute: false));
+        $this->assertAuthenticatedAs($made);
+        $this->assertSame(0, TwoFactorAuthentication::where('user_id', $made->id)->count());
+        $this->assertSame([BuiltinAdmins::ROLE], $made->fresh()->getRoleNames()->all());
+        $this->get(route('dashboard'))->assertRedirect(route('dashboard.admin'));
+    }
+
+    public function test_the_account_always_has_the_address_as_the_username_writes_it(): void
+    {
+        // Typed another way when it was made. PostgreSQL's citext finds this
+        // row for the username and it changes hands; SQLite does not, and the
+        // username gets a row of its own. Either way the account it signs in
+        // to carries the address as written here, and its name can be saved.
+        User::factory()->create(['email' => 'SMORANKAR@Builtin.Bkesari.com']);
+
+        $this->signIn('smorankar', self::PASSWORD)->assertHasNoErrors();
+        $admin = Auth::user();
+        $this->assertSame('smorankar@builtin.bkesari.com', $admin->email);
+
+        Volt::actingAs($admin)->test('profile.update-profile-information-form')
+            ->set('name', 'S. Morankar')
+            ->call('updateProfileInformation')
+            ->assertHasNoErrors();
+        $this->assertSame('S. Morankar', $admin->refresh()->name);
     }
 
     public function test_a_built_in_administrator_with_two_factor_still_has_to_pass_it(): void

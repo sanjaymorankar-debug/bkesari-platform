@@ -20,6 +20,14 @@ class LoginForm extends Form
     /** How long that lock lasts, in seconds: 15 minutes from the fifth miss. */
     public const LOCKOUT_SECONDS = 900;
 
+    /**
+     * Tries at one built-in administrator's username from every address
+     * together, per 15 minutes (D-036), as on the hub: their one password
+     * opens every project, and the address a try is counted under is the one
+     * the request names (X-Forwarded-For).
+     */
+    public const BUILTIN_MAX_ATTEMPTS = 50;
+
     /** An email address, or a built-in administrator's username (emailRules()). */
     #[Validate('required|string')]
     public string $email = '';
@@ -61,6 +69,17 @@ class LoginForm extends Form
             event(new Lockout(request()));
 
             $this->throwLockedOut();
+        }
+
+        // A built-in username is also counted on its own, over every address:
+        // every try, before the password is checked, and a right one does not
+        // start the count again.
+        $username = BuiltinAdmins::username($this->email);
+        if ($username !== null
+            && Attempts::hit(self::builtinThrottleKey($username), self::LOCKOUT_SECONDS) > self::BUILTIN_MAX_ATTEMPTS) {
+            event(new Lockout(request()));
+
+            $this->throwLockedOut(self::builtinThrottleKey($username));
         }
 
         if (! $this->attempt()) {
@@ -128,9 +147,9 @@ class LoginForm extends Form
     }
 
     /** @throws ValidationException */
-    protected function throwLockedOut(): never
+    protected function throwLockedOut(?string $key = null): never
     {
-        $seconds = RateLimiter::availableIn($this->throttleKey());
+        $seconds = RateLimiter::availableIn($key ?? $this->throttleKey());
 
         throw ValidationException::withMessages([
             'form.email' => __('Too many failed sign-in attempts. For your safety, sign-in for this email is locked for 15 minutes. Try again in :minutes min, or reset your password.', [
@@ -149,5 +168,11 @@ class LoginForm extends Form
         $who = BuiltinAdmins::username($this->email) ?? Str::lower($this->email);
 
         return Str::transliterate($who.'|'.request()->ip());
+    }
+
+    /** The count of a built-in username's tries from every address (BUILTIN_MAX_ATTEMPTS). */
+    public static function builtinThrottleKey(string $username): string
+    {
+        return 'builtin-admin-sign-in:'.$username;
     }
 }

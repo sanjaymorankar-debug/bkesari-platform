@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\TwoFactorAuthentication;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -103,16 +104,25 @@ final class BuiltinAdmins
             // before (made with this address before the domain was reserved),
             // it changes hands as an account does at its first emailed code
             // (D-035): a password nobody knows, and every earlier session
-            // ends, so whoever made it never holds system_admin.
+            // ends, so whoever made it never holds system_admin. Nor does
+            // anything else they set up on it stay: their two-factor, which
+            // the owners could not pass, and the roles they gave themselves
+            // (a system_admin who is also a school_admin, say, sees only that
+            // school's complaints and lands on its dashboard). The address is
+            // written as the username makes it: on PostgreSQL (citext) a row
+            // typed "SMORANKAR@Builtin..." is found too, and the profile could
+            // not save the name of a row whose fixed address is not lowercase.
             $user->forceFill([
                 'name' => $username,
+                'email' => self::emailFor($username),
                 'email_verified_at' => $user->email_verified_at ?? now(),
                 'password' => $made->wasRecentlyCreated ? $user->password : Hash::make(Str::random(64)),
             ])->save();
             if (! $made->wasRecentlyCreated) {
                 EndSessions::forUser($user);
+                TwoFactorAuthentication::where('user_id', $user->getKey())->delete();
             }
-            $user->assignRole(self::ROLE);
+            $user->syncRoles([self::ROLE]);
 
             return $user;
         });
