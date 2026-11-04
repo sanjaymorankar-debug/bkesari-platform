@@ -135,6 +135,7 @@ function createTaskList({ db, notify = {}, tier = () => 'prod', log = console, s
   const auth = createProjectAuth({
     db, key: 'tasklist', name: 'TaskList', base: BASE, cookie: 'tl_sid', prefix: 'tl_',
     allowSignUp: true, methods: ['otp', 'password'], notify, tier, log, secret,
+    builtinAdmins: { role: 'owner' },
     accountLinks: [{ label: 'Settings', href: `${BASE}/settings` }],
   });
   const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);

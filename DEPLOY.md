@@ -949,3 +949,37 @@ Then, and only then, remove Neon Auth: set `auth: false` in `neon.ts` and `neon 
 (its tables hold the names the migration reads). `HUB_TOKEN_PRIVATE_KEY`,
 `TRACKER_*`, `NEON_AUTH_*` and LadWani's/Education's `HUB_JWKS*` settings can then be
 deleted from every tier's environment.
+
+### Built-in administrators: `smorankar` and `sonalimorankar` (D-036)
+
+Two owner accounts that exist in every project, each one an account of that project's
+own, so each project still signs them in and out by itself:
+
+| Where | Sign-in page | Role there |
+|---|---|---|
+| Hub admin | `/admin` (type the username in "Email or username") | owner: tiles, banner, inbox, and ATIP |
+| TaskList | `/tasklist/sign-in`, *Email + password* tab | owner |
+| LadWani | `/ladwani/sign-in/` | admin |
+| Education | `/edu/sign-in` | system admin |
+
+Their addresses, `smorankar@builtin.bkesari.com` and `sonalimorankar@builtin.bkesari.com`,
+are reserved: nobody can sign up with one, ask for a code for one, reset one or add one to
+an account. The accounts have no password of their own in any project; they cannot set one.
+
+**The password is never in this repository** (it is public). Make the two values once:
+
+```bash
+node scripts/hash-builtin-admin-password.js
+```
+
+It asks for the password twice and prints two lines:
+
+- `BUILTIN_ADMIN_PASSWORD_HASH=scrypt:…`: set it on every tier's hub (hPanel → the
+  Node.js app's environment variables). It covers the hub admin, TaskList and LadWani,
+  which run in the hub's process.
+- `BUILTIN_ADMIN_PASSWORD_BCRYPT='$2y$…'`: put it in Education's `.env` on the same tier,
+  in single quotes, then `php artisan config:cache`. PHP has no scrypt.
+
+Unset or malformed, the built-in sign-in is off in that project. A wrong password counts
+like any other; tries are limited to 10 per address and 50 per name every 15 minutes in
+the hub process, and Education counts them with its own sign-in limits.

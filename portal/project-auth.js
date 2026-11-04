@@ -27,6 +27,7 @@
 const crypto = require('crypto');
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const builtin = require('./builtin-admins');
 
 const SESSION_DAYS = 30;
 const OTP_MINUTES = 10;
@@ -97,7 +98,7 @@ function createProjectAuth(o) {
   const {
     db, key, name, base, cookie, prefix,
     allowSignUp = true, methods = ['otp', 'password'],
-    notify = {}, tier = () => 'prod', log = console, hooks = {},
+    notify = {}, tier = () => 'prod', log = console, hooks = {}, builtinAdmins = null,
   } = o;
   if (!/^[a-z_]+$/.test(prefix)) throw new Error('table prefix must be lower-case letters and _');
   const cookiePath = o.cookiePath || base || '/';
@@ -240,6 +241,20 @@ function createProjectAuth(o) {
   // (decision D-029): there it goes by email or SMS, or not at all.
   const echoCodes = (req) => tier(req) === 'dev';
 
+  // The built-in administrators, smorankar and sonalimorankar (D-036): an
+  // account of this project's own, signed in with the username and the one
+  // password whose scrypt hash is BUILTIN_ADMIN_PASSWORD_HASH. Their addresses
+  // (<name>@builtin.bkesari.com) are reserved: nobody can sign up with one,
+  // get a code for one, or put one on an account.
+  const builtinHash = builtinAdmins
+    ? builtin.parseHash((builtinAdmins.env || process.env).BUILTIN_ADMIN_PASSWORD_HASH) : null;
+  const reservedEmail = (email) => Boolean(email) && builtin.isReservedEmail(email);
+  const refuseReserved = (email) => {
+    if (reservedEmail(email)) throw new AuthError(400, 'reserved', 'This email address is reserved.');
+  };
+  const isBuiltinAccount = (u) => Boolean(u && reservedEmail(u.email));
+
+
   async function deliver(req, kind, to, subject, text, devValue) {
     let sent = false;
     try {
@@ -282,9 +297,32 @@ function createProjectAuth(o) {
       links: o.accountLinks || [] });
   }));
 
+  async function builtinSignIn(req, res, username, password) {
+    if (!password) throw new AuthError(400, 'password', 'Enter your password.');
+    // Each try is counted before the password is checked, so tries sent
+    // together cannot outrun the limits: 10 per address and 50 per name, every 15 minutes.
+    await limit(`builtin:ip:${clientIp(req)}`, 10, 15 * 60);
+    await limit(`builtin:user:${username}`, 50, 15 * 60);
+    const ok = builtinHash ? await builtin.verifyPassword(password, builtinHash) : (await bcrypt.compare(String(password), DUMMY_HASH), false);
+    if (!ok) {
+      await audit(null, username, 'sign-in-failed', 'built-in administrator', req);
+      throw new AuthError(401, 'credentials', 'That username and password do not match.');
+    }
+    const email = `${username}@${builtin.EMAIL_DOMAIN}`;
+    const role = builtinAdmins.role || 'owner';
+    const user = await db.get(`INSERT INTO ${T.users} (email, name, role, email_verified) VALUES ($1,$2,$3,TRUE)
+      ON CONFLICT (lower(email)) WHERE email IS NOT NULL
+      DO UPDATE SET role = EXCLUDED.role, status = 'active', failed_attempts = 0, locked_until = NULL RETURNING *`, [email, username, role]);
+    await audit(user.id, username, 'sign-in', 'built-in administrator', req);
+    const csrf = await startSession(req, res, user, 'builtin');
+    res.json({ user: publicUser(user), csrf });
+  }
+
   router.post('/sign-in', wrap(async (req, res) => {
     if (!methods.includes('password')) throw new AuthError(404, 'method', 'Password sign-in is not offered here.');
     const { identifier, password } = req.body || {};
+    const username = builtinAdmins ? builtin.normalizeUsername(identifier) : null;
+    if (username) return builtinSignIn(req, res, username, password);
     const email = normalizeEmail(identifier);
     const mobile = email ? null : normalizeMobile(identifier);
     if (!email && !mobile) throw new AuthError(400, 'identifier', 'Enter your email or 10-digit mobile number.');
@@ -332,6 +370,7 @@ function createProjectAuth(o) {
     const nm = String(body.name || '').trim().slice(0, 120);
     if (!nm) throw new AuthError(400, 'name', 'Enter your name.');
     if (!email) throw new AuthError(400, 'email', 'Enter a valid email address.');
+    refuseReserved(email);
     const problem = passwordProblem(body.password);
     if (problem) throw new AuthError(400, 'password', problem);
     await limit(`signup:ip:${clientIp(req)}`, 10, 60 * 60);
@@ -376,6 +415,7 @@ function createProjectAuth(o) {
     if (body.email !== undefined && body.email !== null && body.email !== '') {
       const email = normalizeEmail(body.email);
       if (!email) throw new AuthError(400, 'email', 'Enter a valid email address.');
+      refuseReserved(email);
       return { channel: 'mail', target: email, find: () => findByEmail(email) };
     }
     const mobile = normalizeMobile(body.mobile);
@@ -481,6 +521,7 @@ function createProjectAuth(o) {
   router.post('/password/forgot', wrap(async (req, res) => {
     const email = normalizeEmail((req.body || {}).email);
     if (!email) throw new AuthError(400, 'email', 'Enter a valid email address.');
+    refuseReserved(email);
     await limit(`reset:ip:${clientIp(req)}`, 10, 60 * 60);
     await limit(`reset:email:${email}`, 3, 60 * 60);
     const user = await findByEmail(email);
@@ -521,6 +562,9 @@ function createProjectAuth(o) {
   // Signed in: change name, add or change a password.
   router.post('/account', requireUser, wrap(async (req, res) => {
     const body = req.body || {};
+    if (isBuiltinAccount(req.user) && (body.newPassword !== undefined || body.email !== undefined)) {
+      throw new AuthError(403, 'builtin', 'A built-in administrator\'s password is set on the server (BUILTIN_ADMIN_PASSWORD_HASH), not here.');
+    }
     const sets = [];
     const vals = [];
     if (body.name !== undefined) { vals.push(String(body.name || '').trim().slice(0, 120) || null); sets.push(`name = $${vals.length}`); }
@@ -536,6 +580,7 @@ function createProjectAuth(o) {
     if (body.email !== undefined && !req.user.email) {
       const email = normalizeEmail(body.email);
       if (!email) throw new AuthError(400, 'email', 'Enter a valid email address.');
+      refuseReserved(email);
       if (await findByEmail(email)) throw new AuthError(409, 'exists', 'Another account uses that email.');
       vals.push(email); sets.push(`email = $${vals.length}`);
     }

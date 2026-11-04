@@ -139,7 +139,7 @@
     "admin.title": "Hub admin",
     "admin.h1": "Hub admin",
     "admin.signInLead": "For hub administrators only. Project accounts (LadWani, Education, TaskList) do not work here.",
-    "admin.email": "Email",
+    "admin.email": "Email or username",
     "admin.password": "Password",
     "admin.signIn": "Sign in"
   },
@@ -279,7 +279,7 @@
     "admin.title": "हब प्रशासन",
     "admin.h1": "हब प्रशासन",
     "admin.signInLead": "फक्त हब प्रशासकांसाठी. प्रकल्पांची खाती (लाडवाणी, शिक्षण, टास्कलिस्ट) इथे चालत नाहीत.",
-    "admin.email": "ईमेल",
+    "admin.email": "ईमेल किंवा वापरकर्ता नाव",
     "admin.password": "पासवर्ड",
     "admin.signIn": "साइन इन"
   },
@@ -419,7 +419,7 @@
     "admin.title": "हब एडमिन",
     "admin.h1": "हब एडमिन",
     "admin.signInLead": "केवल हब एडमिन के लिए। प्रोजेक्ट के खाते (लाडवाणी, शिक्षा, टास्कलिस्ट) यहाँ काम नहीं करते।",
-    "admin.email": "ईमेल",
+    "admin.email": "ईमेल या यूज़रनेम",
     "admin.password": "पासवर्ड",
     "admin.signIn": "साइन इन"
   }

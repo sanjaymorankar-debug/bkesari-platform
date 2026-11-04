@@ -67,6 +67,7 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
   const admin = createProjectAuth({
     db, key: 'hub-admin', name: 'bkesari hub admin', base: '/admin', cookie: 'hub_admin_sid', cookiePath: '/',
     prefix: 'hub_admin_', allowSignUp: false, methods: ['password'], notify, tier: envName, log,
+    builtinAdmins: { role: 'owner', env },
     secret: crypto.createHash('sha256').update(`admin|${secret}`).digest('hex'),
     accountLinks: [{ label: 'Hub admin', href: '/admin' }],
     hooks: {
@@ -227,7 +228,7 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
           title: `${pages.t(lang, 'admin.title')} — bkesari`, pathname: '/admin', scripts: ['/shared/admin.js'],
           body: (l) => `<div class="k-main--narrow"><h1>${pages.t(l, 'admin.h1')}</h1><p class="k-muted">${pages.t(l, 'admin.signInLead')}</p>
 <form class="k-card hub-form" data-admin-signin novalidate>
-<div class="k-field"><label class="k-label" for="a-email">${pages.t(l, 'admin.email')}</label><input class="k-input" id="a-email" type="email" autocomplete="username" required aria-describedby="a-err"></div>
+<div class="k-field"><label class="k-label" for="a-email">${pages.t(l, 'admin.email')}</label><input class="k-input" id="a-email" type="text" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" required aria-describedby="a-err"></div>
 <div class="k-field"><label class="k-label" for="a-pass">${pages.t(l, 'admin.password')}</label><input class="k-input" id="a-pass" type="password" autocomplete="current-password" required aria-describedby="a-err"></div>
 <p class="k-error" id="a-err" role="alert"></p>
 <button class="k-btn k-btn--brand k-btn--block" type="submit">${pages.t(l, 'admin.signIn')}</button></form></div>`,
