@@ -24,7 +24,7 @@ edu-tester agent".
 |---|---|---|
 | App code: models, services, Livewire/Volt pages | `edu/app/`, `edu/resources/views/` | PHP 8.3, Laravel 13, Livewire 3.6, Volt 1.7 |
 | Education's own sign-in, the shell's endpoints, languages | `edu/config/session.php`, `edu/routes/auth.php`, `edu/app/Livewire/Forms/LoginForm.php`, `edu/app/Services/{EmailSignIn,MobileSignIn}.php`, `edu/app/Support/{SignInCodes,BuiltinAdmins}.php`, `edu/app/Rules/NotReservedEmail.php`, `edu/app/Mail/SignInCodeMail.php`, `edu/config/mail.php`, `edu/app/Http/Controllers/{ShellController,Auth/SignOutController}.php`, `edu/app/Http/Middleware/SetLocale.php`, `edu/lang/*.json` | Laravel |
-| Serving under `/edu/` | `edu/app/Providers/AppServiceProvider.php`, `edu/app/Routing/BasePathRedirector.php`, `edu/bootstrap/app.php` | Laravel |
+| Serving under `/edu/`, and whose forwarded address counts | `edu/app/Providers/AppServiceProvider.php`, `edu/app/Routing/BasePathRedirector.php`, `edu/bootstrap/app.php`, `edu/app/Http/Middleware/TrustHubProxy.php`, `edu/config/services.php` (`hub`) | Laravel |
 | Database settings for Neon | `edu/config/database.php`, `edu/app/Database/PostgresConnector.php`, `edu/app/Providers/DatabaseServiceProvider.php` | Laravel, pdo_pgsql |
 | Schema and demo data | `edu/database/migrations/` (68), `edu/database/seeders/` | Laravel migrations, PostgreSQL 16 |
 | Hand-run SQL | `database/edu/01`–`04_*.sql`, `edu/database/sql/*.sql` | PostgreSQL |
@@ -102,6 +102,7 @@ artisan key:generate --force` works too, and is what CI does).
 | `APP_ENV`, `APP_DEBUG`, `APP_NAME`, `SESSION_DRIVER`, `CACHE_STORE`, `QUEUE_CONNECTION` | the app (S5) | `production`, `false`, `"Education Accountability Platform"`, `database`, `database`, `database`: what a tier runs |
 | `PHP_CLI_SERVER_WORKERS` | `artisan serve` (S5) | `4` |
 | `EDU_ORIGIN`, `PORT`, `DATABASE_URL`, `TRACKER_USER`, `TRACKER_PASSWORD`, `ATIP_USER`, `ATIP_PASSWORD`, `ATIP_PUBLISH_TOKEN`, `APP_ENV` | the hub (S5 only) | `http://127.0.0.1:8101`, `3105`, the hub database, `smoke` / `smoke-local-only` for the logins and token, `dev` |
+| `HUB_PROXY_SECRET` | the app and the hub (S5) | one random value given to both (`openssl rand -hex 32`). The suite needs none: only `TrustHubProxyTest` sends forwarded headers, and it sets its own |
 | `HUB`, `APP`, `KILL_URL`, `DEMO_PASSWORD` | `tests/smoke/http.sh`, `tests/smoke/browser.cjs` | `http://127.0.0.1:3105`, `http://127.0.0.1:8101`, the direct URL (S7), `Password123!` (the demo password, `TEST_ACCOUNTS.md`) |
 
 ### 2.4 Ports
@@ -226,7 +227,8 @@ python3 tests/smoke/compare_schema.py /tmp/edu-migrated.sql /tmp/edu-incremental
 
 **S5, the smoke run.** Since 3 Nov 2026 the hub puts no sign-in of its own in front of `/edu/`
 and forwards no identity: Education keeps its own accounts (`edu_sid` on `/edu`), so the hub
-needs no setting for the smoke beyond its own database. The hub's side of that (its redirect of
+needs no setting for the smoke beyond its own database and `HUB_PROXY_SECRET`, which a tier sets on
+both sides (D-038) and the smoke sets the same way. The hub's side of that (its redirect of
 `/education/*`, the shell it serves) is `portal-tester`'s; the app's side is `OwnAccountTest`.
 Seed the suite database the way a tier is set up (schema commands over
 the direct URL, the app on the pooled one), start the app and the hub, run both scripts. Leave
@@ -237,13 +239,14 @@ both servers up for S6, then stop them (`kill %1`, or the PIDs from `lsof -nP -i
 ```bash
 export APP_ENV=production APP_DEBUG=false APP_NAME="Education Accountability Platform" \
        APP_URL=http://127.0.0.1:3105/edu DB_CONNECTION=pgsql DB_URL="$POOLED" DB_URL_UNPOOLED="$DIRECT" \
-       SESSION_DRIVER=database CACHE_STORE=database QUEUE_CONNECTION=database PHP_CLI_SERVER_WORKERS=4
+       SESSION_DRIVER=database CACHE_STORE=database QUEUE_CONNECTION=database PHP_CLI_SERVER_WORKERS=4 \
+       HUB_PROXY_SECRET="$(openssl rand -hex 32)"                     # the same value goes to the hub below
 php artisan migrate:fresh --seed --force                                 # over $DIRECT, by itself
 php artisan serve --host=127.0.0.1 --port=8101 --no-reload > /tmp/edu-serve.log 2>&1 &   # --no-reload passes the environment on
 (cd .. && env -i PATH="$PATH" HOME="$HOME" EDU_ORIGIN=http://127.0.0.1:8101 PORT=3105 APP_ENV=dev \
    DATABASE_URL="postgresql://bk_portal:$BK_PORTAL_PASS@127.0.0.1:5432/bk_portal_test" \
    TRACKER_USER=smoke TRACKER_PASSWORD=smoke-local-only ATIP_USER=smoke ATIP_PASSWORD=smoke-local-only \
-   ATIP_PUBLISH_TOKEN=smoke-local-only node portal/server.js > /tmp/edu-hub.log 2>&1 &)
+   ATIP_PUBLISH_TOKEN=smoke-local-only HUB_PROXY_SECRET="$HUB_PROXY_SECRET" node portal/server.js > /tmp/edu-hub.log 2>&1 &)
 APP=http://127.0.0.1:8101 HUB=http://127.0.0.1:3105 bash tests/smoke/http.sh
 HUB=http://127.0.0.1:3105 KILL_URL="$DIRECT" node tests/smoke/browser.cjs   # KILL_URL: S7.6
 rm -rf storage/app/private/complaint-evidence storage/app/private/livewire-tmp   # the smoke's uploaded file
@@ -326,14 +329,14 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | EDU-CR-18 | The committed build matches its manifest and is exactly what the sources produce | S1 row 5, S4 |
 | EDU-CR-19 | Every protected GET route refuses a guest; no private file is served; complaint evidence downloads only for those the complaint policy allows, and only through its own complaint; the suite refuses a hosted database | S6 `guest_routes.py`, `http.sh`, the S6 refusal check; `ComplaintEvidenceTest` (3); `NeonReadinessTest`'s three `test_the_suite_refuses_*` |
 | EDU-CR-20 | No score, rank or label column in the growth or benchmark tables; a school cannot verify itself | `NoLabelingRulesTest`, `BenchmarkHonestyTest`, `UdiseVerificationTest`, `ClaimedVsExperiencedTest` |
-| EDU-CR-21 | Education's own accounts: the session cookie is `edu_sid`, on the path of `APP_URL`, Secure with https, HttpOnly, SameSite=Lax; nothing the hub forwards signs anyone in; five wrong passwords lock sign-in for 15 minutes; a sign-in code, by email or (only where SMS is set up) by text, is hashed, single-use, expires in 10 minutes, dies after 5 wrong tries, is rate-limited, goes to no unknown address, still leaves two-factor to pass, and is shown on screen only on `APP_ENV` `local` or `dev` with nothing set up to deliver it (never on test or production); the first emailed code makes an account nobody had confirmed the inbox owner's (D-035): the email is confirmed, the old password replaced, and every earlier session and open two-factor challenge ends, as after a password reset, including a sign-in that checked the old password a moment before (a session ends at its next request once the account's password has changed); the built-in administrators (D-036) sign in only with their username and the password whose bcrypt hash is `BUILTIN_ADMIN_PASSWORD_BCRYPT`, as system admin, counted 5 per name and address and 50 per name from every address per 15 minutes, their `@builtin.bkesari.com` domain refused wherever an address is typed, and a row made on it before is taken over (password, sessions, two-factor and roles its maker set); all of these hold for requests sent together | `OwnAccountTest`, `EmailSignInTest`, `MobileSignInTest`, `AttemptsTest`, `PasswordResetTest`, `BuiltinAdminTest`, `BasePathTest::test_the_session_cookie_is_sent_only_under_the_prefix_and_only_over_https`; `http.sh` cookie and `shell/me` lines; `browser.cjs` step 2 |
+| EDU-CR-21 | Education's own accounts: the session cookie is `edu_sid`, on the path of `APP_URL`, Secure with https, HttpOnly, SameSite=Lax; nothing the hub forwards signs anyone in; five wrong passwords lock sign-in for 15 minutes, counted per account and per real client address: a forwarded address (`X-Forwarded-For`, and the forwarded scheme) is believed only from a request carrying the hub's `HUB_PROXY_SECRET` (D-038, `App\Http\Middleware\TrustHubProxy`), which sends the one address it worked out, never a chain a client sent; with no secret configured every proxy is trusted as before and the log says so once a day; a sign-in code, by email or (only where SMS is set up) by text, is hashed, single-use, expires in 10 minutes, dies after 5 wrong tries, is rate-limited, goes to no unknown address, still leaves two-factor to pass, and is shown on screen only on `APP_ENV` `local` or `dev` with nothing set up to deliver it (never on test or production); the first emailed code makes an account nobody had confirmed the inbox owner's (D-035): the email is confirmed, the old password replaced, and every earlier session and open two-factor challenge ends, as after a password reset, including a sign-in that checked the old password a moment before (a session ends at its next request once the account's password has changed); the built-in administrators (D-036) sign in only with their username and the password whose bcrypt hash is `BUILTIN_ADMIN_PASSWORD_BCRYPT`, as system admin, counted 5 per name and address and 50 per name from every address per 15 minutes, their `@builtin.bkesari.com` domain refused wherever an address is typed, and a row made on it before is taken over (password, sessions, two-factor and roles its maker set); all of these hold for requests sent together | `OwnAccountTest`, `EmailSignInTest`, `MobileSignInTest`, `AttemptsTest`, `PasswordResetTest`, `BuiltinAdminTest`, `TrustHubProxyTest`, `BasePathTest::test_the_session_cookie_is_sent_only_under_the_prefix_and_only_over_https`; `http.sh` cookie and `shell/me` lines; `browser.cjs` step 2 |
 
 ### R3 — change-area map
 
 | When this changes | Emphasise |
 |---|---|
 | `config/database.php`, `app/Database/**`, `app/Providers/DatabaseServiceProvider.php`, `phpunit.xml`, `config/queue.php` | R1 on both engines, all of S7, CR-13 to CR-15 |
-| `app/Providers/AppServiceProvider.php`, `app/Routing/**`, `bootstrap/app.php`, `routes/**`, `resources/views/layouts/**`, `resources/views/livewire/layout/**`, any `href`/`action`/`redirect` in a view | `BasePathTest`, S5, S6 `guest_routes.py`, CR-01 to CR-03, CR-19 |
+| `app/Providers/AppServiceProvider.php`, `app/Routing/**`, `bootstrap/app.php`, `app/Http/Middleware/**`, `config/services.php` (`hub`), `routes/**`, `resources/views/layouts/**`, `resources/views/livewire/layout/**`, any `href`/`action`/`redirect` in a view | `BasePathTest`, `TrustHubProxyTest`, S5 (with `HUB_PROXY_SECRET` on both sides), S6 `guest_routes.py`, CR-01 to CR-03, CR-19, CR-21 (the address the limits count) |
 | `resources/views/livewire/pages/auth/**`, `app/Livewire/Forms/LoginForm.php`, `app/Support/EndSessions.php`, `bootstrap/app.php` (`authenticateSessions()`), `app/Models/TwoFactorAuthentication.php`, `app/Services/{EmailSignIn,MobileSignIn}.php`, `app/Support/{SignInCodes,Attempts,BuiltinAdmins}.php`, `app/Rules/NotReservedEmail.php`, `config/services.php` (`builtin_admins`), `app/Mail/SignInCodeMail.php`, `resources/views/emails/sign-in-code*.blade.php`, `config/mail.php`, `config/session.php`, `routes/auth.php`, `app/Http/Controllers/{ShellController,Auth/SignOutController}.php` | `Auth/*` (with `OwnAccountTest`, `EmailSignInTest`, `MobileSignInTest`, `BuiltinAdminTest`), `TwoFactorAuthTest`, `LanguageTest` (the strings), `browser.cjs`, CR-02, CR-10, CR-21 |
 | `app/Http/Middleware/SetLocale.php`, `lang/*.json`, `bootstrap/app.php` (cookie encryption) | `LanguageTest`, S5 |
 | `database/migrations/**` | S3b, S3c (regenerate `database/edu/01_edu_schema.sql` with `pg_dump --schema-only --no-owner --no-privileges` and its migrations log), S7.4, CR-16, CR-17, the schema-level tests in `AnonymizationTest`, `NoLabelingRulesTest`, `BenchmarkHonestyTest`, `HealthAccessMatrixTest` |
@@ -458,8 +461,8 @@ after the built-in administrators became an account of Education's own (`Support
 typed), with a limit of 50 tries per built-in name from every address per 15 minutes, a take-over
 that also removes what a row's maker set up on it, and school registration no longer giving an
 existing account a role (edu-tester D1–D4). Same container type and versions (PHP 8.3.6 with libpq
-16.15, PostgreSQL 16.15, PgBouncer 1.22.0, Node 22.23, Chromium via Playwright 1.63). These are now
-the floor:
+16.15, PostgreSQL 16.15, PgBouncer 1.22.0, Node 22.23, Chromium via Playwright 1.63). These were the
+floor until the D-038 re-measure below:
 
 | # | Level | Result |
 |---|---|---|
@@ -474,6 +477,30 @@ the floor:
 | 13 | S5 | http 60 passed (3 s); browser 21 passed (9 s), with `KILL_URL` through PgBouncer |
 | 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 0; `npm audit` 5 dev-only, 0 with `--omit=dev` |
 | 15 | S7.1 | 531 passed through the pooler, 40 s; 7.2/7.3/7.5/7.8 as specified |
+
+**Re-measured 2026-11-04, D-038** (edu-tester, commit `b5908df` plus its fix in the working tree; `edu/` is as
+at `f619236`, and `43a5997` carries the D-036 block's fixes unchanged). Education believes a forwarded client address only from a
+request carrying the hub's `HUB_PROXY_SECRET` (`Http/Middleware/TrustHubProxy.php` in place of the
+framework's TrustProxies), and the hub sends the one address it worked out. With no secret the old
+rule stays, and the warning that says so is written once a day, not on every request (edu-tester
+D1). S5 ran with the secret on both sides, and again with it blank. The hub was `b5908df`'s (`portal-tester`'s
+D1: the address and the secret also on a request with an `Expect` header). Same container type and versions (PHP 8.3.6 with libpq
+16.15, PostgreSQL 16.15, PgBouncer 1.22.0, Node 22.23, Chromium via Playwright 1.63). These are now
+the floor:
+
+| # | Level | Result |
+|---|---|---|
+| 2 | S1 php -l | 376 files, 0 errors (374 + `Http/Middleware/TrustHubProxy.php`, `TrustHubProxyTest.php`) |
+| 3 | S1 routes, views | 81 routes, views compile |
+| 4 | S1 Pint | the same 15 |
+| 7 | S3a SQLite | 536 tests: 531 passed, 5 skipped (the same 5), 3,485 assertions, 29 s. 5 tests added: `TrustHubProxyTest` 4, then 1 for D1 |
+| 8 | S3a PostgreSQL | 536 tests: 536 passed, 3,493 assertions, 47 s |
+| 9 | S3b | `74\|68\|289\|20\|100\|citext`; 79 s |
+| 10–11 | S3c, S3d | schemas match (5,564 lines, 70 CHECKs); migrations logs identical; 04 twice gives one row, `system_admin` |
+| 12 | S4 | byte-identical (`app-DNyD-VXB.css`) |
+| 13 | S5 | with `HUB_PROXY_SECRET` on both sides: http 60 passed (3 s), browser 21 passed (9 s), with `KILL_URL` through PgBouncer. With it blank: the same, and one warning line for the 163 requests the app handled (before the D1 fix: 164 lines for 164) |
+| 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 0; `npm audit` 5 dev-only, 0 with `--omit=dev` |
+| 15 | S7.1 | 536 passed through the pooler, 40 s; 7.2/7.3/7.5/7.8 as specified |
 
 Pint's baseline list: `app/Routing/BasePathRedirector.php`, `bootstrap/app.php`,
 `bootstrap/providers.php`, `database/seeders/FacilitySeeder.php`,
@@ -595,6 +622,24 @@ VERDICT: PASS | FAIL | BLOCKED
 - **The shell and Kesari are the hub's.** `/shared/menu.js` and `/kesari-ui/` are only loaded here
   (S5 checks they arrive and the account menu works); their own rendering, strings and contrast
   are `portal-tester`'s.
+- **The client address rests on one shared secret, set by hand on both sides (D-038).** The edu-tester's D5 (any request
+  could choose the address the per-address limits count) is closed where `HUB_PROXY_SECRET` is set on the hub and in
+  Education. That was checked end to end on 4 Nov 2026 by hand (the edu-tester's probes, not a committed script: a TLS
+  stand-in for the host's front end, the real hub, the app on the pooled URL). At the app's own origin a forged
+  `X-Forwarded-For`, with no secret, a wrong one or an empty one, is ignored, and the fifth miss locks. Through the hub only
+  the address the hub worked out arrives. Behind TLS `request()->secure()` is true and the cookies are `Secure`. What
+  remains:
+  - Blank in Education (the default) keeps the old rule: a client reaching Education's own hostname still chooses its
+    address. The log says so once a day.
+  - A value in Education that the hub does not send (unset there, different, or the hub not restarted) puts every
+    visitor through the hub on the hub's one address. One person's five wrong passwords then lock that account for
+    everyone. `DEPLOY.md` Part 2 gives the order for setting and changing it, and a check by hand.
+  - The hub believes `X-Forwarded-For` from any loopback peer (D-026, `portal-tester`'s), so on a tier who can reach the
+    hub's port decides the address it sends.
+  - The hub passes on a client's own `X-Forwarded-Host`, and Education believes it with the secret, so
+    `request()->getHost()` is the client's. Every link the app writes is pinned to `APP_URL`, and neither the app's code, the framework's
+    HTTP and session middleware, nor Livewire reads the host.
+  - None of it is verified on a tier, and S5's scripts cannot see the address the app counted.
 - **Signed URLs fail under `/edu/` unless handled.** Livewire's upload and preview URLs are
   (`App\Routing\BasePathSignedUploadUrl`); the app signs nothing else today, but email
   verification would need the same (`DEPLOY.md` Part 7).

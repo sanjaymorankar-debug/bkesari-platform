@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -18,7 +19,7 @@ use Symfony\Component\HttpFoundation\Response;
  * client cannot choose the address the rate limits count under.
  *
  * With no secret configured it keeps the old rule (every proxy trusted) and
- * warns once, rather than putting every visitor behind the hub on one
+ * warns once a day, rather than putting every visitor behind the hub on one
  * address, which would let one person's mistakes lock out everyone.
  */
 class TrustHubProxy
@@ -35,10 +36,7 @@ class TrustHubProxy
         $request->headers->remove('X-Bkesari-Proxy');
 
         if ($secret === '') {
-            if (! self::$warned) {
-                self::$warned = true;
-                Log::warning('HUB_PROXY_SECRET is not set: every proxy is trusted, so a client can choose the address the rate limits count (D-038).');
-            }
+            self::warnNoSecret();
             Request::setTrustedProxies(['0.0.0.0/0', '::/0'], self::HEADERS);
         } elseif ($sent !== '' && hash_equals($secret, $sent)) {
             // The hub itself: the one connection whose forwarded headers count.
@@ -48,5 +46,29 @@ class TrustHubProxy
         }
 
         return $next($request);
+    }
+
+    /**
+     * At most once a day. The flag on the class is not enough by itself: under
+     * PHP-FPM, as under `php artisan serve`, every request starts with fresh
+     * static state, so it wrote this line on every request. The cache keeps the
+     * mark between requests; without a cache it warns once per process.
+     */
+    private static function warnNoSecret(): void
+    {
+        if (self::$warned) {
+            return;
+        }
+        self::$warned = true;
+
+        try {
+            if (! Cache::add('trust-hub-proxy:no-secret-warned', true, now()->addDay())) {
+                return;
+            }
+        } catch (\Throwable) {
+            // No cache to keep the mark in: warn, rather than not at all.
+        }
+
+        Log::warning('HUB_PROXY_SECRET is not set: every proxy is trusted, so a client can choose the address the rate limits count (D-038).');
     }
 }

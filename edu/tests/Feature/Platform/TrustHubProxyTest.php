@@ -2,7 +2,12 @@
 
 namespace Tests\Feature\Platform;
 
+use App\Http\Middleware\TrustHubProxy;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
+use Mockery;
+use ReflectionProperty;
 use Tests\TestCase;
 
 /**
@@ -66,5 +71,28 @@ class TrustHubProxyTest extends TestCase
         $seen = $this->client(['X-Forwarded-For' => '198.51.100.7'], secret: null);
 
         $this->assertSame('198.51.100.7', $seen['ip']);
+    }
+
+    public function test_with_no_secret_the_warning_is_written_once_a_day_not_on_every_request(): void
+    {
+        Log::spy();
+        Cache::forget('trust-hub-proxy:no-secret-warned'); // whatever store the run uses
+        $warned = new ReflectionProperty(TrustHubProxy::class, 'warned');
+        $request = function () use ($warned) {
+            // Under PHP-FPM and `php artisan serve` every request starts with fresh
+            // static state, so a flag on the class alone would warn every time.
+            $warned->setValue(null, false);
+            $this->client(['X-Forwarded-For' => '198.51.100.7'], secret: null);
+        };
+
+        $request();
+        $request();
+        $request();
+        Log::shouldHaveReceived('warning')->with(Mockery::pattern('/HUB_PROXY_SECRET is not set/'))->once();
+
+        // And again the next day, so a tier left without it is not forgotten.
+        $this->travel(25)->hours();
+        $request();
+        Log::shouldHaveReceived('warning')->with(Mockery::pattern('/HUB_PROXY_SECRET is not set/'))->twice();
     }
 }

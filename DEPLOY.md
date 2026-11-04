@@ -207,7 +207,14 @@ BUILTIN_ADMIN_PASSWORD_BCRYPT='$2y$12$…'
    **The hub's proxy secret** (D-038): the same value as `HUB_PROXY_SECRET` on this tier's hub
    (Part 1). Only a request carrying it has its forwarded client address believed, so the
    "five wrong passwords" lock and the code limits count the real visitor. Blank: every proxy is
-   trusted, as before. Then `php artisan config:cache` again.
+   trusted, as before, and `storage/logs/laravel.log` says so once a day. Then
+   `php artisan config:cache` again. **Never leave a value here that the hub does not send**
+   (unset on the hub, a different value, or the hub not yet restarted): every visitor through
+   the hub then counts as the hub's one address, so one person's five wrong passwords lock that
+   account for everyone, and everyone shares the 10 sign-in codes an hour. So set it on the hub
+   first and restart it, then here; to change it, blank it here (`config:cache`), change the
+   hub, then set the new value here. To check: five wrong passwords for a test account from one
+   device, and it must still sign in from a phone on mobile data.
 
 ```bash
 HUB_PROXY_SECRET=<the hub's value>
