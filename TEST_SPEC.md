@@ -129,6 +129,7 @@ them. LadWani's schema goes into its database once per run (2.5).
 | `ATIP_PUBLISH_TOKEN` | snapshot upload | `smoke-local-token` |
 | `BUILTIN_ADMIN_PASSWORD_HASH` | the built-in administrators' sign-in in the hub admin, TaskList and LadWani's API in the hub (`portal/builtin-admins.js`, D-036) | **unset** in every shell that starts a hub or a test: `builtin-admins.pg.test.js` and LadWani's specs set a test-only hash of their own (unset, the built-in sign-in is off). Never a real tier's value. To try it by hand, hash a throwaway password with `printf %s 'throwaway-pass-123' \| node scripts/hash-builtin-admin-password.js` |
 | `EDU_ORIGIN`, `LADWANI_ORIGIN` | the proxy | `EDU_ORIGIN=http://127.0.0.1:3111` for every hub S5 and S6 start (`start_hub` sets it; S5 puts `scripts/edu-standin.js`, then its echo upstream, on that port), as S7's script and CI's smoke step do (D-031); `LADWANI_ORIGIN` blank. Blank `EDU_ORIGIN` while `APP_ENV` names a tier means that tier's live Education site (`TIER_ORIGINS` in `portal/proxy.js`), so a hub that must stay local sets it to a local upstream or leaves `APP_ENV` blank (`server.test.js`, `ladwani.test.js` do). LadWani has no tier default, and `LADWANI_ORIGIN` is ignored while its export is built (server.js serves it itself) |
+| `HUB_PROXY_SECRET` | the proxy (`portal/proxy.js`, D-038): sent as `X-Bkesari-Proxy` with every forwarded request, so Education believes the hub's `X-Forwarded-For` | unset, except S5's proxy step, which sets the test-only `s5-local-only-proxy-secret` (its echo upstream shows it). Never a tier's value |
 | `LADWANI_DATABASE_URL` | LadWani's API in the hub (`portal/ladwani.js`) | unset (the pages are served and the API answers 503), except in S5's LadWani step: `$LADWANI_SMOKE_DATABASE_URL`. Never a Neon branch |
 | `LADWANI_JWT_SECRET`, `LADWANI_TRUST_PROXY` | LadWani's API in the hub | unset (the secret is then derived from the hub's key; the rate limits count per signed-in person, not per address, so no trust-proxy setting is needed for them) |
 | `LADWANI_VISITOR_HEADER` | LadWani's rate limits (`VisitorThrottlerGuard`) | never set by hand: `portal/ladwani.js` sets it in the hub's process. Standalone LadWani without it counts per IP and ignores the header |
@@ -353,12 +354,17 @@ kill $HUB; wait $HUB 2>/dev/null; kill $UP0; wait $UP0 2>/dev/null; sleep 0.5
 # Nothing gates the tabs any more, and no hub token is ever forwarded, forged or not. Nor is the
 # hub admin's session (D-027): its two Path=/ cookies come off, the project's own pass as sent.
 # With #9a's export built, server.js serves /ladwani/ itself and ignores LADWANI_ORIGIN; the
-# Education lines are the proxy's.
-node -e 'require("http").createServer((q,r)=>{let b="";q.on("data",c=>b+=c).on("end",()=>{r.setHeader("content-type","application/json");r.end(JSON.stringify({url:q.url,body:b,token:q.headers["x-bkesari-token"]||null,cookie:q.headers.cookie||null}))})}).listen(3111,"127.0.0.1")' & UP=$!
+# Education lines are the proxy's. The app is told one visitor address, what req.ip resolves
+# with trust proxy at its default (loopback: curl here is a trusted hop, so a chain's last
+# entry), and the hub's secret; neither as the client sent it, also with Expect (D-038).
+node -e 'require("http").createServer((q,r)=>{let b="";q.on("data",c=>b+=c).on("end",()=>{r.setHeader("content-type","application/json");r.end(JSON.stringify({url:q.url,body:b,token:q.headers["x-bkesari-token"]||null,cookie:q.headers.cookie||null,xff:q.headers["x-forwarded-for"]||null,proxy:q.headers["x-bkesari-proxy"]||null}))})}).listen(3111,"127.0.0.1")' & UP=$!
 sleep 0.5
-start_hub EDU_ORIGIN=http://127.0.0.1:3111
+start_hub EDU_ORIGIN=http://127.0.0.1:3111 HUB_PROXY_SECRET=s5-local-only-proxy-secret
 has "$(curl -s "$BASE/edu/login")" '"url":"/login"'
 has "$(curl -s -H 'x-bkesari-token: forged' "$BASE/edu/login")" '"token":null'
+XC='x-forwarded-for: 198.51.100.7, 203.0.113.9'
+has "$(curl -s -H "$XC" -H 'x-bkesari-proxy: forged' "$BASE/edu/login")" '"xff":"203.0.113.9","proxy":"s5-local-only-proxy-secret"'
+has "$(curl -s -H "$XC" -H 'x-bkesari-proxy: forged' -H 'Expect: 100-continue' -H "$J" -d '{"qty":4}' "$BASE/edu/api/orders")" '"xff":"203.0.113.9","proxy":"s5-local-only-proxy-secret"'
 want 200 -b $AD "$BASE/admin/api/state"           # the owner's jar is a live session on this hub...
 # ...and of its three Path=/ cookies Education gets only the shell's k_admin hint (not a secret).
 has "$(curl -s -b $AD "$BASE/edu/login")" '"cookie":"k_admin=1"'
@@ -480,7 +486,7 @@ fails on a skip.
 | PORTAL-CR-10 | A Neon URL works as pasted: TLS on and verified without `DB_SSL`, channel binding honoured, a connect timeout long enough for a cold start | `db-config.test.js` (all 5); S7 |
 | PORTAL-CR-11 | The proxy is mounted before the body parsers, so a POST into a proxied app keeps its body; so is LadWani's in-process API, which reads the raw body itself (its payment webhook checks a signature over it) | `server.test.js` :: the real server.js mounts the proxy before the body parsers; `proxy.test.js` :: a POST body reaches the app intact…; `ladwani.test.js` :: the API is mounted before the hub's body parsers…; S5 proxy `"body"` line; S5 LadWani `"received":true` line |
 | PORTAL-CR-12 | `/ladwani/` keeps its prefix; only `/edu/` has it stripped, query string intact; `/education/*` redirects to `/edu/*` | `proxy.test.js` :: only the tab that cannot own its prefix has it stripped…; `hub.pg.test.js` :: the old shared sign-in's addresses…; S5 proxy lines |
-| PORTAL-CR-13 | A proxy origin comes only from the environment, never from the request, and must be a bare http(s) origin (no open proxy); a tier default meets the same gate | `proxy.test.js` (the origin tests) |
+| PORTAL-CR-13 | A proxy origin comes only from the environment, never from the request, and must be a bare http(s) origin (no open proxy); a tier default meets the same gate. What the app is told about the visitor comes only from the hub (D-038): `X-Forwarded-For` is the one address the hub worked out (`req.ip`, `trust proxy` aware), never the chain a client sent; `X-Bkesari-Proxy` is `HUB_PROXY_SECRET`, sent only when it is set and never in an answer or a log; a client's own value of either never passes; both hold for a request with an `Expect` header too | `proxy.test.js` (the origin tests; the app is told one visitor address…; a request with an Expect header is told the same…); S5 proxy `"xff"` lines |
 | PORTAL-CR-14 | A down app gives a 502 page that still carries the shell, with its own project current | `proxy.test.js` :: an app that is down gives a 502…; a stripping tab's 502 page…; S5 Education lines |
 | PORTAL-CR-15 | The hub states its tier (`X-Bkesari-Env`) and keeps non-production out of search; an unknown host is production; the style guide exists on dev and test only | `smoke-dev.sh` *Tier identity*; `menu.test.js` :: the tier comes from the hostname…; `hub.pg.test.js` :: error pages, the style guide and security headers |
 | PORTAL-CR-16 | The shell: six projects in order (ATIP to the owner only, and only as a link out), the project's name in its accent, no script needed for what it shows, scoped styles, 48 px targets, a 3 px focus ring, the account menu of the current project only, every string in EN / MR / HI, on every page | `menu.test.js` (all 14) |
@@ -508,7 +514,7 @@ fails on a skip.
 | `tools/migrate_shared_id.mjs` | `migrate.pg.test.js`; CR-26 |
 | `mobile/**` | `mobile.test.js` |
 | `portal/db.js`, `portal/sql/**`, `database/portal/**`, `package.json`, `package-lock.json` | R1; S3 #8; S4; **S7**; CR-07 to CR-10, CR-20 |
-| `portal/proxy.js` | `proxy.test.js`; S5 proxy step; CR-11 to CR-14, CR-22 |
+| `portal/proxy.js` | `proxy.test.js`; S5 proxy step; CR-11 to CR-14, CR-22. A change to what the app is told (the forwarded headers, `HUB_PROXY_SECRET`) also: Education's `TrustHubProxy` (the edu-tester), and DEPLOY.md Part 1 and Part 2 read against it |
 | `portal/ladwani.js` | `ladwani.test.js`; S5 LadWani step; S6 LadWani loop; CR-11, CR-21. A change to a setting it gives LadWani (`ENGINE_THREADS`, `LADWANI_*`) also: DEPLOY.md Part 7 and section 2.3 read against it |
 | `ladwani/**` | #6a–#6c, #9a; S5 LadWani step and tier step; CR-21, CR-23 (its sign-in). A change to its settings (`apps/api/src/common/env.ts`, `next.config.js`) also: DEPLOY.md Part 7 read against it. A change to its fonts (`apps/web/src/app/fonts/`, `layout.tsx`, the `font-family` and `font-weight` rules in `globals.css`) also: `ladwani-fonts.test.js` |
 | `portal/public/shared/menu.js`, `portal/public/**/*.html`, `page.css`, `hub.css` | `menu.test.js`; `kesari-ui.test.js`; S1 #5; S5; CR-04, CR-14 to CR-16, CR-25 |
@@ -664,6 +670,15 @@ PostgreSQL suites). #6a LadWani Jest **364** in **35** suites (363 from `585ceb4
 the optional mobile; +1 from portal-tester, the takeover of such a row); `builtin-admins.integration.spec.ts`
 is under `test:integration`, outside #6a. #6b, #6c (the two warnings), #9a (46 pages), S5 (57),
 smoke-dev.sh 33 / 0 / 0, S6 (27), #12 (root 0; LadWani 11) and S7 (18) unchanged.
+Then the forwarded visitor address and the hub's secret (D-038, `f619236`; portal-tester, 4 Nov 2026, with
+its fix: httpxy builds no `proxyReq` event for a request with an `Expect` header, so the headers are now set
+before the forwarded request is built): R1 **187**: `proxy` **35** (+1 from `f619236`, the app is told one
+visitor address and the secret only when set; +1 from portal-tester, a request with an Expect header is told
+the same), every other file as above, plus **32** guard cases; S2 **143**, six suites skipped. S5 **59** probes
+ok (+2 in the proxy step, with `HUB_PROXY_SECRET` set: a client's chain arrives as what `req.ip` resolves, and
+the secret replaces a forged one, also with `Expect: 100-continue`); smoke-dev.sh 33 / 0 / 0; CI's smoke step
+33 / 0 / 0. #6a (364 in 35), #6b, #6c (the two warnings), #9a (46 pages), S6 (27), #12 (root 0; LadWani 11) and
+S7 (18) unchanged.
 
 For reference, the suite as merged (before this spec, the same commit, clean tree): 80 tests,
 63 pass, 9 fail, 8 skip, all from the MySQL/SQLite `tests/db-dialects.test.js` that the move to

@@ -657,3 +657,50 @@ test('the app is told one visitor address, the one the hub worked out, and the h
     await close(upstream.server);
   }
 });
+
+test('a request with an Expect header is told the same as any other: the address the hub worked out, and the hub\'s secret (D-038)', async () => {
+  // The proxy builds no proxyReq event for such a request (Node writes its
+  // headers out at once), so a header set there would not reach the app and
+  // the client's own chain would. curl sends Expect: 100-continue on its own
+  // for a large body.
+  const seen = [];
+  const upstream = await listen((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; }).on('end', () => {
+      seen.push({ xff: req.headers['x-forwarded-for'] || null, secret: req.headers['x-bkesari-proxy'] || null, body });
+      res.end('app');
+    });
+  });
+  const saved = proxy.TIER_ORIGINS.dev;
+  proxy.TIER_ORIGINS.dev = { edu: upstream.origin };
+  const app = express();
+  app.set('trust proxy', 'loopback'); // what portal/server.js sets when TRUST_PROXY is unset
+  try {
+    proxy.mount(app, { env: { APP_ENV: 'dev', HUB_PROXY_SECRET: 'test-only-proxy-secret-0123456789' }, log: { error: () => {} } });
+  } finally {
+    proxy.TIER_ORIGINS.dev = saved;
+  }
+  const hub = await listen(app);
+  const send = (extra, body) => new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1', port: hub.server.address().port, method: 'POST', path: '/edu/api/orders',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.7, 203.0.113.9', 'x-bkesari-proxy': 'forged', ...extra },
+    }, (res) => { res.resume(); res.on('end', resolve); });
+    req.on('error', reject);
+    if (extra.expect) req.on('continue', () => req.end(body));
+    else req.end(body);
+  });
+  try {
+    await send({}, '{"qty":1}');
+    await send({ expect: '100-continue' }, '{"qty":2}');
+  } finally {
+    await close(hub.server);
+    await close(upstream.server);
+  }
+  // A loopback caller is a trusted proxy here, so the hub's view of the visitor
+  // is the chain's last hop; the rest of the chain and the forged secret stay out.
+  assert.deepEqual(seen, [
+    { xff: '203.0.113.9', secret: 'test-only-proxy-secret-0123456789', body: '{"qty":1}' },
+    { xff: '203.0.113.9', secret: 'test-only-proxy-secret-0123456789', body: '{"qty":2}' },
+  ]);
+});

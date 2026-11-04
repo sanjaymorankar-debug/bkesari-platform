@@ -262,6 +262,13 @@ function mount(app, {
       // or the proxy itself below, may set them.
       delete req.headers['x-bkesari-token'];
       delete req.headers['x-bkesari-proxy'];
+      // The visitor's address as the hub worked it out (Express's `trust proxy`,
+      // D-026), alone: never the chain a client sent (D-038). Set here, on the
+      // request the proxy copies its headers from, not in a proxyReq handler:
+      // the proxy skips proxyReq for a request with an Expect header (Node has
+      // written that request's headers out already), which forwarded the
+      // client's own chain.
+      if (req.ip) req.headers['x-forwarded-for'] = req.ip;
       // The hub admin's session is on Path=/ (the owner's ATIP viewer needs it),
       // so the browser sends it here too. It is the hub's alone: no project app
       // gets to see it.
@@ -301,15 +308,13 @@ function mount(app, {
         followRedirects: false,
         proxyTimeout: timeoutMs,
         timeout: timeoutMs,
+        // With HUB_PROXY_SECRET set, the app is told the request came from the
+        // hub, so it may believe the address above (Education:
+        // App\Http\Middleware\TrustHubProxy, D-038). Added to every forwarded
+        // request as it is built (an Expect header included), and never put on
+        // the incoming request, so nothing else in the hub sees it.
+        ...(proxySecret ? { headers: { 'x-bkesari-proxy': proxySecret } } : {}),
         on: {
-          // The visitor's address as the hub worked it out (Express's
-          // `trust proxy`, D-026), alone: never the chain a client sent. With
-          // HUB_PROXY_SECRET set, the app is told it came from the hub, so it
-          // may believe the address (Education: App\Http\Middleware\TrustHubProxy, D-038).
-          proxyReq: (proxyReq, req) => {
-            if (req.ip) proxyReq.setHeader('x-forwarded-for', req.ip);
-            if (proxySecret) proxyReq.setHeader('x-bkesari-proxy', proxySecret);
-          },
           error: (err, req, res) => {
             // originalUrl: for a stripping tab, req.url has already lost the
             // prefix by now, and the bar would light up no tab at all.
