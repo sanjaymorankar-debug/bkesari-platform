@@ -33,6 +33,16 @@ new #[Layout('layouts.app')] class extends Component
     {
         $user = Auth::user();
 
+        // Not your own appeal, even with the jurisdiction for it: deciding
+        // it writes your id into `appeals.reviewed_by_user_id` beside the
+        // appeal's `anonymous_ref` — and into an `audit_logs` row with your
+        // IP — which links the submitter to their own complaint in tables
+        // every officer reads, outside IdentityResolutionService. Viewing is
+        // unaffected: mount() admits the owner separately.
+        if (AnonymousIdentity::where('user_id', $user->id)->where('anonymous_ref', $appeal->anonymous_ref)->exists()) {
+            return false;
+        }
+
         if ($user->hasRole('state_officer')) {
             return OfficerJurisdiction::where('user_id', $user->id)
                 ->where('level', 'state')->where('state_id', $appeal->state_id)->exists();

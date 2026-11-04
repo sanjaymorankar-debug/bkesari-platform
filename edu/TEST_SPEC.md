@@ -309,7 +309,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | EDU-CR-01 | Every URL the app writes under the hub starts with `/edu` (routes, assets, Livewire's update URI and script), and Livewire's signed upload URL carries one prefix and passes its signature check | `tests/Feature/Platform/BasePathTest.php` (13 tests); `http.sh` URL and asset blocks; `browser.cjs` steps 1 and 3 |
 | EDU-CR-02 | A guest sent to sign in from a protected page returns to that page, query string kept | `BasePathTest::test_a_guest_redirect_remembers_the_prefixed_page_it_came_from`, `::test_the_remembered_page_keeps_its_query_string`; `browser.cjs` step 1 |
 | EDU-CR-03 | Signing out (and every literal link) stays inside `/edu/` | `BasePathTest::test_no_view_hardcodes_a_root_relative_link`; `browser.cjs` step 2 |
-| EDU-CR-04 | A complaint or feedback row never carries the submitter's identity, and neither does its status-history row — `recordStatusChange()` drops a submitter id at the chokepoint; reversing an anonymous ref needs the permission and a reason, and is logged | `AnonymizationTest` (11 tests, mutation-tested) |
+| EDU-CR-04 | A complaint or feedback row never carries the submitter's identity, and neither does its status-history row — `recordStatusChange()` drops a submitter id at the chokepoint; a submitter who also holds a staff or officer role cannot act officially on their own complaint or appeal (respond, reveal, decide), so no response, audit, identity-access or appeal row names them beside it; reversing an anonymous ref needs the permission and a reason, and is logged | `AnonymizationTest` (14 tests, mutation-tested) |
 | EDU-CR-05 | School, district and state boundaries; government roles never reach an individual child's records | `RbacBoundaryTest`, `GrowthAccessBoundaryTest` (mutation-tested), `HealthAccessMatrixTest` |
 | EDU-CR-06 | DPDP consent gates growth, career, life-skills and health data, per purpose, withdrawable at once | `ConsentGateTest`, `HealthPortalTest` |
 | EDU-CR-07 | Safeguarding cases are invisible to school admins; a POCSO case cannot close without an external report | `SafeguardingTest` |
@@ -326,7 +326,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | EDU-CR-18 | The committed build matches its manifest and is exactly what the sources produce | S1 row 5, S4 |
 | EDU-CR-19 | Every protected GET route refuses a guest; no private file is served; complaint evidence downloads only for those the complaint policy allows, and only through its own complaint; the suite refuses a hosted database | S6 `guest_routes.py`, `http.sh`, the S6 refusal check; `ComplaintEvidenceTest` (3); `NeonReadinessTest`'s three `test_the_suite_refuses_*` |
 | EDU-CR-20 | No score, rank or label column in the growth or benchmark tables; a school cannot verify itself | `NoLabelingRulesTest`, `BenchmarkHonestyTest`, `UdiseVerificationTest`, `ClaimedVsExperiencedTest` |
-| EDU-CR-21 | Every official decision is logged against the person who took it, and cannot be forged by mass assignment; no audit row ever names a *submitter* (or their IP) alongside their complaint or feedback — staff and officers acting officially are named | `AuditLoggingTest` (13 tests, mutation-tested); `NotificationsTest::test_rejecting_a_relationship_notifies_nobody` |
+| EDU-CR-21 | Every official decision is logged against the person who took it, and cannot be forged by mass assignment; no audit row ever names a *submitter* (or their IP) alongside their complaint or feedback — staff and officers acting officially are named | `AuditLoggingTest` (14 tests, mutation-tested — including a dual-role actor, the case the blanket invariant test was blind to); `NotificationsTest::test_rejecting_a_relationship_notifies_nobody` |
 
 ### R3 — change-area map
 
@@ -341,7 +341,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | `app/Services/*Access*`, `ConsentService`, `SafeguardingService`, `DataSubjectRequestService`, `Health*`, `IdentityResolutionService` | CR-04 to CR-09 and their test files |
 | `app/Models/AuditLog.php`, `app/Models/Concerns/RecordsVerificationDecision.php`, `School::markRecognitionVerified`, any new `AuditLog::record*` call site | `AuditLoggingTest`, CR-21, and CR-04 if the call site touches a complaint or feedback |
 | `dashboards/school.blade.php`'s `decide()` (the one path behind all six approve/reject buttons) | `AuditLoggingTest`, `NotificationsTest` (an approval notifies, a rejection notifies nobody), `RegistrationFlowTest` (the cross-school refusal), CR-05, CR-21 |
-| `app/Models/Complaint.php`, `resources/views/livewire/complaints/**`, `app/Http/Controllers/ComplaintEvidenceController.php`, `app/Policies/ComplaintPolicy.php` | `ComplaintNumberTest`, `ComplaintEvidenceTest`, `ComplaintFlowTest`, `RbacBoundaryTest`, `browser.cjs` step 3, S7.8, CR-11, CR-19; `recordStatusChange()` also → `AnonymizationTest`, CR-04 |
+| `app/Models/Complaint.php`, `resources/views/livewire/complaints/**`, `app/Http/Controllers/ComplaintEvidenceController.php`, `app/Policies/ComplaintPolicy.php` | `ComplaintNumberTest`, `ComplaintEvidenceTest`, `ComplaintFlowTest`, `RbacBoundaryTest`, `browser.cjs` step 3, S7.8, CR-11, CR-19; `recordStatusChange()` and `ComplaintPolicy`'s `respond`/`review` also → `AnonymizationTest`, CR-04, CR-21 |
 | `tests/TestCase.php`, `phpunit.xml` | the S6 refusal check, R1 on both engines, CR-19 |
 | `resources/views/**`, `resources/css/**`, `resources/js/**`, `tailwind.config.js`, `vite.config.js`, `package*.json` | S4: rebuild with `npm run build` and commit `public/build/` with the change (Hostinger has no Node), then S5 |
 | `composer.json`, `composer.lock` | S1 rows 1–3, R1, S6 `composer audit` |
@@ -464,7 +464,7 @@ Written to `.claude/test-runs/<UTC yyyymmdd-hhmmss>-edu-tester.md` and copied to
 | ID | Result | Evidence |
 |---|---|---|
 | EDU-CR-01 | PASS | <test name, or the smoke line> |
-| ... all 20 ... |
+| ... all 21 ... |
 
 ## Defects
 

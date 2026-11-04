@@ -8,11 +8,13 @@ use App\Models\ParentSchoolRelationship;
 use App\Models\School;
 use App\Models\SchoolFeedback;
 use App\Models\SchoolRatingComponent;
+use App\Models\SchoolStaff;
 use App\Models\TeacherSchoolRelationship;
 use App\Models\TwoFactorAuthentication;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Livewire\Volt\Volt;
 use PragmaRX\Google2FA\Google2FA;
 use Tests\Feature\Platform\Concerns\SetsUpPlatformData;
@@ -261,6 +263,102 @@ class AuditLoggingTest extends TestCase
             0,
             AuditLog::where('user_id', $submitter->id)->where('auditable_type', Complaint::class)->count(),
             'the submitter must never appear as the actor on their own complaint'
+        );
+    }
+
+    /**
+     * The invariant above, against the actor it was blind to.
+     *
+     * `test_no_audit_row_ever_names_a_user_alongside_a_complaint_or_feedback`
+     * builds its fixture from two distinct users, so it never exercised one
+     * person wearing both hats — a clerk or teacher whose own child attends
+     * the school they work at, who is both a verified parent and
+     * `school_staff`. For that actor the official-side calls
+     * (`complaint.responded`, `complaint.resolution_proposed`) would have
+     * written their id *and their IP* beside their own complaint, and
+     * `/admin/audit-log` renders `actorLabel()`, so a System Admin would
+     * have read the submitter's name next to `Complaint #N`.
+     *
+     * `ComplaintPolicy::respond()` now refuses the conflicted action
+     * outright rather than dropping the id — dropping it would weaken the
+     * attribution the trail exists for, and nobody should answer their own
+     * complaint anyway. Another member of staff still can.
+     */
+    public function test_no_audit_row_names_a_dual_role_actor_beside_their_own_complaint(): void
+    {
+        $school = $this->makeSchool();
+        $category = $this->makeCategory();
+
+        // One person, both hats: verified parent at the school *and* staff there.
+        $both = User::factory()->create();
+        $both->assignRole('parent');
+        $both->assignRole('school_admin');
+        ParentSchoolRelationship::create([
+            'user_id' => $both->id, 'school_id' => $school->id,
+            'status' => 'verified', 'verified_at' => now(),
+        ]);
+        SchoolStaff::create(['user_id' => $both->id, 'school_id' => $school->id, 'designation' => 'Clerk']);
+
+        Volt::actingAs($both)->test('complaints.create')
+            ->set('schoolId', (string) $school->id)
+            ->set('complaintCategoryId', (string) $category->id)
+            ->set('subject', 'Staff room roof leaks onto the corridor')
+            ->set('description', 'Water comes through the corridor ceiling whenever it rains heavily.')
+            ->set('severity', 'medium')
+            ->call('submit');
+
+        $complaint = Complaint::firstOrFail();
+        $this->assertTrue($complaint->isSubmitter($both->id));
+
+        // They may not answer their own complaint, in either capacity.
+        Volt::actingAs($both)->test('complaints.show', ['complaint' => $complaint])
+            ->set('responseMessage', 'We have looked at this and the roof is scheduled.')
+            ->call('respond')
+            ->assertForbidden();
+
+        Volt::actingAs($both)->test('complaints.show', ['complaint' => $complaint])
+            ->set('responseMessage', 'Resolved.')
+            ->call('markResolutionProposed')
+            ->assertForbidden();
+
+        $this->assertNoAuditRowLinksASubmitterToTheirOwnComplaint();
+
+        // And a different staff member still can answer it.
+        $colleague = $this->makeSchoolAdmin($school);
+
+        Volt::actingAs($colleague)->test('complaints.show', ['complaint' => $complaint])
+            ->set('responseMessage', 'Maintenance has been booked for the corridor ceiling.')
+            ->call('respond');
+
+        $row = $this->rowsFor('complaint.responded')->sole();
+        $this->assertSame($colleague->id, $row->user_id);
+
+        $this->assertNoAuditRowLinksASubmitterToTheirOwnComplaint();
+    }
+
+    /**
+     * The invariant stated as a query rather than per-action: no `audit_logs`
+     * row may name a user who is the submitter behind the complaint that row
+     * points at. Holds however the row was written.
+     */
+    private function assertNoAuditRowLinksASubmitterToTheirOwnComplaint(): void
+    {
+        $leaks = DB::table('audit_logs as l')
+            ->join('complaints as c', function ($join) {
+                $join->on('c.id', '=', 'l.auditable_id')
+                    ->where('l.auditable_type', '=', Complaint::class);
+            })
+            ->join('anonymous_identities as a', function ($join) {
+                $join->on('a.anonymous_ref', '=', 'c.anonymous_ref')
+                    ->on('a.user_id', '=', 'l.user_id');
+            })
+            ->select('l.action', 'l.user_id', 'l.ip_address', 'c.id as complaint_id')
+            ->get();
+
+        $this->assertCount(
+            0,
+            $leaks,
+            'audit_logs links a submitter to their own complaint: '.$leaks->pluck('action')->implode(', ')
         );
     }
 

@@ -70,6 +70,24 @@ were cleared by `2026_11_04_000001_clear_submitter_ids_from_complaint_status_his
 which matched them by resolving each row's user against its own complaint's
 `anonymous_ref` rather than by reading the note.
 
+The timeline was not the only writer on the official side of a complaint, and
+one person can hold two hats: a clerk or teacher whose own child attends the
+school they work at is both staff and a verified parent, and an officer can be
+a parent in their own jurisdiction. They may file a complaint, but they may not
+then act on it officially — `ComplaintPolicy::respond()` and `::review()` refuse
+a complaint the actor submitted, and the appeal screen's `canReview()` refuses
+an appeal they filed. Without those, `complaint_responses.responder_user_id`,
+`appeals.reviewed_by_user_id`, an `identity_access_logs` row from
+`revealIdentity`, and an `audit_logs` row carrying the actor's **IP** would each
+have named the submitter beside their own complaint, in tables the school and
+every officer read — and the `audit_logs` one is not even data-layer only:
+`/admin/audit-log` renders `actorLabel()`, so it would have shown the
+submitter's **name** next to `Complaint #N`. Refusing the conflicted action,
+rather than dropping the actor's id, keeps the accountability the trail exists
+for: an official act is still always named (CR-21). Viewing is untouched — a
+submitter still sees their own complaint and appeal — and another member of
+staff can answer it.
+
 `AuditLoggingTest` enforces this directly — if a future call site reaches for
 `record()` where it should have used `recordAnonymous()`,
 `test_no_audit_row_ever_names_a_user_alongside_a_complaint_or_feedback` fails.

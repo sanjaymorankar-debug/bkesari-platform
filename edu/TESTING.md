@@ -4,7 +4,7 @@
 php artisan test
 ```
 
-423 tests (PHPUnit via Laravel's test runner). With no extra configuration this runs against in-memory SQLite (`phpunit.xml`), so it needs no database server; 5 PostgreSQL-specific tests are skipped there. [`TEST_SPEC.md`](TEST_SPEC.md) is the full test specification: every check, in order, with the counts measured for it.
+455 tests (PHPUnit via Laravel's test runner). With no extra configuration this runs against in-memory SQLite (`phpunit.xml`), so it needs no database server; 5 PostgreSQL-specific tests are skipped there. [`TEST_SPEC.md`](TEST_SPEC.md) is the full test specification: every check, in order, with the counts measured for it.
 
 ### Against PostgreSQL (what CI runs)
 
@@ -43,7 +43,10 @@ Before the fix in `config/database.php` this failed 391 of 392 tests: the migrat
 - **Timeline anonymity** (`tests/Feature/Platform/AnonymizationTest.php`): a submitter's resolution confirmation
   leaves no actor on `complaint_status_history` while the school's own transition still names the staff member;
   `recordStatusChange()` drops a submitter id even when a caller passes one explicitly, and keeps a staff id; and
-  the data migration clears the submitter-stamped rows written before that gate existed without touching staff rows
+  the data migration clears the submitter-stamped rows written before that gate existed without touching staff rows,
+  and is safe to re-run; and **a submitter who also holds a staff or officer role cannot act officially on their own
+  complaint** — responding, revealing the identity and deciding their own appeal are all refused, so no response,
+  audit, identity-access or appeal row names them beside it, while another member of staff can still answer it
 - **Audit logging** (`tests/Feature/Platform/AuditLoggingTest.php`): verifying a school records the officer on the
   school row and in `audit_logs`, and an out-of-jurisdiction officer verifies and logs nothing; approving a parent
   link and rejecting a teacher link both record who decided and when (a rejection previously left no trace at all),

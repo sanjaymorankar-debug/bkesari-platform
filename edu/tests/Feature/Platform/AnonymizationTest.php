@@ -3,10 +3,14 @@
 namespace Tests\Feature\Platform;
 
 use App\Models\AnonymousIdentity;
+use App\Models\Appeal;
+use App\Models\AuditLog;
 use App\Models\Complaint;
 use App\Models\ComplaintStatusHistory;
 use App\Models\IdentityAccessLog;
+use App\Models\OfficerJurisdiction;
 use App\Models\School;
+use App\Models\SchoolStaff;
 use App\Models\User;
 use App\Services\IdentityResolutionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -247,6 +251,155 @@ class AnonymizationTest extends TestCase
             DB::table('complaint_status_history')->where('id', $staffRowId)->value('changed_by_user_id'),
             'a staff row must survive — it is the point of the trail'
         );
+
+        // Re-runnable: a second pass finds nothing left to clear and leaves
+        // the staff row alone, so re-applying it on a database that already
+        // has it (or running it twice by hand) is safe.
+        (require database_path('migrations/2026_11_04_000001_clear_submitter_ids_from_complaint_status_history.php'))->up();
+
+        $this->assertNull(
+            DB::table('complaint_status_history')->where('id', $legacyId)->value('changed_by_user_id')
+        );
+        $this->assertSame(
+            $admin,
+            DB::table('complaint_status_history')->where('id', $staffRowId)->value('changed_by_user_id')
+        );
+    }
+
+    /**
+     * The chokepoint covers the timeline; the other writers on the official
+     * side of a complaint are covered by refusing the conflicted action.
+     *
+     * One person can hold two hats — a clerk or teacher whose own child
+     * attends the school they work at. Filing is fine; answering their own
+     * complaint is not: `complaint_responses.responder_user_id` and the
+     * `audit_logs` row (with the actor's IP) would both name them beside
+     * their own complaint, in tables the school and every officer read.
+     */
+    public function test_a_staff_member_who_filed_a_complaint_cannot_answer_it_officially(): void
+    {
+        [$complaint, $user] = $this->complaintFiledByStaffMember();
+
+        Volt::actingAs($user)->test('complaints.show', ['complaint' => $complaint])
+            ->set('responseMessage', 'We have ordered a replacement railing.')
+            ->call('respond')
+            ->assertForbidden();
+
+        Volt::actingAs($user)->test('complaints.show', ['complaint' => $complaint->fresh()])
+            ->set('responseMessage', 'Fixed.')
+            ->call('markResolutionProposed')
+            ->assertForbidden();
+
+        $this->assertSame(
+            0,
+            $complaint->responses()->where('responder_user_id', $user->id)->count(),
+            'a response row must never name the submitter beside their own complaint'
+        );
+
+        $this->assertSame(
+            0,
+            AuditLog::where('auditable_type', Complaint::class)
+                ->where('auditable_id', $complaint->id)
+                ->where('user_id', $user->id)->count(),
+            'no audit row may name the submitter alongside their own complaint (CR-21)'
+        );
+
+        // Another member of staff still answers it — the complaint is not stuck.
+        $otherAdmin = $this->makeSchoolAdmin($complaint->school);
+
+        Volt::actingAs($otherAdmin)->test('complaints.show', ['complaint' => $complaint->fresh()])
+            ->set('responseMessage', 'We have ordered a replacement railing.')
+            ->call('respond');
+
+        $this->assertSame(1, $complaint->responses()->where('responder_user_id', $otherAdmin->id)->count());
+    }
+
+    /**
+     * The officer route over a complaint is refused to its own submitter as
+     * well: `revealIdentity` would write their id beside their own
+     * `anonymous_ref` in `identity_access_logs`.
+     */
+    public function test_a_submitter_cannot_reveal_their_own_identity_through_the_officer_route(): void
+    {
+        $school = $this->makeSchool();
+        $category = $this->makeCategory();
+
+        $user = $this->makeVerifiedParent($school);
+        $user->assignRole('district_officer');
+        OfficerJurisdiction::create(['user_id' => $user->id, 'level' => 'district', 'district_id' => $school->district_id]);
+        $user->refresh();
+
+        $complaint = $this->fileComplaint($user, $school, $category, 'Staircase railing is loose');
+
+        Volt::actingAs($user)->test('complaints.show', ['complaint' => $complaint])
+            ->set('identityReason', 'Checking who filed this complaint.')
+            ->call('revealIdentity')
+            ->assertForbidden();
+
+        $this->assertSame(0, IdentityAccessLog::count());
+    }
+
+    /** And one level up: an officer does not decide the appeal they filed themselves. */
+    public function test_a_submitter_cannot_decide_their_own_appeal(): void
+    {
+        $school = $this->makeSchool();
+        $category = $this->makeCategory();
+
+        $user = $this->makeVerifiedParent($school);
+        $user->assignRole('state_officer');
+        OfficerJurisdiction::create(['user_id' => $user->id, 'level' => 'state', 'state_id' => $school->state_id]);
+        $user->refresh();
+
+        $complaint = $this->fileComplaint($user, $school, $category, 'Term fee charged twice');
+        $complaint->update(['status' => 'escalated']);
+
+        Volt::actingAs($user)->test('appeals.create', ['complaint' => $complaint->fresh()])
+            ->set('reason', 'The duplicate charge was never looked at by anyone at all.')
+            ->call('submit');
+
+        $appeal = Appeal::firstOrFail();
+
+        // Viewing their own appeal still works — only deciding it is refused.
+        Volt::actingAs($user)->test('appeals.show', ['appeal' => $appeal])
+            ->set('decisionNote', 'Upholding this appeal for a fresh look.')
+            ->call('decide', 'upheld')
+            ->assertForbidden();
+
+        $appeal->refresh();
+
+        $this->assertNull($appeal->reviewed_by_user_id, 'the appeal must not name its own submitter as reviewer');
+        $this->assertSame('submitted', $appeal->status);
+        $this->assertSame(
+            0,
+            AuditLog::where('action', 'appeal.decided')->where('user_id', $user->id)->count()
+        );
+    }
+
+    /** @return array{0: Complaint, 1: User} */
+    private function complaintFiledByStaffMember(): array
+    {
+        $school = $this->makeSchool();
+        $category = $this->makeCategory();
+
+        $user = $this->makeVerifiedParent($school);
+        $user->assignRole('school_admin');
+        SchoolStaff::create(['user_id' => $user->id, 'school_id' => $school->id, 'designation' => 'Clerk']);
+        $user->refresh();
+
+        return [$this->fileComplaint($user, $school, $category, 'Staircase railing is loose'), $user];
+    }
+
+    private function fileComplaint(User $user, School $school, $category, string $subject): Complaint
+    {
+        Volt::actingAs($user)->test('complaints.create')
+            ->set('schoolId', (string) $school->id)
+            ->set('complaintCategoryId', (string) $category->id)
+            ->set('subject', $subject)
+            ->set('description', 'This has been left unattended for several weeks and nothing has changed.')
+            ->set('severity', 'high')
+            ->call('submit');
+
+        return Complaint::where('school_id', $school->id)->latest('id')->firstOrFail();
     }
 
     /** @return array{0: School, 1: Complaint, 2: User} */
