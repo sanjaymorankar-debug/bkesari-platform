@@ -8,6 +8,7 @@ use App\Models\StudentProfile;
 use App\Models\StudentSchoolRelationship;
 use App\Models\TeacherSchoolRelationship;
 use App\Models\User;
+use App\Rules\NotReservedEmail;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -137,7 +138,7 @@ new #[Layout('layouts.app')] class extends Component
 
         $this->validate([
             'childName' => ['required', 'string', 'max:255'],
-            'childEmail' => ['required', 'email', 'max:255', 'unique:users,email'],
+            'childEmail' => ['required', 'email', 'max:255', 'unique:users,email', new NotReservedEmail],
             'childDateOfBirth' => ['required', 'date', 'before:today'],
             'childGender' => ['required', 'in:male,female,other'],
             'childClassGrade' => ['required', 'string', 'max:20'],
