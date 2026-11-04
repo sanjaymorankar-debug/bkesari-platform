@@ -118,7 +118,10 @@ end.
 cd edu
 composer install --no-interaction --no-progress       # vendor/ (gitignored)
 npm ci                                                 # edu/node_modules, S4 only
-(cd .. && test -d node_modules/pg || npm ci)          # the hub's dependencies, S5 only; never delete them
+(cd .. && npm install --no-save --no-audit --no-fund)  # the hub's dependencies, S5 only; never delete them
+                                                       # (a `test -d node_modules/pg` probe is not enough: the hub
+                                                       #  gained `compression` in the 3 Nov redesign, and a tree left
+                                                       #  by an earlier run had `pg` but not that)
 export APP_KEY="base64:$(openssl rand -base64 32)"
 export PG="postgresql://bk_edu:$BK_EDU_PASS@127.0.0.1"   # used by the commands below
 ```
@@ -313,10 +316,10 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 
 | ID | Behaviour that must never break | Checked by |
 |---|---|---|
-| EDU-CR-01 | Every URL the app writes under the hub starts with `/edu` (routes, assets, Livewire's update URI and script), and Livewire's signed upload URL carries one prefix and passes its signature check | `tests/Feature/Platform/BasePathTest.php` (13 tests); `http.sh` URL and asset blocks; `browser.cjs` steps 1 and 3 |
+| EDU-CR-01 | Every URL the app writes under the hub starts with `/edu` (routes, assets, Livewire's update URI and script), and Livewire's signed upload URL carries one prefix and passes its signature check | `tests/Feature/Platform/BasePathTest.php` (15 tests); `http.sh` URL and asset blocks; `browser.cjs` steps 1 and 3 |
 | EDU-CR-02 | A guest sent to sign in from a protected page returns to that page, query string kept | `BasePathTest::test_a_guest_redirect_remembers_the_prefixed_page_it_came_from`, `::test_the_remembered_page_keeps_its_query_string`; `browser.cjs` step 1 |
 | EDU-CR-03 | Signing out (through the shell or the app's own form) and every literal link stays inside `/edu/` | `BasePathTest::test_no_view_hardcodes_a_root_relative_link`, `OwnAccountTest::test_the_shell_signs_out_with_a_json_post`; `browser.cjs` step 2 |
-| EDU-CR-04 | A complaint, feedback or safeguarding row never carries the submitter's identity, and neither does its status-history row — `recordStatusChange()` drops a submitter id at the chokepoint; a submitter who also holds a staff or officer role cannot act officially on their own complaint, appeal or safeguarding case (respond, reveal, decide, acknowledge, record the external report, close — nor open the case), so no response, audit, identity-access, appeal or safeguarding row names them beside it, and this holds for a `system_admin` (the role the hub's built-in administrators get, which carries every permission): the refusals sit *before* the role branches. Stated once as a query over all ten relations that could carry the link, with a test that plants a leak in each. Those refusals assume the standing was granted by somebody else, so the grant is gated too: a member of staff cannot decide their own request to link the school, nor reach the same standing by inviting their own address or accepting an invitation they sent. Reversing an anonymous ref needs the permission and a reason, and is logged | `AnonymizationTest` (17 tests, mutation-tested), `tests/Feature/Platform/Concerns/AssertsAnonymityInvariants.php`; `SafeguardingTest`'s five two-hats tests; `RegistrationFlowTest`'s five self-grant tests |
+| EDU-CR-04 | A complaint, feedback or safeguarding row never carries the submitter's identity, and neither does its status-history row — `recordStatusChange()` drops a submitter id at the chokepoint; a submitter who also holds a staff or officer role cannot act officially on their own complaint, appeal or safeguarding case (respond, reveal, decide, acknowledge, record the external report, close — nor open the case), so no response, audit, identity-access, appeal or safeguarding row names them beside it, and this holds for a `system_admin` (the role the hub's built-in administrators get, which carries every permission): the refusals sit *before* the role branches. Stated once as a query over all ten relations that could carry the link, with a test that plants a leak in each. Those refusals assume the standing was granted by somebody else, so the grant is gated too: a member of staff cannot decide their own request to link the school, nor reach the same standing by inviting their own address (in any spelling PostgreSQL's citext folds onto it) or accepting an invitation they sent; and an invitation mints that standing only while it stands — once revoked or used it is refused, however long the invitee's page has been open. Reversing an anonymous ref needs the permission and a reason, and is logged | `AnonymizationTest` (17 tests, mutation-tested), `tests/Feature/Platform/Concerns/AssertsAnonymityInvariants.php`; `SafeguardingTest`'s five two-hats tests; `RegistrationFlowTest`'s six self-grant tests; `ParentChildAndInvitationTest`'s five invitation-standing tests |
 | EDU-CR-05 | School, district and state boundaries; government roles never reach an individual child's records | `RbacBoundaryTest`, `GrowthAccessBoundaryTest` (mutation-tested), `HealthAccessMatrixTest` |
 | EDU-CR-06 | DPDP consent gates growth, career, life-skills and health data, per purpose, withdrawable at once | `ConsentGateTest`, `HealthPortalTest` |
 | EDU-CR-07 | Safeguarding cases are invisible to school admins; a POCSO case cannot close without an external report; and the person who reported a case never handles it (`canView()` refuses the reporter before the `system_admin` branch, `canManage()` inherits it, the queue leaves it out) while a colleague still can | `SafeguardingTest` (35 tests) |
@@ -350,7 +353,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | `resources/views/livewire/teacher-feedback/**`, `feedback/**`, `facilities/rate.blade.php`, `courses/rate.blade.php` | the rater must not be the subject, and no row may name the rater: `TeacherEffectivenessTest`, `SchoolFeedbackTest`, `CourseRatingTest`, CR-04, CR-20 |
 | `app/Services/*Access*`, `ConsentService`, `SafeguardingService`, `DataSubjectRequestService`, `Health*`, `IdentityResolutionService` | CR-04 to CR-09 and their test files; `SafeguardingService`'s `canView`/`canManage` and `safeguarding/queue.blade.php` also → `AnonymizationTest`, `SafeguardingTest`, CR-04 |
 | `app/Models/AuditLog.php`, `app/Models/Concerns/RecordsVerificationDecision.php`, `School::markRecognitionVerified`, any new `AuditLog::record*` call site | `AuditLoggingTest`, CR-22, and CR-04 if the call site touches a complaint or feedback |
-| `dashboards/school.blade.php`'s `decide()`/`authorizeRelationship()`/`sendInvite()` and `invitations/show.blade.php`'s `accept()` — the grant of verified standing, which every dual-role refusal rests on | `AuditLoggingTest`, `NotificationsTest` (an approval notifies, a rejection notifies nobody), `RegistrationFlowTest` (the cross-school refusal and the five self-grant tests), CR-04, CR-05, CR-22 |
+| `dashboards/school.blade.php`'s `decide()`/`authorizeRelationship()`/`sendInvite()` and `invitations/show.blade.php`'s `accept()` — the grant of verified standing, which every dual-role refusal rests on | `AuditLoggingTest`, `NotificationsTest` (an approval notifies, a rejection notifies nobody), `RegistrationFlowTest` (the cross-school refusal and the six self-grant tests), `ParentChildAndInvitationTest` (the invite flows, and that a revoked or used invitation mints nothing), CR-04, CR-05, CR-22 |
 | `app/Models/Complaint.php`, `resources/views/livewire/complaints/**`, `app/Http/Controllers/ComplaintEvidenceController.php`, `app/Policies/ComplaintPolicy.php` | `ComplaintNumberTest`, `ComplaintEvidenceTest`, `ComplaintFlowTest`, `RbacBoundaryTest`, `browser.cjs` step 3, S7.8, CR-11, CR-19; `recordStatusChange()` and `ComplaintPolicy`'s `respond`/`review` also → `AnonymizationTest`, CR-04, CR-22 |
 | `tests/Feature/Platform/Concerns/AssertsAnonymityInvariants.php` | CR-04: every relation that pairs an actor column with a submitter's `anonymous_ref` must be listed there, and `AnonymizationTest::test_the_submitter_link_invariant_detects_a_leak_in_every_relation_it_covers` must plant a leak in the new one |
 | `tests/TestCase.php`, `phpunit.xml` | the S6 refusal check, R1 on both engines, CR-19 |
@@ -518,7 +521,8 @@ a Kelvin sign a plain k there, and so `bu\u{0130}ltin.bkesari.com` is the reserv
 that mapping equals `lower()` at every code point; `Str::lower` differs at U+0130 only. `EmailSignIn::normalize()`
 lowercases the same way, so the emailed-code form refuses the dotted form too (edu-tester D1). S5 ran with
 `HUB_PROXY_SECRET` on both sides. Same container type and versions (PHP 8.3.6 with libpq 16.15, PostgreSQL
-16.15, PgBouncer 1.22.0, Node 22.23, Chromium via Playwright 1.63). These are now the floor:
+16.15, PgBouncer 1.22.0, Node 22.23, Chromium via Playwright 1.63). These were the floor until the
+self-grant re-measure below:
 
 | # | Level | Result |
 |---|---|---|
@@ -533,6 +537,31 @@ lowercases the same way, so the emailed-code form refuses the dotted form too (e
 | 13 | S5 | with `HUB_PROXY_SECRET` on both sides: http 60 passed (3 s), browser 21 passed (9 s), with `KILL_URL` through PgBouncer |
 | 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 0; `npm audit` 5 dev-only, 0 with `--omit=dev` |
 | 15 | S7.1 | 544 passed through the pooler, 44 s; 7.2/7.3/7.5/7.8 as specified |
+
+**Re-measured 2026-11-04, the self-grant gate** (edu-tester, commit `46730e6` plus this run's fixes in the working
+tree) after the merge of `origin/main` (the Kesari redesign, Education's own per-project sign-in, emailed codes and
+the built-in administrators per project; `users.mobile` became migration 68, so decision attribution is 69 and the
+status-history clear 70 — **70 migrations**) and the self-grant gate: nobody grants themselves verified standing at a
+school, by the approval queue, by inviting their own address or by accepting an invitation they sent. This run added
+the fourth door: an invitation mints standing only while it is `pending`, so a revoked or already-used one is refused
+at the acceptance however long the invitee's page has been open, and the self-invite and invitee-identity checks
+lowercase the way PostgreSQL's citext does rather than with `strcasecmp` (edu-tester D1–D3). Same container type and
+versions (PHP 8.3.6 with libpq 16.15, PostgreSQL 16.15, PgBouncer 1.22.0, Node 22.23, Chromium via Playwright 1.63).
+These are now the floor:
+
+| # | Level | Result |
+|---|---|---|
+| 2 | S1 php -l | 382 files, 0 errors |
+| 3 | S1 routes, views | 81 routes, views compile |
+| 4 | S1 Pint | the same 15 |
+| 7 | S3a SQLite | 586 tests: 581 passed, 5 skipped (the same 5), 3,774 assertions, 29 s. 42 tests added over the PR #29 floor: 36 from the merge and this branch's self-grant work, then 6 for edu-tester D1–D3 (`ParentChildAndInvitationTest` +5, `RegistrationFlowTest` +1) |
+| 8 | S3a PostgreSQL | 586 tests: 586 passed, 3,782 assertions, 53 s |
+| 9 | S3b | `74\|70\|289\|20\|100\|citext`; 79 s |
+| 10–11 | S3c, S3d | schemas match (5,604 lines, 70 CHECKs) on both paths; migrations logs identical (`b930e8d7…`); 04 twice gives one row, `system_admin`; `--step=30` leaves 40, ending on `create_settings_table`, and 5 migrations run after the six scripts |
+| 12 | S4 | byte-identical (`app-DNyD-VXB.css`) |
+| 13 | S5 | with `HUB_PROXY_SECRET` on both sides: http 60 passed (2 s), browser 21 passed (14 s), with `KILL_URL` through PgBouncer |
+| 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 0; `npm audit` 5 dev-only, 0 with `--omit=dev` |
+| 15 | S7.1 | 586 passed through the pooler, 45 s; 7.2/7.3/7.5/7.8 as specified |
 
 Pint's baseline list: `app/Routing/BasePathRedirector.php`, `bootstrap/app.php`,
 `bootstrap/providers.php`, `database/seeders/FacilitySeeder.php`,

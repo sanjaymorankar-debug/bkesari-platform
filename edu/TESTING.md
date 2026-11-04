@@ -4,7 +4,7 @@
 php artisan test
 ```
 
-580 tests (PHPUnit via Laravel's test runner). With no extra configuration this runs against in-memory SQLite (`phpunit.xml`), so it needs no database server; 5 PostgreSQL-specific tests are skipped there. [`TEST_SPEC.md`](TEST_SPEC.md) is the full test specification: every check, in order, with the counts measured for it.
+586 tests (PHPUnit via Laravel's test runner). With no extra configuration this runs against in-memory SQLite (`phpunit.xml`), so it needs no database server; 5 PostgreSQL-specific tests are skipped there. [`TEST_SPEC.md`](TEST_SPEC.md) is the full test specification: every check, in order, with the counts measured for it.
 
 ### Against PostgreSQL (what CI runs)
 
@@ -52,9 +52,19 @@ Before the fix in `config/database.php` this failed 391 of 392 tests: the migrat
   **or reject** their own request to link the school — no decision is recorded against themselves and the link stays
   pending — while a colleague can, so a genuine parent on staff is not stranded; the queue says a colleague must
   decide it rather than showing buttons that would 403; and the invite is closed as the same grant by another door —
-  inviting your own address is refused whatever its case, and accepting an invitation you sent is refused at the
-  acceptance itself (created directly in the test, so it stands without the send-side guard), minting no verified
+  inviting your own address is refused whatever its case — including a spelling only PostgreSQL's citext folds onto
+  it, such as a dotted capital I, which `strcasecmp` let through — and accepting an invitation you sent is refused at
+  the acceptance itself (created directly in the test, so it stands without the send-side guard), minting no verified
   relationship
+- **An invitation is spent once, and only while it stands** (`tests/Feature/Platform/ParentChildAndInvitationTest.php`,
+  edu-tester 4 Nov 2026): accepting mints `verified` standing with no approval step, so the acceptance re-checks that
+  the invitation is still `pending`. `mount()` runs once, so a page open since before the school revoked the
+  invitation used to grant the standing anyway, and a second click wrote the acceptance again: a revoked invitation
+  is now refused on an open page (and makes no account for a guest), a second acceptance is refused and leaves one
+  relationship and one audit row, and an invitation whose inviter was deleted (the column is NOT NULL, ON DELETE
+  CASCADE, so the row goes with them) refuses cleanly instead of failing on an unset property. An invitee whose
+  account spells the address in a different case than the school typed can still accept it, as citext and
+  `EmailSignIn` treat the two as one identity
 - **Timeline anonymity** (`tests/Feature/Platform/AnonymizationTest.php`): a submitter's resolution confirmation
   leaves no actor on `complaint_status_history` while the school's own transition still names the staff member;
   `recordStatusChange()` drops a submitter id even when a caller passes one explicitly, and keeps a staff id; and

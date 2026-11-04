@@ -228,6 +228,29 @@ class RegistrationFlowTest extends TestCase
         $this->assertSame(0, Invitation::count());
     }
 
+    /**
+     * Including a spelling only PostgreSQL's citext folds onto their own
+     * address: `users.email` is citext, so `KİM@…` and `kim@…` are one
+     * account there, and the guard has to lowercase the way citext does
+     * (`EmailSignIn::normalize`) rather than with `strcasecmp`, which folds
+     * ASCII only. The address that got through before ended in a duplicate-key
+     * 500 at the acceptance instead of a refusal here.
+     */
+    public function test_the_self_invite_guard_lowercases_the_way_citext_does(): void
+    {
+        $school = $this->makeSchool();
+        $admin = $this->makeSchoolAdmin($school);
+        $admin->forceFill(['email' => 'kim.head@example.com'])->save();
+
+        Volt::actingAs($admin->fresh())->test('dashboards.school')
+            ->set('inviteEmail', "K\u{0130}M.HEAD@example.com")   // dotted capital I
+            ->set('inviteRole', 'parent')
+            ->call('sendInvite')
+            ->assertHasErrors('inviteEmail');
+
+        $this->assertSame(0, Invitation::count());
+    }
+
     /** And refused at the acceptance too, which is where the standing is minted. */
     public function test_a_school_admin_cannot_accept_an_invitation_they_sent_themselves(): void
     {

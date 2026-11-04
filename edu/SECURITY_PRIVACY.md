@@ -105,10 +105,23 @@ address and accepting it would hand you exactly what the queue just refused.
 refuses an invitation you sent, the latter being the chokepoint: an invite made
 any other way cannot slip past it.
 
-Nobody is stranded by this. A colleague decides the request, and a school with
-one member of staff adds another through the registration flow's additional-staff
-step. What is *not* yet built is an escalation if a school genuinely has nobody
-else — a district officer cannot approve a relationship today (see `ROADMAP.md`).
+Normally a colleague decides the request, and a test asserts they can, so a
+genuine parent on staff is not shut out. **One case has no way out today, and
+it is a real gap rather than a theoretical one**: `school_staff` rows are
+created only by `schools/register.blade.php` — the Principal row and the
+registration form's additional-staff step — and there is no screen for adding
+a colleague afterwards. So a school registered with a single Principal has
+nobody who can decide that Principal's own parent or teacher link: the queue
+refuses them, the invite door refuses their own address, and
+`authorizeRelationship()` refuses a platform `system_admin` too, because the
+`school_staff` check runs first. The row stays `pending`, and the queue says a
+colleague must decide it with no colleague to be found.
+
+The fix is a staff-management screen on the school dashboard, which is the
+missing feature behind this and is wanted anyway; letting an unlinked
+`system_admin` decide these requests would also work and is not self-dealing,
+but it adds a platform-level grant path and is an owner's call. Until one of
+those exists, the remedy is a database change. See `ROADMAP.md`.
 
 `AuditLoggingTest` enforces this directly — if a future call site reaches for
 `record()` where it should have used `recordAnonymous()`,

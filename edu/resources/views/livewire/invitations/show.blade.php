@@ -7,6 +7,7 @@ use App\Models\StudentSchoolRelationship;
 use App\Models\TeacherSchoolRelationship;
 use App\Models\User;
 use App\Notifications\InvitationAccepted;
+use App\Services\EmailSignIn;
 use App\Support\BuiltinAdmins;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Auth;
@@ -46,8 +47,31 @@ new #[Layout('layouts.guest')] class extends Component
      */
     public function accept(): void
     {
+        // Still pending, and still there. `mount()` runs once; the page can
+        // have been open since before the school revoked the invitation, or
+        // since an earlier click already used it, and Livewire re-hydrates
+        // the model without re-running `mount()`. Without this the school's
+        // revocation does not hold — the invitee's open page still mints
+        // `verified` standing — and a second click writes the acceptance a
+        // second time. Checked before the account is made, so a guest on a
+        // revoked invitation gets no account either.
+        abort_unless(
+            isset($this->invitation) && $this->invitation->status === 'pending',
+            403,
+            'This invitation is no longer valid — it has already been used or the school revoked it. Ask the school to send a new one.'
+        );
+
         if (Auth::check()) {
-            abort_unless(Auth::user()->email === $this->invitation->email, 403, 'This invitation was sent to a different email address. Log out and use that account, or ask the school to resend it to yours.');
+            // citext: the address the school typed and the address on the
+            // account are the same identity when they differ only in case
+            // (PostgreSQL compares them that way, and `EmailSignIn` signs
+            // people in that way), so comparing the raw strings would strand
+            // a genuine invitee whose account spells it differently.
+            abort_unless(
+                EmailSignIn::normalize((string) Auth::user()->email) === EmailSignIn::normalize((string) $this->invitation->email),
+                403,
+                'This invitation was sent to a different email address. Log out and use that account, or ask the school to resend it to yours.'
+            );
             $user = Auth::user();
         } else {
             $validated = $this->validate([

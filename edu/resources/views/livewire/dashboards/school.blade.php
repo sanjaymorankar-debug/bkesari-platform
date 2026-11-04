@@ -10,6 +10,7 @@ use App\Models\StudentSchoolRelationship;
 use App\Models\TeacherSchoolRelationship;
 use App\Notifications\RelationshipApproved;
 use App\Rules\NotReservedEmail;
+use App\Services\EmailSignIn;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -46,7 +47,11 @@ new #[Layout('layouts.app')] class extends Component
         // approval queue refuses, by a different door. Blocked here for a
         // clear message, and again in the acceptance itself, which is where
         // the standing is actually minted.
-        if (strcasecmp($validated['inviteEmail'], (string) Auth::user()->email) === 0) {
+        // Lowercased the way PostgreSQL's citext does (`EmailSignIn::normalize`,
+        // the same mapping `BuiltinAdmins::isReservedEmail` needs), not with
+        // `strcasecmp`: that only folds ASCII, so a dotted capital I would
+        // slip an address the database considers your own past the guard.
+        if (EmailSignIn::normalize($validated['inviteEmail']) === EmailSignIn::normalize((string) Auth::user()->email)) {
             $this->addError('inviteEmail', 'You cannot invite your own address — another member of staff has to decide your own link to this school.');
 
             return;
