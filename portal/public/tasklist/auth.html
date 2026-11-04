@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en" data-project="tasklist">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in — TaskList</title>
+<meta name="description" content="Sign in to TaskList, bkesari's to-do list. A separate account for TaskList.">
+<meta name="theme-color" content="#4338CA">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="/tasklist/manifest.webmanifest">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="preload" href="/kesari-ui/1.0.0/fonts/mukta-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/kesari-ui/1.0.0/kesari.css">
+<link rel="stylesheet" href="/tasklist/tasklist.css">
+<script src="/kesari-ui/1.0.0/kesari.js"></script>
+<script src="/tasklist/i18n.js"></script>
+<meta name="kesari-me-url" content="/tasklist/api/auth/me">
+</head>
+<body class="tl-auth">
+<div data-bkesari-menu></div>
+<main id="main" class="k-main k-main--narrow">
+  <div class="tl-auth-card k-card">
+    <p class="tl-auth-brand"><span class="tl-mark" aria-hidden="true"></span><span data-i18n="app.name">TaskList</span></p>
+    <h1 id="auth-title" tabindex="-1" data-i18n="auth.signInTitle">Sign in to TaskList</h1>
+    <p class="k-muted" data-i18n="auth.separate">This is a separate account for TaskList.</p>
+    <div id="dev-note" class="k-banner k-banner--warning" role="status" hidden></div>
+    <div id="auth-error" class="k-banner k-banner--danger" role="alert" hidden></div>
+
+    <!-- Sign in / sign up -->
+    <section data-mode="sign-in sign-up">
+      <div class="k-tabs" role="tablist" aria-label="Method">
+        <button type="button" role="tab" id="tab-otp" aria-controls="pane-otp" aria-selected="true" data-i18n="auth.tabCode">Email code</button>
+        <button type="button" role="tab" id="tab-pw" aria-controls="pane-pw" aria-selected="false" tabindex="-1" data-i18n="auth.tabPassword">Email + password</button>
+      </div>
+
+      <div role="tabpanel" id="pane-otp" aria-labelledby="tab-otp">
+        <form id="otp-send" novalidate>
+          <div class="k-field" data-mode="sign-up">
+            <label class="k-label" for="otp-name" data-i18n="auth.name">Your name</label>
+            <input class="k-input" id="otp-name" autocomplete="name" maxlength="120">
+          </div>
+          <div class="k-field" id="email-field">
+            <label class="k-label" for="code-email" data-i18n="auth.codeEmail">Email address</label>
+            <span class="k-hint" id="code-email-hint" data-i18n="auth.codeEmailHint">We will email you a 6-digit code</span>
+            <input class="k-input" id="code-email" type="email" inputmode="email" autocomplete="email" maxlength="254" aria-describedby="code-email-hint code-email-err" required>
+            <span class="k-error" id="code-email-err"></span>
+          </div>
+          <div class="k-field" id="mobile-field" hidden>
+            <label class="k-label" for="mobile" data-i18n="auth.mobile">Mobile number</label>
+            <span class="k-hint" id="mobile-hint" data-i18n="auth.mobileHint">10 digits, India (+91)</span>
+            <div class="tl-prefix"><span aria-hidden="true">+91</span>
+              <input class="k-input" id="mobile" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="14" aria-describedby="mobile-hint mobile-err" required></div>
+            <span class="k-error" id="mobile-err"></span>
+          </div>
+          <button class="k-btn k-btn--block" type="submit" data-i18n="auth.sendCode">Send code</button>
+          <button type="button" class="k-btn k-btn--ghost k-btn--sm" id="switch-channel" data-i18n="auth.useMobile" hidden>Use my mobile number instead</button>
+        </form>
+        <form id="otp-verify" novalidate hidden>
+          <p id="code-sent" class="k-muted" role="status"></p>
+          <div class="k-field">
+            <span class="k-label" id="code-label" data-i18n="auth.code">Enter the 6-digit code</span>
+            <div class="k-otp" data-k-otp="6" data-name="otp" role="group" aria-labelledby="code-label"></div>
+            <span class="k-error" id="code-err"></span>
+          </div>
+          <button class="k-btn k-btn--block" type="submit" data-i18n="auth.verify">Verify and continue</button>
+          <div class="k-row k-row--between tl-auth-links">
+            <button type="button" class="k-btn k-btn--ghost k-btn--sm" id="resend" data-i18n="auth.resend">Send a new code</button>
+            <button type="button" class="k-btn k-btn--ghost k-btn--sm" id="change" data-i18n="auth.changeEmail">Change email</button>
+          </div>
+        </form>
+      </div>
+
+      <div role="tabpanel" id="pane-pw" aria-labelledby="tab-pw" hidden>
+        <form id="pw-form" novalidate>
+          <div class="k-field" data-mode="sign-up">
+            <label class="k-label" for="pw-name" data-i18n="auth.name">Your name</label>
+            <input class="k-input" id="pw-name" autocomplete="name" maxlength="120" aria-describedby="pw-name-err">
+            <span class="k-error" id="pw-name-err"></span>
+          </div>
+          <div class="k-field">
+            <label class="k-label" for="identifier" data-mode="sign-in" data-i18n="auth.identifier">Email or mobile number</label>
+            <label class="k-label" for="identifier" data-mode="sign-up" data-i18n="auth.email">Email</label>
+            <input class="k-input" id="identifier" autocomplete="username" maxlength="254" aria-describedby="identifier-err" required>
+            <span class="k-error" id="identifier-err"></span>
+          </div>
+          <div class="k-field">
+            <label class="k-label" for="password" data-i18n="auth.password">Password</label>
+            <span class="k-hint" id="password-hint" data-mode="sign-up" data-i18n="auth.passwordHint">At least 8 characters, not only numbers</span>
+            <input class="k-input" id="password" type="password" autocomplete="current-password" aria-describedby="password-err password-hint" required>
+            <span class="k-error" id="password-err"></span>
+          </div>
+          <button class="k-btn k-btn--block" type="submit" id="pw-submit" data-mode="sign-in" data-i18n="auth.signIn">Sign in</button>
+          <button class="k-btn k-btn--block" type="submit" data-mode="sign-up" data-i18n="auth.signUp">Create account</button>
+          <p class="tl-auth-links" data-mode="sign-in"><a href="/tasklist/forgot-password" data-i18n="auth.forgot">Forgot password?</a></p>
+        </form>
+      </div>
+
+      <p class="tl-auth-switch" data-mode="sign-in"><span data-i18n="auth.noAccount">New to TaskList?</span> <a href="/tasklist/sign-up" data-i18n="auth.signUp">Create account</a></p>
+      <p class="tl-auth-switch" data-mode="sign-up"><span data-i18n="auth.haveAccount">Already have an account?</span> <a href="/tasklist/sign-in" data-i18n="auth.signIn">Sign in</a></p>
+      <p class="k-small k-muted" data-mode="sign-in" data-i18n="auth.migrated">Used a bkesari ID before? Your account was copied here: sign in with your mobile and a code, or use “Forgot password?”.</p>
+    </section>
+
+    <!-- Forgot password -->
+    <section data-mode="forgot-password" hidden>
+      <p data-i18n="auth.forgotLead">We will email you a link to set a new password.</p>
+      <form id="forgot-form" novalidate>
+        <div class="k-field">
+          <label class="k-label" for="forgot-email" data-i18n="auth.email">Email</label>
+          <input class="k-input" id="forgot-email" type="email" autocomplete="email" aria-describedby="forgot-err" required>
+          <span class="k-error" id="forgot-err"></span>
+        </div>
+        <button class="k-btn k-btn--block" type="submit" data-i18n="auth.sendLink">Send link</button>
+      </form>
+      <p class="tl-auth-switch"><a href="/tasklist/sign-in" data-i18n="auth.signIn">Sign in</a></p>
+    </section>
+
+    <!-- Reset password -->
+    <section data-mode="reset-password" hidden>
+      <form id="reset-form" novalidate>
+        <div class="k-field">
+          <label class="k-label" for="new-password" data-i18n="auth.newPassword">New password</label>
+          <span class="k-hint" id="new-hint" data-i18n="auth.passwordHint">At least 8 characters, not only numbers</span>
+          <input class="k-input" id="new-password" type="password" autocomplete="new-password" aria-describedby="new-hint new-err" required>
+          <span class="k-error" id="new-err"></span>
+        </div>
+        <button class="k-btn k-btn--block" type="submit" data-i18n="auth.savePassword">Save password</button>
+      </form>
+    </section>
+
+    <!-- Verify email -->
+    <section data-mode="verify" hidden>
+      <p id="verify-msg" role="status"></p>
+      <a class="k-btn" href="/tasklist/" data-i18n="auth.goApp">Open TaskList</a>
+    </section>
+  </div>
+</main>
+<script src="/shared/menu.js" defer></script>
+<script src="/tasklist/auth.js" defer></script>
+</body>
+</html>

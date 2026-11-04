@@ -2,10 +2,35 @@
 
 return [
 
-    // The bkesari.com hub's public key set, for its X-Bkesari-Token (App\Support\HubToken).
+    // The bkesari.com hub serves the shared Kesari design system and the app
+    // shell (/kesari-ui/1.0.0/kesari.css, /kesari-ui/1.0.0/kesari.js,
+    // /shared/menu.js). Behind the hub they are on this app's own origin, so
+    // the default is '' (same origin). A copy of this app reached directly,
+    // not through the hub, sets HUB_ASSET_ORIGIN=https://bkesari.com.
     'hub' => [
-        'jwks' => env('HUB_JWKS'),
-        'jwks_url' => env('HUB_JWKS_URL'),
+        'asset_origin' => rtrim((string) env('HUB_ASSET_ORIGIN', ''), '/'),
+        // A request carrying this value in X-Bkesari-Proxy came through the
+        // hub, and only its forwarded headers are believed
+        // (App\Http\Middleware\TrustHubProxy, D-038). The hub reads the same
+        // HUB_PROXY_SECRET. Unset: every proxy is trusted, as before.
+        'proxy_secret' => (string) env('HUB_PROXY_SECRET', ''),
+    ],
+
+    // Text messages for mobile sign-in (App\Services\MobileSignIn). A POST of
+    // {"to": "+91XXXXXXXXXX", "text": "..."} with `Authorization: Bearer
+    // <token>` to the provider's webhook. Unset: codes are shown on screen
+    // outside production, and mobile sign-in is switched off in production.
+    'sms' => [
+        'webhook_url' => env('SMS_WEBHOOK_URL'),
+        'webhook_token' => env('SMS_WEBHOOK_TOKEN'),
+    ],
+
+    // The built-in administrators, smorankar and sonalimorankar (D-036,
+    // App\Support\BuiltinAdmins): the bcrypt hash ($2y$...) of their one
+    // password, as `node scripts/hash-builtin-admin-password.js` prints it
+    // (single-quoted in .env). Unset or not a bcrypt hash: their sign-in is off.
+    'builtin_admins' => [
+        'password_bcrypt' => env('BUILTIN_ADMIN_PASSWORD_BCRYPT'),
     ],
 
     /*

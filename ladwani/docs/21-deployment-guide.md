@@ -20,7 +20,14 @@ Deploys onto the existing Hostinger account already running `devmiladwani.agtci.
 | `JWT_SECRET` | Yes in production | Bootstrap now refuses to start in production without it (`main.ts`) — no fallback is used outside dev |
 | `WEB_ORIGIN` | Yes | Exact origin the API's CORS policy allows, e.g. `https://devmiladwani.agtci.com` |
 | `PORT` | No | Defaults to 4000 |
-| `NODE_ENV` | Yes | Must be `production` — gates the JWT secret check, secure cookie flag, and hides dev-only response fields (e.g. `devOtp`) |
+| `NODE_ENV` | Yes | Must be `production` — gates the JWT secret check and the secure cookie flag |
+| `APP_ENV` | Yes on a tier | `dev`, `test` or `prod` (the hub's tier setting). Decides whether a one-time code may appear in an answer (`devOtp`): only on `dev`, or locally with `APP_ENV` unset and `NODE_ENV` not `production`, and only with no mail provider. Never on `test` or `prod`. |
+| `MAIL_HOST` | Yes on test and production | SMTP host, `smtp.hostinger.com`. Unset: no mail; on test and production, sending a code then answers 503. |
+| `MAIL_PORT` | No | `465` (TLS from the first byte, the default) or `587` (STARTTLS, then required) |
+| `MAIL_USERNAME` / `MAIL_PASSWORD` | Yes with `MAIL_HOST` | The mailbox and its password |
+| `MAIL_FROM_ADDRESS` | No | Sender address; defaults to `MAIL_USERNAME` |
+| `MAIL_FROM_NAME` | No | Sender name; defaults to `LadWani · bkesari` |
+| `MAIL_SCHEME` | No | As Laravel's: `smtps` or `smtp`, to override what the port implies |
 | `PAYMENT_GATEWAY_PROVIDER` | Yes for real payments | `RAZORPAY` to activate the live gateway; unset/`DEV` keeps the simulated one |
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET` | Yes if `PAYMENT_GATEWAY_PROVIDER=RAZORPAY` | Read lazily — the app won't crash at boot if these are missing, only when a real gateway call is actually made |
 | `DEV_GATEWAY_SECRET` / `DEV_GATEWAY_WEBHOOK_SECRET` | No | Dev-only defaults exist; irrelevant once `PAYMENT_GATEWAY_PROVIDER=RAZORPAY` |
@@ -60,13 +67,29 @@ npm run start --workspace=apps/web
 - **No job scheduler.** Late fees, booking-expiry, and payment reconciliation are all computed at read time or manually triggered rather than cron-driven (noted at each point in the M3/M4 code). A real deployment serving traffic around the clock will eventually want a scheduler (cron, BullMQ + Redis) for reconciliation especially, since docs/19 §4 specifies a 15-minute cadence this build only supports via manual trigger.
 - **No real object storage or malware scanning.** `apps/api/src/uploads` implements the full validation/activation pipeline against a local-disk dev stand-in — see `18-file-storage-design.md` and the M5 checkpoint report for what's needed to switch on Cloudflare R2 + a real scanner.
 
-## Sign-in through the bkesari.com hub (2026-10-25)
+## LadWani's own sign-in (2026-11-03)
 
-Behind the hub (`https://<tier>bkesari.com/ladwani/`) every request carries
-`X-Bkesari-Token`, a 60-second RS256 token for audience `ladwani`. The web app
-calls `POST /api/v1/auth/hub` on load; the API verifies the token against
-`HUB_JWKS_URL` (e.g. `https://dev.bkesari.com/.well-known/jwks.json`), links or
-creates the user by `users.hub_user_id`, grants the hub role (member, karta,
-operator, admin -> MEMBER, KARTA, OPERATOR, ADMIN) and issues the normal
-session. Set `HUB_JWKS_URL` on every tier. Migration `20261025000000_hub_user_id`
-adds the column.
+LadWani signs people in itself, end to end: its own `users` table in its own
+database, nothing shared with the bkesari hub. The hub puts no gate in front of
+`/ladwani/` and sends no `X-Bkesari-Token`; `POST /auth/hub`, `HUB_JWKS_URL` and
+`HUB_JWKS` are gone (the `users.hub_user_id` column from migration
+`20261025000000_hub_user_id` stays, unused, so the migration history holds).
+
+- Session cookie `lw_sid`: HttpOnly, SameSite=Lax, Path=`LADWANI_COOKIE_PATH`
+  (default `/ladwani`; set `/` when the web app runs at the root), Secure except
+  on plain http to localhost. Max-Age 30 days, rotated on every refresh.
+- Sign-in: email + a code by email (`/auth/otp/send`, `/auth/otp/login` with
+  `{ email }`) first, email or mobile + password (`/auth/login`) second. Five wrong passwords lock password
+  sign-in for 15 minutes; a code still works, and a reset clears the lock.
+- Forgot password: `/auth/password/forgot` sends a code to the account's email,
+  `/auth/password/reset` sets the password and ends every session.
+- `GET /auth/session` answers the hub's app shell (`/shared/menu.js`) with who is
+  signed in, without rotating the cookie.
+- Every `/auth` route refuses cross-site requests (`Origin` must name the host;
+  `Sec-Fetch-Site: cross-site` is refused).
+- **Codes go by email** (SMTP, the `MAIL_*` settings above; inside the hub each
+  may carry a `LADWANI_` prefix to apply to LadWani alone). SMS is on hold: no
+  SMS provider is wired in, the `{ mobile }` code paths stay in the API, and
+  the web offers them only when `GET /auth/session` says `smsLive: true`.
+  Without a mail provider, the dev tier and local runs return the code as
+  `devOtp`; test and production answer 503 and never return it.

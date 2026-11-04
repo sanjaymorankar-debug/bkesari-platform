@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api-client'
 import { errorMessage } from '../../lib/auth-context'
-import { RequireAuth, TopBar, Shell, ErrorBanner } from '../../components/ui'
+import { RequireAuth, TopBar, Shell, ErrorBanner, ListSkeleton, EmptyList } from '../../components/ui'
 
 interface NotificationRow {
   id: string
@@ -57,7 +57,8 @@ export default function NotificationsPage() {
         </div>
         <ErrorBanner message={error} />
 
-        {notifications?.length === 0 && <p className="muted">No notifications yet.</p>}
+        {notifications === null && !error && <ListSkeleton />}
+        {notifications?.length === 0 && <EmptyList message="empty.notifications" />}
 
         <div className="stack" style={{ marginTop: 16 }}>
           {notifications?.map((n) => (

@@ -9,26 +9,28 @@
  * Dark mode is chosen, not inverted: each token has its own dark value.
  */
 :root{
-  --bg:#F6F4EF; --surface:#FFFFFF; --ink:#1B1D24; --ink-soft:#5F6472; --ink-faint:#9A9EA9;
-  --line:#E6E2D9; --accent:#E0761F; --accent-soft:#FDF0E3; --accent-dark:#B85A0E;
+  /* Mapped onto the Kesari tokens (kesari.css), so these pages share the
+     brand and its AA contrast; the old #E0761F accent was 3.09:1 on white. */
+  --bg:#FAF8F5; --surface:#FFFFFF; --ink:#1C1917; --ink-soft:#57534E; --ink-faint:#78716C;
+  --line:#E7E5E4; --accent:#C2560A; --accent-soft:#FDF1E8; --accent-dark:#A64808;
   --shadow:0 1px 2px rgba(20,24,33,.05),0 8px 24px rgba(20,24,33,.07);
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --bg:#14151A; --surface:#1D1F26; --ink:#ECEDF1; --ink-soft:#A4A8B4; --ink-faint:#6F7380;
-    --line:#2C2F38; --accent:#F08A34; --accent-soft:#3A2715; --accent-dark:#FFB273;
+    --bg:#141110; --surface:#1F1B19; --ink:#F5F5F4; --ink-soft:#C9C4BF; --ink-faint:#A8A29E;
+    --line:#3A3532; --accent:#F08A3C; --accent-soft:#3A2312; --accent-dark:#F5A869;
     --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
   }
 }
 :root[data-theme="dark"]{
-  --bg:#14151A; --surface:#1D1F26; --ink:#ECEDF1; --ink-soft:#A4A8B4; --ink-faint:#6F7380;
-  --line:#2C2F38; --accent:#F08A34; --accent-soft:#3A2715; --accent-dark:#FFB273;
+  --bg:#141110; --surface:#1F1B19; --ink:#F5F5F4; --ink-soft:#C9C4BF; --ink-faint:#A8A29E;
+  --line:#3A3532; --accent:#F08A3C; --accent-soft:#3A2312; --accent-dark:#F5A869;
   --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
 }
 
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
-  font-family:'Inter',system-ui,-apple-system,sans-serif;min-height:100vh;
+  font-family:var(--k-font,'Mukta',system-ui,-apple-system,sans-serif);min-height:100vh;
   display:flex;flex-direction:column;-webkit-text-size-adjust:100%}
 main{flex:1;width:100%;max-width:1080px;margin:0 auto;padding:48px 16px}
 footer{text-align:center;color:var(--ink-faint);font-size:12.5px;padding:24px 16px}

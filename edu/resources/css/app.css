@@ -1,3 +1,220 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * Education on Kesari.
+ *
+ * kesari.css (the hub's design system) loads before this file. Most of the
+ * look comes from tailwind.config.js, which points Tailwind's colours and
+ * font at Kesari's tokens; what is here is what that mapping cannot do:
+ *
+ * 1. Keep Kesari's components whole where Tailwind's reset and the forms
+ *    plugin would undo them (a submit button's background, an input's
+ *    border, radius and padding, the 3px focus ring).
+ * 2. Make the forms plugin's plain inputs follow the theme (it paints them
+ *    #fff, which in dark mode is light text on a white box).
+ * 3. The few pieces of Education's own layout: the auth card, the page
+ *    heading, the side nav's sign-out button.
+ */
+@layer components {
+    /* 1. Tailwind's preflight clears a <button>'s background; Kesari's
+          buttons carry theirs in --_bg. */
+    .k-btn {
+        background-color: var(--_bg);
+    }
+
+    .k-input,
+    .k-select,
+    .k-textarea {
+        border-width: 1.5px;
+        border-style: solid;
+        border-color: var(--k-border-strong, #A8A29E);
+        border-radius: var(--k-radius-sm, 8px);
+        background-color: var(--k-surface, #FFFFFF);
+        color: var(--k-ink, #1C1917);
+        padding: var(--k-2, 8px) var(--k-3, 12px);
+        font-size: 1rem;
+        line-height: 1.4;
+        min-height: var(--k-target, 48px);
+    }
+
+    .k-select {
+        padding-right: 2.5rem;
+    }
+
+    .k-input:focus-visible,
+    .k-select:focus-visible,
+    .k-textarea:focus-visible,
+    .k-otp input:focus-visible {
+        outline: 3px solid var(--k-focus, #C2560A);
+        outline-offset: 2px;
+        border-color: var(--k-accent, #0F766E);
+        box-shadow: none;
+    }
+
+    .k-input[aria-invalid='true'],
+    .k-select[aria-invalid='true'],
+    .k-textarea[aria-invalid='true'] {
+        border-color: var(--k-danger, #B91C1C);
+    }
+
+    /* 2. Plain inputs (not yet on k-input) follow the theme. */
+    input:where([type='text'], :not([type]), [type='email'], [type='url'], [type='password'], [type='number'], [type='date'], [type='datetime-local'], [type='month'], [type='search'], [type='tel'], [type='time'], [type='week'], [type='checkbox'], [type='radio']),
+    select,
+    textarea {
+        background-color: var(--k-surface, #FFFFFF);
+        color: var(--k-ink, #1C1917);
+    }
+
+    /* Keyboard focus is always visible: the forms plugin's 1px ring is kept
+       and Kesari's 3px outline added on top. */
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible {
+        outline: 3px solid var(--k-focus, #C2560A);
+        outline-offset: 2px;
+    }
+
+    /* The shell's own skip link: the layouts carry one of their own, first
+       in the page, so a keyboard user meets one, not two. */
+    .ks-bar .ks-skip {
+        display: none;
+    }
+
+    /* Tailwind's reset takes the colour and underline off every link; put
+       Kesari's back on links that carry no styling of their own. */
+    a:not([class]),
+    a.k-link {
+        color: var(--k-accent, #0F766E);
+        text-decoration: underline;
+        text-underline-offset: 0.18em;
+    }
+
+    a:not([class]):hover,
+    a.k-link:hover {
+        color: var(--k-accent-hover, #0B5C56);
+    }
+
+    /* 3. Education's pieces. */
+    .edu-page-head {
+        margin: 0 0 var(--k-4, 16px);
+    }
+
+    .edu-page-head :where(h1, h2) {
+        font-size: var(--k-text-xl, 1.5625rem);
+        font-weight: 700;
+        line-height: 1.2;
+        color: var(--k-ink, #1C1917);
+    }
+
+    .edu-hero {
+        padding: var(--k-6, 24px);
+        border-radius: var(--k-radius-lg, 20px);
+        background: var(--k-accent-tint, #E0F5F2);
+        border: 1px solid var(--k-border, #E7E5E4);
+    }
+
+    .edu-hero h1 {
+        font-size: clamp(1.75rem, 5vw, 2.441rem);
+        font-weight: 700;
+        line-height: 1.15;
+        color: var(--k-ink, #1C1917);
+        max-width: 22ch;
+    }
+
+    .edu-hero .k-card h3 {
+        font-size: var(--k-text-lg, 1.25rem);
+        font-weight: 700;
+    }
+
+    .edu-project {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--k-2, 8px);
+        min-height: var(--k-target, 48px);
+        color: var(--k-accent, #0F766E);
+        font-weight: 700;
+        font-size: var(--k-text-lg, 1.25rem);
+        text-decoration: none;
+    }
+
+    .edu-project__icon {
+        width: 28px;
+        height: 28px;
+    }
+
+    .edu-auth {
+        padding: var(--k-6, 24px);
+    }
+
+    .edu-auth h1 {
+        font-size: var(--k-text-2xl, 1.953rem);
+        font-weight: 700;
+        line-height: 1.2;
+        margin: var(--k-2, 8px) 0 var(--k-2, 8px);
+    }
+
+    /* Six code boxes share the card's width on a narrow phone rather than
+       running past its edge; each stays at least 40px wide and 56px tall. */
+    .edu-auth .k-otp input {
+        flex: 1 1 0;
+        width: auto;
+        min-width: 40px;
+        max-width: 56px;
+    }
+
+    .edu-auth__separate {
+        margin-top: var(--k-6, 24px);
+        padding-top: var(--k-4, 16px);
+        border-top: 1px solid var(--k-border, #E7E5E4);
+        color: var(--k-muted, #57534E);
+        font-size: var(--k-text-sm, 0.875rem);
+    }
+
+    .edu-auth__separate strong {
+        display: block;
+        color: var(--k-accent, #0F766E);
+        font-weight: 700;
+    }
+
+    .edu-sidenav-button {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        gap: var(--k-3, 12px);
+        min-height: var(--k-target, 48px);
+        padding: 0 var(--k-3, 12px);
+        border-radius: var(--k-radius-sm, 8px);
+        color: var(--k-ink, #1C1917);
+        font-weight: 600;
+        text-align: left;
+    }
+
+    .edu-sidenav-button:hover {
+        background: var(--k-surface-2, #F5F3F0);
+    }
+
+    .edu-sidenav-button svg {
+        width: 22px;
+        height: 22px;
+        flex: none;
+    }
+
+    .edu-dot {
+        position: absolute;
+        top: -2px;
+        right: -4px;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--k-danger, #B91C1C);
+        border: 2px solid var(--k-surface, #FFFFFF);
+    }
+
+    /* Touch targets of at least 48px for the button-styled links and
+       buttons the older views draw with Tailwind classes. */
+    .k-main :where(a, button).inline-flex {
+        min-height: var(--k-target, 48px);
+    }
+}

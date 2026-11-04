@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../../lib/api-client'
 import { errorMessage } from '../../../lib/auth-context'
-import { RequireAuth, TopBar, Shell, ErrorBanner } from '../../../components/ui'
+import { RequireAuth, TopBar, Shell, ErrorBanner, ListSkeleton, EmptyList } from '../../../components/ui'
 
 interface AuditLogRow {
   id: string
@@ -66,8 +66,8 @@ export default function AuditLogPage() {
           <button className="btn btn-outline" type="submit">Filter</button>
         </form>
 
-        {rows === null && !error && <p className="muted">Loading…</p>}
-        {rows?.length === 0 && <p className="muted">No matching entries.</p>}
+        {rows === null && !error && <ListSkeleton />}
+        {rows?.length === 0 && <EmptyList message="empty.auditLog" />}
 
         <div className="stack">
           {rows?.map((r) => (

@@ -19,8 +19,13 @@ POST   /auth/verify-otp
 POST   /auth/login
 POST   /auth/refresh
 POST   /auth/logout
-POST   /auth/forgot-password
-POST   /auth/reset-password
+POST   /auth/otp/send
+POST   /auth/otp/login
+POST   /auth/password/forgot
+POST   /auth/password/reset
+GET    /auth/session
+POST   /auth/sign-up/complete
+GET    /auth/sign-up/status
 ```
 
 ### Users & Roles (Admin)

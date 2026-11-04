@@ -1,0 +1,11 @@
+{
+  "name": "kesari-ui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Kesari design system for bkesari.com: design tokens, components and a small framework-agnostic runtime (theme, language, IST/Indian formatting, toasts, dialogs, OTP). CSS variables + plain CSS + one script.",
+  "license": "UNLICENSED",
+  "files": ["src", "fonts", "build.mjs"],
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}

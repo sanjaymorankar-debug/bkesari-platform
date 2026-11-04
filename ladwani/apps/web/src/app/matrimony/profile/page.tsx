@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../../../lib/api-client'
 import { errorMessage } from '../../../lib/auth-context'
-import { RequireAuth, TopBar, Shell, ErrorBanner } from '../../../components/ui'
+import { RequireAuth, TopBar, Shell, ErrorBanner, ListSkeleton } from '../../../components/ui'
 
 interface MatrimonyProfile {
   about: string | null
@@ -85,7 +85,11 @@ export default function MatrimonyProfilePage() {
     }
   }
 
-  if (!loaded) return <Shell>Loading…</Shell>
+  if (!loaded) return (
+    <Shell>
+      <ListSkeleton />
+    </Shell>
+  )
 
   return (
     <RequireAuth>

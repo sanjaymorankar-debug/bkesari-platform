@@ -171,7 +171,7 @@ The original spec for this platform is a multi-month, national-scale system (50+
 
 - **Student dashboard** — fully functional but reuses the Parent dashboard's visual language rather than a dedicated age-appropriate design pass (simplified language, safety-resource links). Cosmetic, still on the list if it becomes a priority.
 - **Analytics snapshot infrastructure** — National and Researcher dashboards, and the State Officer dashboard's top-line summary numbers, now read from `analytics_snapshots` (populated by `php artisan analytics:recalculate`, scheduled hourly in `routes/console.php`) instead of live-querying on every page load, with a same-request fallback (compute + save) if no snapshot exists yet, and a manual "Recalculate now" button. The State Officer's complaint list and retaliation queue below that summary stay live-query on purpose — those are actionable queues, not reports, and must reflect the current record set exactly. The hourly schedule needs an actual OS cron entry calling `php artisan schedule:run` every minute on the host — see `DEPLOYMENT.md` for whether that was confirmed working.
-- **Mail delivery** — Mailable classes now exist (`StaffCredentialsMail`, `SchoolInvitationMail`) and are sent via `Mail::to()->send()` for: school-registration additional-staff invites, school-initiated member invitations, and parent-registered new-child accounts. Production `.env` was switched to `MAIL_MAILER=sendmail` (Hostinger's local relay) per the user's choice — no external SMTP credentials needed. **Delivery is not guaranteed**: shared-hosting sendmail relays are commonly rate-limited or land in spam, and every send is wrapped in try/catch (`SendsMailSafely` trait) so a mail failure never breaks the underlying flow. All three flows still show the credential/invite-link on-screen as the reliable fallback — treat mail as a convenience, the on-screen value as the source of truth.
+- **Mail delivery** — Mailable classes now exist (`StaffCredentialsMail`, `SchoolInvitationMail`) and are sent via `Mail::to()->send()` for: school-registration additional-staff invites, school-initiated member invitations, and parent-registered new-child accounts. Every tier now sends through Hostinger's SMTP (`MAIL_MAILER=smtp`, `smtp.hostinger.com:465`, since 4 Nov 2026; before that `MAIL_MAILER=sendmail`, the local relay), and the same mailer carries the one-time sign-in codes while SMS is on hold (`App\Services\EmailSignIn`). **Delivery is still not measured**: shared-hosting mail is commonly rate-limited or lands in spam, and every invitation send is wrapped in try/catch (`SendsMailSafely` trait) so a mail failure never breaks the underlying flow. All three flows still show the credential/invite-link on-screen as the reliable fallback — treat mail as a convenience, the on-screen value as the source of truth.
 
 ## Closed since last update
 
@@ -187,7 +187,7 @@ The original spec for this platform is a multi-month, national-scale system (50+
 ## Decisions made this round
 
 - **AI provider**: kept rule-based/heuristic rather than integrating a real model — no API key was available, and the user chose to defer rather than block this round on acquiring one.
-- **Mail delivery**: Hostinger's local sendmail relay over a third-party SMTP provider — no external credentials to manage, at the cost of no delivery guarantee (see "Partially built" above).
+- **Mail delivery**: Hostinger's own SMTP mailbox (`code@agtci.com`) rather than a transactional provider — one mailbox password to manage, at the cost of no delivery guarantee (see "Partially built" above).
 
 ## Full doc set
 
@@ -196,7 +196,7 @@ Spec asked for 12 docs; this build ships 8 (`README`, `SETUP`, `DEPLOYMENT`, `DA
 ## Suggested next phase order
 
 1. Confirm the `analytics:recalculate` cron entry is actually running on the host (see `DEPLOYMENT.md`) — the manual "Recalculate now" button and same-request fallback mean the dashboards work either way, but scheduled freshness needs the real cron.
-2. Confirm production mail deliverability in practice (check spam placement, bounce rate) — if Hostinger's sendmail relay proves unreliable, revisit with a transactional email provider.
+2. Confirm production mail deliverability in practice (check spam placement, bounce rate) — if Hostinger's SMTP proves unreliable (sign-in codes depend on it now), revisit with a transactional email provider.
 3. Account-level anti-manipulation detection beyond feedback-timing (e.g. coordinated multi-account patterns) — should follow, not precede, having enough real usage data to design against.
 4. Real AI provider integration behind `AIAssistService`, once an API key is available.
 5. Student dashboard age-appropriate design pass.

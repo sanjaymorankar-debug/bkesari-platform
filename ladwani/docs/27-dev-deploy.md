@@ -57,6 +57,8 @@ answers, and 503 when it cannot reach Neon.
 | `JWT_SECRET` | a long random value (`openssl rand -hex 32`). The API refuses to start in production without it. |
 | `WEB_ORIGIN` | `https://dev.bkesari.com` |
 | `NODE_ENV` | `production` (also makes the refresh cookie `Secure`) |
+| `APP_ENV` | `dev`: without a mail provider, the one-time code is then shown on screen (`devOtp`) |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | Hostinger email (`smtp.hostinger.com`, 465). With them, codes go by email and are never shown. See `21-deployment-guide.md` §2 |
 | `TRUST_PROXY` | `loopback, <the server's IP>` (see below) |
 
 **`TRUST_PROXY`**: the API rate-limits per client IP. That means 20 requests a
@@ -100,8 +102,8 @@ migrations in their summary. Apply them with the same `migrate deploy`.
 
 ## Known gap
 
-New accounts are verified with a mobile OTP, but no SMS provider is wired in.
-Outside production (`NODE_ENV` not `production`) the OTP is returned in the
-sign-up response. On the dev site (`NODE_ENV=production`) it is not, so new
-accounts stay `PENDING`. They can still sign in: only suspended or blocked
-accounts are refused.
+New accounts are verified with a code sent to their email (SMS is on hold,
+4 Nov 2026). On the dev site (`APP_ENV=dev`) with no `MAIL_HOST`, the code is
+returned in the answer and shown on screen instead; with `MAIL_HOST` set it goes
+by email only. The test and production sites never show it: without a mail
+provider they answer 503.

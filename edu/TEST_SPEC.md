@@ -23,9 +23,10 @@ edu-tester agent".
 | Component | Path | Language / framework |
 |---|---|---|
 | App code: models, services, Livewire/Volt pages | `edu/app/`, `edu/resources/views/` | PHP 8.3, Laravel 13, Livewire 3.6, Volt 1.7 |
-| Serving under `/edu/` | `edu/app/Providers/AppServiceProvider.php`, `edu/app/Routing/BasePathRedirector.php`, `edu/bootstrap/app.php` | Laravel |
+| Education's own sign-in, the shell's endpoints, languages | `edu/config/session.php`, `edu/routes/auth.php`, `edu/app/Livewire/Forms/LoginForm.php`, `edu/app/Services/{EmailSignIn,MobileSignIn}.php`, `edu/app/Support/{SignInCodes,BuiltinAdmins}.php`, `edu/app/Rules/NotReservedEmail.php`, `edu/app/Mail/SignInCodeMail.php`, `edu/config/mail.php`, `edu/app/Http/Controllers/{ShellController,Auth/SignOutController}.php`, `edu/app/Http/Middleware/SetLocale.php`, `edu/lang/*.json` | Laravel |
+| Serving under `/edu/`, and whose forwarded address counts | `edu/app/Providers/AppServiceProvider.php`, `edu/app/Routing/BasePathRedirector.php`, `edu/bootstrap/app.php`, `edu/app/Http/Middleware/TrustHubProxy.php`, `edu/config/services.php` (`hub`) | Laravel |
 | Database settings for Neon | `edu/config/database.php`, `edu/app/Database/PostgresConnector.php`, `edu/app/Providers/DatabaseServiceProvider.php` | Laravel, pdo_pgsql |
-| Schema and demo data | `edu/database/migrations/` (67), `edu/database/seeders/` | Laravel migrations, PostgreSQL 16 |
+| Schema and demo data | `edu/database/migrations/` (68), `edu/database/seeders/` | Laravel migrations, PostgreSQL 16 |
 | Hand-run SQL | `database/edu/01`–`04_*.sql`, `edu/database/sql/*.sql` | PostgreSQL |
 | PHPUnit suite | `edu/tests/Unit`, `edu/tests/Feature` (`edu/phpunit.xml`) | PHPUnit 12 |
 | Smoke and check scripts | `edu/tests/smoke/` | bash, Python 3, Node + Playwright |
@@ -101,6 +102,7 @@ artisan key:generate --force` works too, and is what CI does).
 | `APP_ENV`, `APP_DEBUG`, `APP_NAME`, `SESSION_DRIVER`, `CACHE_STORE`, `QUEUE_CONNECTION` | the app (S5) | `production`, `false`, `"Education Accountability Platform"`, `database`, `database`, `database`: what a tier runs |
 | `PHP_CLI_SERVER_WORKERS` | `artisan serve` (S5) | `4` |
 | `EDU_ORIGIN`, `PORT`, `DATABASE_URL`, `TRACKER_USER`, `TRACKER_PASSWORD`, `ATIP_USER`, `ATIP_PASSWORD`, `ATIP_PUBLISH_TOKEN`, `APP_ENV` | the hub (S5 only) | `http://127.0.0.1:8101`, `3105`, the hub database, `smoke` / `smoke-local-only` for the logins and token, `dev` |
+| `HUB_PROXY_SECRET` | the app and the hub (S5) | one random value given to both (`openssl rand -hex 32`). The suite needs none: only `TrustHubProxyTest` sends forwarded headers, and it sets its own |
 | `HUB`, `APP`, `KILL_URL`, `DEMO_PASSWORD` | `tests/smoke/http.sh`, `tests/smoke/browser.cjs` | `http://127.0.0.1:3105`, `http://127.0.0.1:8101`, the direct URL (S7), `Password123!` (the demo password, `TEST_ACCOUNTS.md`) |
 
 ### 2.4 Ports
@@ -172,11 +174,11 @@ Run in order, from `edu/`. Each row's command is literal; the "passes when" colu
 | 6 | S2 | `php artisan test --testsuite=Unit` | all pass |
 | 7 | S3a | `php artisan test` (SQLite, in memory) | all pass; exactly the 5 skips section 5 names (`vendor/bin/phpunit --display-skipped` lists them) |
 | 8 | S3a | `DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=bk_edu_test DB_USERNAME=bk_edu DB_PASSWORD=$BK_EDU_PASS php artisan test` | all pass, **0 skipped** |
-| 9 | S3b | `DB_CONNECTION=pgsql DB_URL="$PG:5432/bk_edu_test" php artisan migrate:fresh --seed --force`, then `psql "$PG:5432/bk_edu_test" -Atc "select (select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'), (select count(*) from migrations), (select count(*) from users), (select count(*) from schools), (select count(*) from complaints), (select extname from pg_extension where extname='citext')"` | exit 0; `74\|67\|289\|20\|100\|citext` |
+| 9 | S3b | `DB_CONNECTION=pgsql DB_URL="$PG:5432/bk_edu_test" php artisan migrate:fresh --seed --force`, then `psql "$PG:5432/bk_edu_test" -Atc "select (select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'), (select count(*) from migrations), (select count(*) from users), (select count(*) from schools), (select count(*) from complaints), (select extname from pg_extension where extname='citext')"` | exit 0; `74\|68\|289\|20\|100\|citext` |
 | 10 | S3c | the SQL load, below | every file exit 0; `compare_schema.py` prints `schemas match` (it refuses a dump with no `CREATE TABLE`, so a failed `pg_dump` cannot pass); re-running 02 and 03 exits 0; `migrate --pretend` says `Nothing to migrate` |
 | 11 | S3d | the incremental scripts, below | every file exit 0; `compare_schema.py` prints `schemas match` |
 | 12 | S4 | `npm ci && rm -rf /tmp/edu-build && npx vite build --outDir /tmp/edu-build --emptyOutDir && diff -r /tmp/edu-build public/build` | `diff` prints nothing: the committed build is exactly what the sources produce |
-| 13 | S5 | the smoke run, below | `http smoke: N passed, 0 failed` and `browser smoke: N passed, 0 failed` (50 and 18 at baseline) |
+| 13 | S5 | the smoke run, below | `http smoke: N passed, 0 failed` and `browser smoke: N passed, 0 failed` (60 and 21 at baseline) |
 | 14 | S6 | the hygiene checks, below | each as stated |
 | 15 | S7 | the Neon parity checks, below | each as stated |
 
@@ -211,25 +213,23 @@ that stopped at migration 40):
 ```bash
 psql -d postgres -c 'DROP DATABASE IF EXISTS bk_edu_sql' -c 'CREATE DATABASE bk_edu_sql OWNER bk_edu'   # as a superuser
 export DB_CONNECTION=pgsql DB_URL="$PG:5432/bk_edu_sql"
-php artisan migrate --force && php artisan migrate:rollback --step=27 --force   # 40 migrations left
+php artisan migrate --force && php artisan migrate:rollback --step=28 --force   # 40 migrations left
 for f in 2026_09_02_student_growth_career_modules 2026_09_03_school_core_udise_fees_facilities \
          2026_09_03_safeguarding_exams_health 2026_09_03_benchmark_references \
          2026_09_03_courses_and_ratings 2026_09_03_replies_and_data_rights; do
   psql "$PG:5432/bk_edu_sql?sslmode=require" -q -v ON_ERROR_STOP=1 -1 -f database/sql/$f.sql > /dev/null || echo "FAIL $f"
 done
-php artisan migrate --force                     # runs only the citext and hub_user_id migrations
+php artisan migrate --force                     # runs only the citext, hub_user_id and mobile migrations
 unset DB_CONNECTION DB_URL
 pg_dump --schema-only --no-owner --no-privileges "$PG:5432/bk_edu_sql" > /tmp/edu-incremental.sql
 python3 tests/smoke/compare_schema.py /tmp/edu-migrated.sql /tmp/edu-incremental.sql
 ```
 
-**S5, the smoke run.** Since hub v1 the hub's `edu` project is `approval` (`portal/sql/hub_schema.sql`):
-a guest through the hub is sent to the hub's `/auth/sign-in`, which needs Neon Auth, so every
-`/edu/` check of `http.sh` and `browser.cjs` would stop at that redirect. Before starting the hub,
-create its tables (start it once) and open the tab on the scratch hub database only:
-`psql "<hub database URL>" -c "UPDATE hub_projects SET visibility='open' WHERE key='edu'"`. The
-hub then forwards without a token, as before v1, and the smoke checks the app's own `/edu/`
-serving. The hub's gate itself is `portal-tester`'s; the token sign-in is `HubSignInTest`.
+**S5, the smoke run.** Since 3 Nov 2026 the hub puts no sign-in of its own in front of `/edu/`
+and forwards no identity: Education keeps its own accounts (`edu_sid` on `/edu`), so the hub
+needs no setting for the smoke beyond its own database and `HUB_PROXY_SECRET`, which a tier sets on
+both sides (D-038) and the smoke sets the same way. The hub's side of that (its redirect of
+`/education/*`, the shell it serves) is `portal-tester`'s; the app's side is `OwnAccountTest`.
 Seed the suite database the way a tier is set up (schema commands over
 the direct URL, the app on the pooled one), start the app and the hub, run both scripts. Leave
 both servers up for S6, then stop them (`kill %1`, or the PIDs from `lsof -nP -iTCP:8101
@@ -239,25 +239,31 @@ both servers up for S6, then stop them (`kill %1`, or the PIDs from `lsof -nP -i
 ```bash
 export APP_ENV=production APP_DEBUG=false APP_NAME="Education Accountability Platform" \
        APP_URL=http://127.0.0.1:3105/edu DB_CONNECTION=pgsql DB_URL="$POOLED" DB_URL_UNPOOLED="$DIRECT" \
-       SESSION_DRIVER=database CACHE_STORE=database QUEUE_CONNECTION=database PHP_CLI_SERVER_WORKERS=4
+       SESSION_DRIVER=database CACHE_STORE=database QUEUE_CONNECTION=database PHP_CLI_SERVER_WORKERS=4 \
+       HUB_PROXY_SECRET="$(openssl rand -hex 32)"                     # the same value goes to the hub below
 php artisan migrate:fresh --seed --force                                 # over $DIRECT, by itself
 php artisan serve --host=127.0.0.1 --port=8101 --no-reload > /tmp/edu-serve.log 2>&1 &   # --no-reload passes the environment on
 (cd .. && env -i PATH="$PATH" HOME="$HOME" EDU_ORIGIN=http://127.0.0.1:8101 PORT=3105 APP_ENV=dev \
    DATABASE_URL="postgresql://bk_portal:$BK_PORTAL_PASS@127.0.0.1:5432/bk_portal_test" \
    TRACKER_USER=smoke TRACKER_PASSWORD=smoke-local-only ATIP_USER=smoke ATIP_PASSWORD=smoke-local-only \
-   ATIP_PUBLISH_TOKEN=smoke-local-only node portal/server.js > /tmp/edu-hub.log 2>&1 &)
+   ATIP_PUBLISH_TOKEN=smoke-local-only HUB_PROXY_SECRET="$HUB_PROXY_SECRET" node portal/server.js > /tmp/edu-hub.log 2>&1 &)
 APP=http://127.0.0.1:8101 HUB=http://127.0.0.1:3105 bash tests/smoke/http.sh
 HUB=http://127.0.0.1:3105 KILL_URL="$DIRECT" node tests/smoke/browser.cjs   # KILL_URL: S7.6
 rm -rf storage/app/private/complaint-evidence storage/app/private/livewire-tmp   # the smoke's uploaded file
 ```
 
-`http.sh` checks the public pages on the app and through the hub, that every URL on four pages
-starts with `/edu`, that the build assets and Livewire's script load through the hub, that 11
-protected pages send a guest to `/edu/login`, and that 10 private paths (`.env`, `composer.json`,
-`storage/logs/...`, `../.env`) are 404 both ways. `browser.cjs` (Chromium) opens
-`/edu/admin/rating-weights` signed out, signs in as `admin@test.agtci.com` and must land back on
-that page; checks every URL on a signed-in page and that the stylesheet applies; signs out and
-must land on `/edu/`; files a complaint as `parent@test.agtci.com` (numbered, inside a
+`http.sh` checks the public pages on the app and through the hub, the sign-in, sign-up and
+forgot-password screens through the hub, that `/edu/shell/me` answers a guest 401 pointing at
+`/edu/sign-in`, that `edu_sid` is set on `/edu` HttpOnly and SameSite=Lax, that
+`/education/sign-in` redirects to `/edu/sign-in`, that every URL on four pages starts with `/edu`
+(or is the hub's shared `/kesari-ui/` or `/shared/` file), that the build assets, Livewire's script,
+Kesari and the shell load through the hub, that 12 protected pages send a guest to `/edu/login`,
+and that 10 private paths (`.env`, `composer.json`, `storage/logs/...`, `../.env`) are 404 both
+ways. `browser.cjs` (Chromium) opens `/edu/admin/rating-weights` signed out, signs in as
+`admin@test.agtci.com` and must land back on that page; checks every URL on a signed-in page
+(outside the hub's shell), that the stylesheet applies (Mukta) and Kesari's Education accent is
+set, and that the shell shows the Education account; signs out through the shell's account menu
+and must land on `/edu/sign-in`, after which `/edu/shell/me` is 401; files a complaint as `parent@test.agtci.com` (numbered, inside a
 savepoint) with an evidence file, which must upload to `/edu/livewire/upload-file` (Livewire's
 signed URL) and download again from the complaint page, and sees the complaint after a
 reload; sends an erasure request and carries it out as
@@ -305,14 +311,14 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 |---|---|---|
 | EDU-CR-01 | Every URL the app writes under the hub starts with `/edu` (routes, assets, Livewire's update URI and script), and Livewire's signed upload URL carries one prefix and passes its signature check | `tests/Feature/Platform/BasePathTest.php` (13 tests); `http.sh` URL and asset blocks; `browser.cjs` steps 1 and 3 |
 | EDU-CR-02 | A guest sent to sign in from a protected page returns to that page, query string kept | `BasePathTest::test_a_guest_redirect_remembers_the_prefixed_page_it_came_from`, `::test_the_remembered_page_keeps_its_query_string`; `browser.cjs` step 1 |
-| EDU-CR-03 | Signing out (and every literal link) stays inside `/edu/` | `BasePathTest::test_no_view_hardcodes_a_root_relative_link`; `browser.cjs` step 2 |
+| EDU-CR-03 | Signing out (through the shell or the app's own form) and every literal link stays inside `/edu/` | `BasePathTest::test_no_view_hardcodes_a_root_relative_link`, `OwnAccountTest::test_the_shell_signs_out_with_a_json_post`; `browser.cjs` step 2 |
 | EDU-CR-04 | A complaint or feedback row never carries the submitter's identity; reversing an anonymous ref needs the permission and a reason, and is logged | `AnonymizationTest` |
 | EDU-CR-05 | School, district and state boundaries; government roles never reach an individual child's records | `RbacBoundaryTest`, `GrowthAccessBoundaryTest` (mutation-tested), `HealthAccessMatrixTest` |
 | EDU-CR-06 | DPDP consent gates growth, career, life-skills and health data, per purpose, withdrawable at once | `ConsentGateTest`, `HealthPortalTest` |
 | EDU-CR-07 | Safeguarding cases are invisible to school admins; a POCSO case cannot close without an external report | `SafeguardingTest` |
 | EDU-CR-08 | Erasure never deletes safeguarding, consent or audit records; it runs as one transaction | `DataSubjectRequestTest`; `browser.cjs` step 4 (through the pooler in S7.6) |
 | EDU-CR-09 | Aggregates below 10 are withheld; no row-level path for government | `HealthAggregateTest` |
-| EDU-CR-10 | Two-factor sign-in: TOTP and single-use recovery codes, and at most 5 wrong codes per account per minute | `TwoFactorAuthTest` (10 tests) |
+| EDU-CR-10 | Two-factor sign-in: TOTP and single-use recovery codes, and at most 5 wrong codes per account per minute | `TwoFactorAuthTest` (12 tests, two of them with codes sent together) |
 | EDU-CR-11 | Complaint numbers are unique and never fail a submission: not after a gap, not under contention (a transaction-scoped advisory lock per district and year), and a clash leaves the caller's transaction usable | `ComplaintNumberTest` (5 tests, mutation-tested); `ComplaintFlowTest`; `browser.cjs` step 3; S7.8 |
 | EDU-CR-12 | Email sign-in, registration and admin lookup are case-insensitive on PostgreSQL; school search is too | `DatabaseCompatibilityTest` (the 3 email tests skip on SQLite and must run on PostgreSQL) |
 | EDU-CR-13 | Nothing breaks behind a transaction-mode pooler: no named prepared statements, no session `SET`, transactions commit | `NeonReadinessTest` (its 8 pooler tests, mutation-tested); S7.1, which CI also runs |
@@ -323,15 +329,16 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | EDU-CR-18 | The committed build matches its manifest and is exactly what the sources produce | S1 row 5, S4 |
 | EDU-CR-19 | Every protected GET route refuses a guest; no private file is served; complaint evidence downloads only for those the complaint policy allows, and only through its own complaint; the suite refuses a hosted database | S6 `guest_routes.py`, `http.sh`, the S6 refusal check; `ComplaintEvidenceTest` (3); `NeonReadinessTest`'s three `test_the_suite_refuses_*` |
 | EDU-CR-20 | No score, rank or label column in the growth or benchmark tables; a school cannot verify itself | `NoLabelingRulesTest`, `BenchmarkHonestyTest`, `UdiseVerificationTest`, `ClaimedVsExperiencedTest` |
-| EDU-CR-21 | A hub token grants only parent, student or teacher, with one exception named in Education's own code: the hub's built-in administrators (`HubSignIn::BUILTIN_ADMINS`, `builtin:smorankar` and `builtin:sonalimorankar`) become `system_admin`, and only when the token carries the hub's top role, `admin`; any other id, a look-alike `builtin:` id or a built-in id with a lesser role does not; and a built-in id never takes over an account found by its email (sign-up, a profile edit or a school registration can give any account that address) | `HubSignInTest` :: test_the_token_never_grants_a_privileged_role, test_the_hubs_builtin_administrators_are_system_admin, test_only_the_two_builtin_ids_with_the_admin_role_become_system_admin, test_a_builtin_id_never_takes_over_an_account_made_with_its_email |
+| EDU-CR-21 | Education's own accounts: the session cookie is `edu_sid`, on the path of `APP_URL`, Secure with https, HttpOnly, SameSite=Lax; nothing the hub forwards signs anyone in; five wrong passwords lock sign-in for 15 minutes, counted per account and per real client address: a forwarded address (`X-Forwarded-For`, and the forwarded scheme) is believed only from a request carrying the hub's `HUB_PROXY_SECRET` (D-038, `App\Http\Middleware\TrustHubProxy`), which sends the one address it worked out, never a chain a client sent; with no secret configured every proxy is trusted as before and the log says so once a day; a sign-in code, by email or (only where SMS is set up) by text, is hashed, single-use, expires in 10 minutes, dies after 5 wrong tries, is rate-limited, goes to no unknown address, still leaves two-factor to pass, and is shown on screen only on `APP_ENV` `local` or `dev` with nothing set up to deliver it (never on test or production); the first emailed code makes an account nobody had confirmed the inbox owner's (D-035): the email is confirmed, the old password replaced, and every earlier session and open two-factor challenge ends, as after a password reset, including a sign-in that checked the old password a moment before (a session ends at its next request once the account's password has changed); the built-in administrators (D-036) sign in only with their username and the password whose bcrypt hash is `BUILTIN_ADMIN_PASSWORD_BCRYPT`, as system admin, counted 5 per name and address and 50 per name from every address per 15 minutes, their `@builtin.bkesari.com` domain refused wherever an address is typed, however it is typed (a dotted capital I or a Kelvin sign included, which PostgreSQL's citext lowercases to it: `BuiltinAdmins::isReservedEmail()` and `EmailSignIn::normalize()` lowercase as citext does), and a row made on it before is taken over (password, sessions, two-factor and roles its maker set); all of these hold for requests sent together | `OwnAccountTest`, `EmailSignInTest`, `MobileSignInTest`, `AttemptsTest`, `PasswordResetTest`, `BuiltinAdminTest`, `ReservedEmailTest`, `TrustHubProxyTest`, `BasePathTest::test_the_session_cookie_is_sent_only_under_the_prefix_and_only_over_https`; `http.sh` cookie and `shell/me` lines; `browser.cjs` step 2 |
 
 ### R3 — change-area map
 
 | When this changes | Emphasise |
 |---|---|
 | `config/database.php`, `app/Database/**`, `app/Providers/DatabaseServiceProvider.php`, `phpunit.xml`, `config/queue.php` | R1 on both engines, all of S7, CR-13 to CR-15 |
-| `app/Providers/AppServiceProvider.php`, `app/Routing/**`, `bootstrap/app.php`, `routes/**`, `resources/views/layouts/**`, `resources/views/livewire/layout/**`, any `href`/`action`/`redirect` in a view | `BasePathTest`, S5, S6 `guest_routes.py`, CR-01 to CR-03, CR-19 |
-| `resources/views/livewire/pages/auth/**`, `app/Livewire/Forms/LoginForm.php`, `app/Models/TwoFactorAuthentication.php` | `Auth/*`, `TwoFactorAuthTest`, `browser.cjs`, CR-02, CR-10 |
+| `app/Providers/AppServiceProvider.php`, `app/Routing/**`, `bootstrap/app.php`, `app/Http/Middleware/**`, `config/services.php` (`hub`), `routes/**`, `resources/views/layouts/**`, `resources/views/livewire/layout/**`, any `href`/`action`/`redirect` in a view | `BasePathTest`, `TrustHubProxyTest`, S5 (with `HUB_PROXY_SECRET` on both sides), S6 `guest_routes.py`, CR-01 to CR-03, CR-19, CR-21 (the address the limits count) |
+| `resources/views/livewire/pages/auth/**`, `app/Livewire/Forms/LoginForm.php`, `app/Support/EndSessions.php`, `bootstrap/app.php` (`authenticateSessions()`), `app/Models/TwoFactorAuthentication.php`, `app/Services/{EmailSignIn,MobileSignIn}.php`, `app/Support/{SignInCodes,Attempts,BuiltinAdmins}.php`, `app/Rules/NotReservedEmail.php`, `config/services.php` (`builtin_admins`), `app/Mail/SignInCodeMail.php`, `resources/views/emails/sign-in-code*.blade.php`, `config/mail.php`, `config/session.php`, `routes/auth.php`, `app/Http/Controllers/{ShellController,Auth/SignOutController}.php` | `Auth/*` (with `OwnAccountTest`, `EmailSignInTest`, `MobileSignInTest`, `BuiltinAdminTest`), `ReservedEmailTest`, `TwoFactorAuthTest`, `LanguageTest` (the strings), `browser.cjs`, CR-02, CR-10, CR-21 |
+| `app/Http/Middleware/SetLocale.php`, `lang/*.json`, `bootstrap/app.php` (cookie encryption) | `LanguageTest`, S5 |
 | `database/migrations/**` | S3b, S3c (regenerate `database/edu/01_edu_schema.sql` with `pg_dump --schema-only --no-owner --no-privileges` and its migrations log), S7.4, CR-16, CR-17, the schema-level tests in `AnonymizationTest`, `NoLabelingRulesTest`, `BenchmarkHonestyTest`, `HealthAccessMatrixTest` |
 | `database/seeders/**` | S3b, `database/edu/02` and `03` if the rows they carry changed, `TEST_ACCOUNTS.md` |
 | `database/edu/*.sql`, `edu/database/sql/*.sql` | S3c, S3d, CR-17 |
@@ -364,33 +371,159 @@ hosted-database guard). **Re-measured at `40a2003`** after the approved security
 --with-dependencies`: Laravel 13.26.1 → 13.38.0, symfony/http-foundation 7.4.17 → 7.4.21,
 league/commonmark 2.10.0 → 2.10.4, 46 packages in all): every count below is unchanged except
 `composer audit`, now 0. A fresh container (the bed rebuilt from `/etc/neonlike`, the role
-`t_pedu` given an `auth_file` entry), same versions otherwise. **Re-measured 2026-11-04 at
-`a0cd3fb`** (the hub's built-in administrators, EDU-CR-21, with the `HubSignIn` fix that run
-found): the final-run counts below are that measurement, 13 tests and 50 assertions more on each
-engine than 2026-10-24; rows 2, 9 and 14's audits moved too, nothing else. Node 22.23,
-Playwright 1.63; PgBouncer 1.22.0 listened on `:6433` that run, because a parallel agent's bed
-held `:6432`.
+`t_pedu` given an `auth_file` entry), same versions otherwise.
 
 | # | Level | First run | Final run |
 |---|---|---|---|
 | 1 | S1 composer validate | valid | valid |
-| 2 | S1 php -l | 345 files, 0 errors | 357 files, 0 errors |
+| 2 | S1 php -l | 345 files, 0 errors | 352 files (7 new), 0 errors |
 | 3 | S1 routes, views | 76 routes, views compile | 76 routes, views compile |
 | 4 | S1 Pint (report-only) | 15 files listed (below) | the same 15 |
 | 5 | S1 manifest | 2 entries, all present | 2 entries, all present |
 | 6 | S2 Unit | 1 test, 1 passed | 1 test, 1 passed |
-| 7 | S3a SQLite | 392 tests: 389 passed, 3 skipped, 1,088 assertions, 20 s | 436 tests: 431 passed, 5 skipped, 1,283 assertions, 19 s |
-| 8 | S3a PostgreSQL | 392 tests: 392 passed, 1,094 assertions, 46 s | 436 tests: 436 passed, 1,291 assertions, 36 s |
-| 9 | S3b migrate:fresh --seed | 74 tables, 66 migrations, 289 users, 20 schools, 100 complaints, citext; 80 s | the same, with 67 migrations (`hub_user_id`); 75 s |
+| 7 | S3a SQLite | 392 tests: 389 passed, 3 skipped, 1,088 assertions, 20 s | 423 tests: 418 passed, 5 skipped, 1,233 assertions, 24 s |
+| 8 | S3a PostgreSQL | 392 tests: 392 passed, 1,094 assertions, 46 s | 423 tests: 423 passed, 1,241 assertions, 46 s |
+| 9 | S3b migrate:fresh --seed | 74 tables, 66 migrations, 289 users, 20 schools, 100 complaints, citext; 80 s | the same counts; 78 s |
 | 10 | S3c SQL load | all load and re-run; schemas match (5,546 lines, 70 CHECKs); nothing to migrate | the same, and 04 run twice gives one row, role `system_admin`; 4 s |
 | 11 | S3d incremental SQL | all load; schemas match | all load; schemas match; 4 s |
 | 12 | S4 rebuild | **FAIL**: rebuilt CSS differs; 3 classes the views use (`border-indigo-200`, `mt-5`, `sm:w-80`) missing from the committed CSS | byte-identical to the committed build (rebuilt in this run: `app-CDqm9BMW.css`); 10 s |
 | 13 | S5 smoke | not run before the fixes (a later probe on the earlier fixes: evidence upload through `/edu/` 404 at `/edu/edu/livewire/upload-file`) | http 50 passed, 0 failed (3 s); browser 18 passed, 0 failed (13 s), with `KILL_URL` |
-| 14 | S6 | no secrets; 56 guest routes refused (measured after the fixes); no hosted-database guard existed; `composer audit` 6 advisories; `npm audit` 7 (dev tooling), 0 with `--omit=dev` | no secrets; both hosted-database runs refused; 56 guest routes refused; `composer audit` 0 after the security update (6 before: 3 laravel/framework, 2 league/commonmark, 1 symfony/http-foundation), 1 on 2026-11-04 (symfony/mime CVE-2026-45070, published 2026-10-28, not reached: the app sets no MIME parameters); `npm audit` 5 (report-only), 0 with `--omit=dev` |
-| 15 | S7.1 suite through the pooler | **FAIL**: 392 tests, 1 passed, 391 errors (SQLSTATE 25P02, from the migrations on), 42 s | 436 tests: 436 passed, 1,291 assertions, 23 s |
+| 14 | S6 | no secrets; 56 guest routes refused (measured after the fixes); no hosted-database guard existed; `composer audit` 6 advisories; `npm audit` 7 (dev tooling), 0 with `--omit=dev` | no secrets; both hosted-database runs refused; 56 guest routes refused; `composer audit` 0 after the security update (6 before: 3 laravel/framework, 2 league/commonmark, 1 symfony/http-foundation); `npm audit` 7 (report-only), 0 with `--omit=dev` |
+| 15 | S7.1 suite through the pooler | **FAIL**: 392 tests, 1 passed, 391 errors (SQLSTATE 25P02, from the migrations on), 42 s | 423 tests: 423 passed, 1,241 assertions, 31 s |
 | 15 | S7.2 / 7.3 routing | not possible (no direct-endpoint setting existed) | exit 0 / 1 / 1 as specified; 0 under `config:cache`, cache cleared |
 | 15 | S7.5 channel_binding | **FAIL**: `channel_binding=require` dropped, connected anyway | refused by PgBouncer 1.22 with `channel binding is required`; the direct endpoint connects |
 | 15 | S7.8 contention, 6 × 10 through the pooler | **FAIL** (retry only, measured before the lock): 4 of 6 processes failed, 29 created | 60 created, 60 distinct; 2 s |
+
+**Re-measured 2026-11-03** after Education's own sign-in (no hub token; `edu_sid`; 15-minute
+lockout; mobile codes; `users.mobile`, migration 68), the Kesari UI and the three languages. Same
+container type and versions (PHP 8.3.6, PostgreSQL 16, PgBouncer 1.22.0, Node 22, Chromium via
+Playwright 1.63). These were the floor until 4 Nov 2026:
+
+| # | Level | Result |
+|---|---|---|
+| 2 | S1 php -l | 364 files, 0 errors (362 + `Support/Attempts.php` and `AttemptsTest.php`, edu-tester 3 Nov 2026) |
+| 3 | S1 routes, views | 81 routes (`sign-in`, `sign-up`, `verify`, `logout`, `shell/me` added), views compile |
+| 4 | S1 Pint | the same 15 |
+| 7 | S3a SQLite | 473 tests: 468 passed, 5 skipped (the same 5), 2,468 assertions, 30 s. `HubSignInTest` (8 tests) was removed with the feature; 40 tests added, then 8 for requests sent together (edu-tester D1–D5) |
+| 8 | S3a PostgreSQL | 473 tests: 473 passed, 2,476 assertions, 61 s |
+| 9 | S3b | `74\|68\|289\|20\|100\|citext`; 75 s |
+| 10–11 | S3c, S3d | schemas match (5,564 lines, 70 CHECKs); migrations logs identical; 04 twice gives one row |
+| 12 | S4 | byte-identical (`app-DNyD-VXB.css`) |
+| 13 | S5 | http 60 passed (3 s); browser 21 passed (9 s), with `KILL_URL` through PgBouncer |
+| 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 1 (symfony/mime CVE-2026-45070, reported 2026-10-28); `npm audit` 5 dev-only, 0 with `--omit=dev` |
+| 15 | S7.1 | 473 passed through the pooler, 38 s; 7.2/7.3/7.5/7.8 as specified |
+
+**Re-measured 2026-11-04** (edu-tester, commit `7c0604e`; `edu/` code unchanged at `df661a9`,
+whose D-034 mailbox change touched only `.env.example`, `DEPLOYMENT.md`, `ROADMAP.md`) after sign-in codes by email through
+Hostinger's SMTP, codes on screen only on `local`/`dev` with nothing to deliver them, SMS on hold
+(owner's decisions D-029 to D-032) and `symfony/mime` 7.4.22. Same container type and versions
+(PHP 8.3.6 with libpq 16.15, PostgreSQL 16.15, PgBouncer 1.22.0, Node 22.23, Chromium via
+Playwright 1.63). These were the floor until the D-035 re-measure below:
+
+| # | Level | Result |
+|---|---|---|
+| 2 | S1 php -l | 370 files, 0 errors (364 + `Services/EmailSignIn.php`, `Support/SignInCodes.php`, `Mail/SignInCodeMail.php`, the two `emails/sign-in-code*.blade.php` views and `EmailSignInTest.php`) |
+| 3 | S1 routes, views | 81 routes, views compile |
+| 4 | S1 Pint | the same 15 |
+| 7 | S3a SQLite | 501 tests: 496 passed, 5 skipped (the same 5), 2,911 assertions, 20 s. 28 tests added: `EmailSignInTest` 23, `MobileSignInTest` +2, `OwnAccountTest` +2, `LanguageTest` +1 |
+| 8 | S3a PostgreSQL | 501 tests: 501 passed, 2,919 assertions, 35 s |
+| 9 | S3b | `74\|68\|289\|20\|100\|citext`; 74 s |
+| 10–11 | S3c, S3d | schemas match (5,564 lines, 70 CHECKs); migrations logs identical; 04 twice gives one row |
+| 12 | S4 | byte-identical (`app-DNyD-VXB.css`) |
+| 13 | S5 | http 60 passed (2 s); browser 21 passed (9 s), with `KILL_URL` through PgBouncer |
+| 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 0 (`symfony/mime` 7.4.22 clears CVE-2026-45070); `npm audit` 5 dev-only, 0 with `--omit=dev` |
+| 15 | S7.1 | 501 passed through the pooler, 28 s; 7.2/7.3/7.5/7.8 as specified |
+
+**Re-measured 2026-11-04, D-035** (edu-tester, commit `78ca2d0` plus its fixes in the working tree)
+after an emailed code makes an unconfirmed account the inbox owner's (`Support/EndSessions.php`;
+a reset also confirms the email and ends every earlier session), `authenticateSessions()` in
+`bootstrap/app.php` (a session ends at its next request once the password has changed) and a
+two-factor challenge bound to the password it was opened with. Same container type and versions.
+These were the floor until the D-036 re-measure below:
+
+| # | Level | Result |
+|---|---|---|
+| 2 | S1 php -l | 371 files, 0 errors (370 + `Support/EndSessions.php`) |
+| 3 | S1 routes, views | 81 routes, views compile |
+| 4 | S1 Pint | the same 15 |
+| 7 | S3a SQLite | 508 tests: 503 passed, 5 skipped (the same 5), 2,957 assertions, 20 s. 7 tests added: `EmailSignInTest` +5 (28), `PasswordResetTest` +2 (6) |
+| 8 | S3a PostgreSQL | 508 tests: 508 passed, 2,965 assertions, 38 s |
+| 9 | S3b | `74\|68\|289\|20\|100\|citext`; 76 s |
+| 10–11 | S3c, S3d | schemas match (5,564 lines, 70 CHECKs); migrations logs identical; 04 twice gives one row |
+| 12 | S4 | byte-identical (`app-DNyD-VXB.css`) |
+| 13 | S5 | http 60 passed (3 s); browser 21 passed (9 s), with `KILL_URL` through PgBouncer |
+| 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 0; `npm audit` 5 dev-only, 0 with `--omit=dev` |
+| 15 | S7.1 | 508 passed through the pooler, 31 s; 7.2/7.3/7.5/7.8 as specified |
+
+**Re-measured 2026-11-04, D-036** (edu-tester, commit `9977bdd` plus its fixes in the working tree)
+after the built-in administrators became an account of Education's own (`Support/BuiltinAdmins.php`,
+`Rules/NotReservedEmail.php`; the `@builtin.bkesari.com` domain reserved wherever an address is
+typed), with a limit of 50 tries per built-in name from every address per 15 minutes, a take-over
+that also removes what a row's maker set up on it, and school registration no longer giving an
+existing account a role (edu-tester D1–D4). Same container type and versions (PHP 8.3.6 with libpq
+16.15, PostgreSQL 16.15, PgBouncer 1.22.0, Node 22.23, Chromium via Playwright 1.63). These were the
+floor until the D-038 re-measure below:
+
+| # | Level | Result |
+|---|---|---|
+| 2 | S1 php -l | 374 files, 0 errors (371 + `Support/BuiltinAdmins.php`, `Rules/NotReservedEmail.php`, `BuiltinAdminTest.php`) |
+| 3 | S1 routes, views | 81 routes, views compile |
+| 4 | S1 Pint | the same 15 |
+| 7 | S3a SQLite | 531 tests: 526 passed, 5 skipped (the same 5), 3,462 assertions, 30 s. 23 tests added: `BuiltinAdminTest` 21 (18, then 3 for D2–D4), `RegistrationFlowTest` +2 (D1) |
+| 8 | S3a PostgreSQL | 531 tests: 531 passed, 3,470 assertions, 54 s |
+| 9 | S3b | `74\|68\|289\|20\|100\|citext`; 80 s |
+| 10–11 | S3c, S3d | schemas match (5,564 lines, 70 CHECKs); migrations logs identical; 04 twice gives one row |
+| 12 | S4 | byte-identical (`app-DNyD-VXB.css`) |
+| 13 | S5 | http 60 passed (3 s); browser 21 passed (9 s), with `KILL_URL` through PgBouncer |
+| 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 0; `npm audit` 5 dev-only, 0 with `--omit=dev` |
+| 15 | S7.1 | 531 passed through the pooler, 40 s; 7.2/7.3/7.5/7.8 as specified |
+
+**Re-measured 2026-11-04, D-038** (edu-tester, commit `b5908df` plus its fix in the working tree; `edu/` is as
+at `f619236`, and `43a5997` carries the D-036 block's fixes unchanged). Education believes a forwarded client address only from a
+request carrying the hub's `HUB_PROXY_SECRET` (`Http/Middleware/TrustHubProxy.php` in place of the
+framework's TrustProxies), and the hub sends the one address it worked out. With no secret the old
+rule stays, and the warning that says so is written once a day, not on every request (edu-tester
+D1). S5 ran with the secret on both sides, and again with it blank. The hub was `b5908df`'s (`portal-tester`'s
+D1: the address and the secret also on a request with an `Expect` header). Same container type and versions (PHP 8.3.6 with libpq
+16.15, PostgreSQL 16.15, PgBouncer 1.22.0, Node 22.23, Chromium via Playwright 1.63). These were
+the floor until the PR #29 re-measure below:
+
+| # | Level | Result |
+|---|---|---|
+| 2 | S1 php -l | 376 files, 0 errors (374 + `Http/Middleware/TrustHubProxy.php`, `TrustHubProxyTest.php`) |
+| 3 | S1 routes, views | 81 routes, views compile |
+| 4 | S1 Pint | the same 15 |
+| 7 | S3a SQLite | 536 tests: 531 passed, 5 skipped (the same 5), 3,485 assertions, 29 s. 5 tests added: `TrustHubProxyTest` 4, then 1 for D1 |
+| 8 | S3a PostgreSQL | 536 tests: 536 passed, 3,493 assertions, 47 s |
+| 9 | S3b | `74\|68\|289\|20\|100\|citext`; 79 s |
+| 10–11 | S3c, S3d | schemas match (5,564 lines, 70 CHECKs); migrations logs identical; 04 twice gives one row, `system_admin` |
+| 12 | S4 | byte-identical (`app-DNyD-VXB.css`) |
+| 13 | S5 | with `HUB_PROXY_SECRET` on both sides: http 60 passed (3 s), browser 21 passed (9 s), with `KILL_URL` through PgBouncer. With it blank: the same, and one warning line for the 163 requests the app handled (before the D1 fix: 164 lines for 164) |
+| 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 0; `npm audit` 5 dev-only, 0 with `--omit=dev` |
+| 15 | S7.1 | 536 passed through the pooler, 40 s; 7.2/7.3/7.5/7.8 as specified |
+
+**Re-measured 2026-11-04, PR #29** (edu-tester, commit `4458e73` plus its fix in the working tree). The
+merge of `dev` brought `ReservedEmailTest` (6 tests) from PR #29. `BuiltinAdmins::isReservedEmail()` now
+lowercases with the simple Unicode mapping, as PostgreSQL's citext does: a dotted capital I is a plain i and
+a Kelvin sign a plain k there, and so `bu\u{0130}ltin.bkesari.com` is the reserved domain. On this bed (`C.UTF-8`, libc)
+that mapping equals `lower()` at every code point; `Str::lower` differs at U+0130 only. `EmailSignIn::normalize()`
+lowercases the same way, so the emailed-code form refuses the dotted form too (edu-tester D1). S5 ran with
+`HUB_PROXY_SECRET` on both sides. Same container type and versions (PHP 8.3.6 with libpq 16.15, PostgreSQL
+16.15, PgBouncer 1.22.0, Node 22.23, Chromium via Playwright 1.63). These are now the floor:
+
+| # | Level | Result |
+|---|---|---|
+| 2 | S1 php -l | 377 files, 0 errors (376 + `ReservedEmailTest.php`) |
+| 3 | S1 routes, views | 81 routes, views compile |
+| 4 | S1 Pint | the same 15 |
+| 7 | S3a SQLite | 544 tests: 539 passed, 5 skipped (the same 5), 3,557 assertions, 32 s. 8 tests added: `ReservedEmailTest` 6 (PR #29), `BuiltinAdminTest` +2 (23: edu-tester D1, and rows made with a dotted capital I or a Kelvin sign) |
+| 8 | S3a PostgreSQL | 544 tests: 544 passed, 3,565 assertions, 56 s |
+| 9 | S3b | `74\|68\|289\|20\|100\|citext`; 81 s |
+| 10–11 | S3c, S3d | schemas match (5,564 lines, 70 CHECKs); migrations logs identical; 04 twice gives one row, `system_admin` |
+| 12 | S4 | byte-identical (`app-DNyD-VXB.css`) |
+| 13 | S5 | with `HUB_PROXY_SECRET` on both sides: http 60 passed (3 s), browser 21 passed (9 s), with `KILL_URL` through PgBouncer |
+| 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 0; `npm audit` 5 dev-only, 0 with `--omit=dev` |
+| 15 | S7.1 | 544 passed through the pooler, 44 s; 7.2/7.3/7.5/7.8 as specified |
 
 Pint's baseline list: `app/Routing/BasePathRedirector.php`, `bootstrap/app.php`,
 `bootstrap/providers.php`, `database/seeders/FacilitySeeder.php`,
@@ -464,7 +597,7 @@ Written to `.claude/test-runs/<UTC yyyymmdd-hhmmss>-edu-tester.md` and copied to
 | ID | Result | Evidence |
 |---|---|---|
 | EDU-CR-01 | PASS | <test name, or the smoke line> |
-| ... all 20 ... |
+| ... all 21 ... |
 
 ## Defects
 
@@ -502,10 +635,39 @@ VERDICT: PASS | FAIL | BLOCKED
   only by hand (root `TESTING.md` sections 2 and 4).
 - **Two-factor codes can be replayed** inside their 30-second window: `verifyKey()` keeps no
   record of the last time-step used. Rate-limited now, not replay-proof.
+- **Mobile codes are never sent to a real SMS provider in a test.** The webhook contract
+  (`POST {to, text}`, Bearer token) is checked with `Http::fake()`; the provider's own behaviour,
+  delivery and DLT template registration are outside this spec. SMS is on hold (4 Nov 2026).
+- **Email codes never reach Hostinger's SMTP in a test.** `EmailSignInTest` sends through the
+  app's real mailer to a transport it reads; implicit TLS on port 465, Hostinger's
+  authentication, sending limits, spam placement and bounces are checked only on a tier, by
+  asking for a code for an address someone reads (root `DEPLOY.md` Part 2).
+- **The shell and Kesari are the hub's.** `/shared/menu.js` and `/kesari-ui/` are only loaded here
+  (S5 checks they arrive and the account menu works); their own rendering, strings and contrast
+  are `portal-tester`'s.
+- **The client address rests on one shared secret, set by hand on both sides (D-038).** The edu-tester's D5 (any request
+  could choose the address the per-address limits count) is closed where `HUB_PROXY_SECRET` is set on the hub and in
+  Education. That was checked end to end on 4 Nov 2026 by hand (the edu-tester's probes, not a committed script: a TLS
+  stand-in for the host's front end, the real hub, the app on the pooled URL). At the app's own origin a forged
+  `X-Forwarded-For`, with no secret, a wrong one or an empty one, is ignored, and the fifth miss locks. Through the hub only
+  the address the hub worked out arrives. Behind TLS `request()->secure()` is true and the cookies are `Secure`. What
+  remains:
+  - Blank in Education (the default) keeps the old rule: a client reaching Education's own hostname still chooses its
+    address. The log says so once a day.
+  - A value in Education that the hub does not send (unset there, different, or the hub not restarted) puts every
+    visitor through the hub on the hub's one address. One person's five wrong passwords then lock that account for
+    everyone. `DEPLOY.md` Part 2 gives the order for setting and changing it, and a check by hand.
+  - The hub believes `X-Forwarded-For` from any loopback peer (D-026, `portal-tester`'s), so on a tier who can reach the
+    hub's port decides the address it sends.
+  - The hub passes on a client's own `X-Forwarded-Host`, and Education believes it with the secret, so
+    `request()->getHost()` is the client's. Every link the app writes is pinned to `APP_URL`, and neither the app's code, the framework's
+    HTTP and session middleware, nor Livewire reads the host.
+  - None of it is verified on a tier, and S5's scripts cannot see the address the app counted.
 - **Signed URLs fail under `/edu/` unless handled.** Livewire's upload and preview URLs are
   (`App\Routing\BasePathSignedUploadUrl`); the app signs nothing else today, but email
   verification would need the same (`DEPLOY.md` Part 7).
 - **Dependency advisories are reported, not fixed** (S6): upgrading the framework is a change of
   its own, reviewed and tested as one. The six PHP advisories of 2026-10 were cleared that way
-  (owner-approved update to Laravel 13.38.0); `npm audit`'s 7 dev-tooling advisories remain.
+  (owner-approved update to Laravel 13.38.0), and `symfony/mime`'s CVE-2026-45070 by the update
+  to 7.4.22 (4 Nov 2026); `npm audit`'s 5 dev-tooling advisories remain.
 - Everything in `TESTING.md`'s "What's not tested" and `ROADMAP.md`'s deferred list.

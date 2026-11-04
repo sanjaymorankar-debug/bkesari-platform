@@ -5,11 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Driving Simulator — bkesari</title>
 <meta name="description" content="Driver training on a simulator: practising the situations that are unsafe to rehearse on a real road.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚗</text></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="preload" href="/kesari-ui/1.0.0/fonts/mukta-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/kesari-ui/1.0.0/kesari.css">
 <link rel="stylesheet" href="/shared/page.css">
+<link rel="stylesheet" href="/shared/hub.css">
+<script src="/kesari-ui/1.0.0/kesari.js"></script>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#C2560A">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -19,7 +20,7 @@
 <body>
 <div data-bkesari-menu></div>
 
-<main>
+<main id="main">
   <noscript>
     <div class="nojs">The menu at the top needs JavaScript.
     <a href="/">Go to the bkesari home page</a> for the full list of projects.</div>
@@ -83,27 +84,9 @@
     <li><strong>Anyone nervous about a specific situation</strong> &mdash; a particular junction,
     night driving, reversing &mdash; who wants to practise just that, repeatedly.</li>
   </ul>
-
-  <div class="todo">
-    <h3>Still to be filled in</h3>
-    <p>This page is live-ready in structure but deliberately carries no specifics, because
-    they were not known when it was written. Please supply:</p>
-    <ul>
-      <li>Where the simulator is, and the hours it is available</li>
-      <li>How to book, and who to contact &mdash; phone, email, or a form</li>
-      <li>Session length and pricing, including any package rates</li>
-      <li>What the setup actually is: vehicle type, manual or automatic, screens, motion</li>
-      <li>Whether any certificate or course completion comes with it</li>
-      <li>Photographs of the real setup</li>
-    </ul>
-    <p>Then delete this panel. Nothing above it claims anything specific about the service, so
-    the rest of the page is safe to publish as it stands.</p>
-  </div>
 </main>
 
-<footer>&copy; <span id="year">2026</span> bkesari.com</footer>
 
 <script src="/shared/menu.js" defer></script>
-<script>document.getElementById('year').textContent = new Date().getFullYear();</script>
 </body>
 </html>

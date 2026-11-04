@@ -1,7 +1,7 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { api, getAccessToken, setAccessToken, ApiError } from './api-client'
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { api, getAccessToken, setAccessToken, ApiError, API_BASE } from './api-client'
 
 export interface AuthUser {
   id: string
@@ -9,67 +9,132 @@ export interface AuthUser {
   memberId: string | null
 }
 
+export interface SessionResult {
+  accessToken: string
+  user: AuthUser
+}
+
+/** Where a one-time code went: an email address (the default while SMS is on hold) or a mobile number. */
+export type CodeTarget = { email: string } | { mobile: string }
+
 interface AuthContextValue {
   user: AuthUser | null
   loading: boolean
+  /**
+   * Whether the API has an SMS provider (GET /auth/session, smsLive). None
+   * today: SMS is on hold, so the screens offer codes by email only.
+   */
+  smsLive: boolean
+  /** Email or mobile + password. */
   login: (identifier: string, password: string) => Promise<void>
+  /** The 6-digit code from POST /auth/otp/send (or from sign-up), with the email (or mobile) it went to. */
+  loginWithOtp: (target: CodeTarget, otp: string) => Promise<void>
   logout: () => Promise<void>
   setUser: (user: AuthUser | null) => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
+const USER_KEY = 'authUser'
 
+function readStoredUser(): AuthUser | null {
+  try {
+    const stored = window.localStorage.getItem(USER_KEY)
+    return stored ? (JSON.parse(stored) as AuthUser) : null
+  } catch {
+    return null
+  }
+}
+
+function storeUser(user: AuthUser | null) {
+  try {
+    if (user) window.localStorage.setItem(USER_KEY, JSON.stringify(user))
+    else window.localStorage.removeItem(USER_KEY)
+  } catch {
+    // storage blocked: the session still works for this page
+  }
+}
+
+/**
+ * LadWani's own sign-in. The session lives in the lw_sid cookie (HttpOnly,
+ * Path=/ladwani); the 15-minute access token is kept for API calls.
+ */
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null)
+  const [user, setUserState] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const [smsLive, setSmsLive] = useState(false)
+
+  const setUser = useCallback((next: AuthUser | null) => {
+    storeUser(next)
+    setUserState(next)
+  }, [])
+
+  const adopt = useCallback(
+    (result: SessionResult) => {
+      setAccessToken(result.accessToken)
+      setUser(result.user)
+    },
+    [setUser],
+  )
+
+  const forget = useCallback(() => {
+    setAccessToken(null)
+    setUser(null)
+  }, [setUser])
 
   useEffect(() => {
+    let cancelled = false
     async function restore() {
-      if (!getAccessToken()) {
-        // Behind bkesari.com the hub signs every forwarded request, so a visitor
-        // who signed in there is signed in here too, with no second password.
-        try {
-          const result = await api.post<{ accessToken: string; user: AuthUser }>('/auth/hub')
-          setAccessToken(result.accessToken)
-          window.localStorage.setItem('authUser', JSON.stringify(result.user))
-          setUser(result.user)
-        } catch {
-          // not behind the hub, or no access there: the normal login page applies
-        }
-        setLoading(false)
-        return
-      }
       try {
-        const stored = window.localStorage.getItem('authUser')
-        if (stored) setUser(JSON.parse(stored))
-      } catch {
-        // ignore
+        // Ask first whether the lw_sid cookie holds a session, without rotating
+        // it. A visitor with none is told so (200, user null) and nothing else
+        // is called; the shell may also have signed out since (its menu posts
+        // /auth/logout).
+        const stored = readStoredUser()
+        const res = await fetch(`${API_BASE}/auth/session`, { credentials: 'include', headers: { Accept: 'application/json' } })
+        if (cancelled) return
+        if (!res.ok) {
+          if (stored) setUserState(stored) // a 5xx or network trouble is not a sign-out
+          return
+        }
+        const body = (await res.json().catch(() => null)) as { user?: unknown; smsLive?: unknown } | null
+        if (cancelled) return
+        setSmsLive(body?.smsLive === true)
+        if (!body || !body.user) { forget(); return }
+        if (getAccessToken() && stored) { setUserState(stored); return }
+        const result = await api.post<SessionResult>('/auth/refresh')
+        if (!cancelled) adopt(result)
+      } catch (err) {
+        if (!cancelled && (!(err instanceof ApiError) || err.status === 401 || err.status === 403)) forget()
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
     restore()
-  }, [])
+    return () => {
+      cancelled = true
+    }
+  }, [adopt, forget])
 
-  async function login(identifier: string, password: string) {
-    const result = await api.post<{ accessToken: string; user: AuthUser }>('/auth/login', { identifier, password })
-    setAccessToken(result.accessToken)
-    window.localStorage.setItem('authUser', JSON.stringify(result.user))
-    setUser(result.user)
-  }
+  const login = useCallback(
+    async (identifier: string, password: string) => adopt(await api.post<SessionResult>('/auth/login', { identifier, password })),
+    [adopt],
+  )
 
-  async function logout() {
+  const loginWithOtp = useCallback(
+    async (target: CodeTarget, otp: string) => adopt(await api.post<SessionResult>('/auth/otp/login', { ...target, otp })),
+    [adopt],
+  )
+
+  const logout = useCallback(async () => {
     try {
-      await api.post('/auth/logout')
+      await api.post('/auth/logout', {})
     } catch {
       // ignore — clearing local state regardless
     }
-    setAccessToken(null)
-    window.localStorage.removeItem('authUser')
-    setUser(null)
-  }
+    forget()
+  }, [forget])
 
-  return <AuthContext.Provider value={{ user, loading, login, logout, setUser }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ user, loading, smsLive, login, loginWithOtp, logout, setUser }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth(): AuthContextValue {

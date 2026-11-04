@@ -1,0 +1,11 @@
+/* The style guide page only. */
+.sg-toc{position:sticky;top:64px;background:var(--k-page);z-index:5}
+.sg-swatches{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:var(--k-3)}
+.sg-swatches li{display:flex;flex-direction:column;gap:2px;font-size:var(--k-text-sm)}
+.sg-swatches small{color:var(--k-muted)}
+.sg-sw{display:block;height:56px;border-radius:var(--k-radius-sm);border:1px solid var(--k-border)}
+.sg-accents{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:var(--k-3);margin-top:var(--k-4)}
+.sg-accents .k-card{display:flex;gap:var(--k-3);align-items:center;flex-wrap:wrap}
+.sg-display{font-size:var(--k-text-2xl)}
+.sg-form{max-width:560px}
+.k-section>.k-banner,.k-section>.k-card,.k-section>.k-row{margin-bottom:var(--k-4)}
