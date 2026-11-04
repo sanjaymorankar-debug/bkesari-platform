@@ -30,6 +30,20 @@ describe('mailSettings', () => {
     expect(mailSettings(HOSTINGER)).toMatchObject({ port: 465, secure: true })
   })
 
+  it('takes the names set on the servers: SMTP_USER and SMTP_PASSWORD alone mean Hostinger on 465 (D-034)', () => {
+    expect(mailSettings({ SMTP_USER: 'code@agtci.com', SMTP_PASSWORD: 'mailbox-secret' })).toEqual({
+      host: 'smtp.hostinger.com',
+      port: 465,
+      secure: true,
+      requireTLS: false,
+      auth: { user: 'code@agtci.com', pass: 'mailbox-secret' },
+      from: { name: DEFAULT_FROM_NAME, address: 'code@agtci.com' },
+    })
+    // MAIL_* wins over SMTP_*; SMTP_HOST and SMTP_PORT are read too.
+    expect(mailSettings({ MAIL_USERNAME: 'a@b.co', MAIL_PASSWORD: 'p1', SMTP_USER: 'c@d.co', SMTP_PASSWORD: 'p2', SMTP_HOST: 'mail.example.com', SMTP_PORT: '587' }))
+      .toMatchObject({ host: 'mail.example.com', port: 587, auth: { user: 'a@b.co', pass: 'p1' } })
+  })
+
   it('587 is STARTTLS, which is then required', () => {
     expect(mailSettings({ ...HOSTINGER, MAIL_PORT: '587' })).toMatchObject({ port: 587, secure: false, requireTLS: true })
     expect(mailSettings({ ...HOSTINGER, MAIL_PORT: '2465', MAIL_SCHEME: 'smtps' })).toMatchObject({ secure: true })

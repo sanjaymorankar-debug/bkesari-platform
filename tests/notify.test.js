@@ -50,3 +50,16 @@ test('a failed send rejects, so the caller can say it could not be sent', async 
 test('nothing configured: no mail() and no sms()', () => {
   assert.deepEqual(createNotifier('HUB', {}), {});
 });
+
+test('the names set on the servers work too: SMTP_USER and SMTP_PASSWORD alone mean Hostinger on 465 (D-034)', () => {
+  const s = smtpSettings({ SMTP_USER: 'code@agtci.com', SMTP_PASSWORD: 'mailbox-secret' }, 'TASKLIST', 'TaskList · bkesari');
+  assert.equal(s.transport.host, 'smtp.hostinger.com');
+  assert.equal(s.transport.port, 465);
+  assert.equal(s.transport.secure, true);
+  assert.deepEqual(s.transport.auth, { user: 'code@agtci.com', pass: 'mailbox-secret' });
+  assert.deepEqual(s.from, { name: 'TaskList · bkesari', address: 'code@agtci.com' });
+  // MAIL_* wins when both are set; SMTP_HOST / SMTP_PORT are read as well.
+  const both = smtpSettings({ MAIL_USERNAME: 'a@b.co', MAIL_PASSWORD: 'p1', SMTP_USER: 'c@d.co', SMTP_PASSWORD: 'p2', SMTP_HOST: 'mail.example.com', SMTP_PORT: '587' }, 'HUB', 'bkesari');
+  assert.deepEqual([both.transport.host, both.transport.port, both.transport.auth.user, both.transport.auth.pass], ['mail.example.com', 587, 'a@b.co', 'p1']);
+  assert.equal(typeof createNotifier('HUB', { SMTP_USER: 'code@agtci.com', SMTP_PASSWORD: 'x' }).mail, 'function');
+});

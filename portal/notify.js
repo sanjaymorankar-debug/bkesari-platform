@@ -17,6 +17,9 @@
              MAIL_FROM_NAME     the sender name (default: the project's)
            Or RESEND_API_KEY + MAIL_FROM (https://api.resend.com/emails), or
            MAIL_WEBHOOK_URL (+ MAIL_WEBHOOK_TOKEN): POST {"to","subject","text"}.
+           The names set on the servers also work: SMTP_USER (or SMTP_USERNAME),
+           SMTP_PASSWORD (or SMTP_PASS), SMTP_HOST, SMTP_PORT. A mailbox with no
+           host means Hostinger's smtp.hostinger.com on 465 (D-034).
    SMS     On hold (D-029). SMS_WEBHOOK_URL (+ SMS_WEBHOOK_TOKEN):
            POST {"to":"+91XXXXXXXXXX","text":"..."} with "Authorization: Bearer <token>".
 
@@ -29,6 +32,17 @@ const nodemailer = require('nodemailer');
 function pick(env, prefix, name) {
   return env[`${prefix}_${name}`] || env[name] || '';
 }
+
+/** The first of `names` that is set, each with its project prefix first. */
+function first(env, prefix, names) {
+  for (const n of names) {
+    const v = pick(env, prefix, n);
+    if (v) return v;
+  }
+  return '';
+}
+
+const HOSTINGER_SMTP_HOST = 'smtp.hostinger.com';
 
 async function post(url, token, body) {
   const r = await fetch(url, {
@@ -44,10 +58,11 @@ async function post(url, token, body) {
 
 /** The SMTP settings for one project, or null when MAIL_HOST is not set. */
 function smtpSettings(env, prefix, defaultName) {
-  const host = pick(env, prefix, 'MAIL_HOST');
+  const user = first(env, prefix, ['MAIL_USERNAME', 'SMTP_USER', 'SMTP_USERNAME']);
+  // A mailbox with no host is a Hostinger mailbox (D-034).
+  const host = first(env, prefix, ['MAIL_HOST', 'SMTP_HOST']) || (user ? HOSTINGER_SMTP_HOST : '');
   if (!host) return null;
-  const port = Number(pick(env, prefix, 'MAIL_PORT') || 465);
-  const user = pick(env, prefix, 'MAIL_USERNAME');
+  const port = Number(first(env, prefix, ['MAIL_PORT', 'SMTP_PORT']) || 465);
   const address = pick(env, prefix, 'MAIL_FROM_ADDRESS') || user;
   const fromName = pick(env, prefix, 'MAIL_FROM_NAME') || defaultName;
   const scheme = pick(env, prefix, 'MAIL_SCHEME').toLowerCase();
@@ -58,7 +73,7 @@ function smtpSettings(env, prefix, defaultName) {
       // 465 is TLS from the first byte; 587 upgrades with STARTTLS, which is then required.
       secure: scheme ? scheme === 'smtps' : port === 465,
       requireTLS: port !== 465,
-      auth: user ? { user, pass: pick(env, prefix, 'MAIL_PASSWORD') } : undefined,
+      auth: user ? { user, pass: first(env, prefix, ['MAIL_PASSWORD', 'SMTP_PASSWORD', 'SMTP_PASS']) } : undefined,
       connectionTimeout: 10000,
       greetingTimeout: 10000,
       socketTimeout: 15000,

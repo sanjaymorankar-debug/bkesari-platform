@@ -11,6 +11,11 @@
  *   MAIL_FROM_NAME     the sender name (default: "LadWani · bkesari")
  *   MAIL_SCHEME        optional, as Laravel's: smtps (TLS from the first byte) or smtp (STARTTLS)
  *
+ * The names the owner set on the server also work (4 Nov 2026): SMTP_USER (or
+ * SMTP_USERNAME) for MAIL_USERNAME, SMTP_PASSWORD (or SMTP_PASS) for
+ * MAIL_PASSWORD, SMTP_HOST and SMTP_PORT. With a mailbox but no host, the host
+ * is Hostinger's, smtp.hostinger.com, on 465 (decision D-034).
+ *
  * LadWani runs inside the hub's process and shares its environment, so each
  * may be set for LadWani alone with a LADWANI_ prefix (LADWANI_MAIL_FROM_NAME
  * beats MAIL_FROM_NAME). A blank value counts as unset, as in the hub.
@@ -44,12 +49,23 @@ function pick(env: NodeJS.ProcessEnv, name: string, trim = true): string {
 }
 
 /** The settings in force, or null when mail is not configured (no host, no sender, or a port that is not one). */
+/** The first of `names` that is set (each with its LADWANI_ form first). */
+function first(env: NodeJS.ProcessEnv, names: string[], trim = true): string {
+  for (const n of names) {
+    const v = pick(env, n, trim)
+    if (v) return v
+  }
+  return ''
+}
+
+export const HOSTINGER_SMTP_HOST = 'smtp.hostinger.com'
+
 export function mailSettings(env: NodeJS.ProcessEnv = process.env): MailSettings | null {
-  const host = pick(env, 'MAIL_HOST')
+  const user = first(env, ['MAIL_USERNAME', 'SMTP_USER', 'SMTP_USERNAME'])
+  const host = first(env, ['MAIL_HOST', 'SMTP_HOST']) || (user ? HOSTINGER_SMTP_HOST : '')
   if (!host) return null
-  const port = Number(pick(env, 'MAIL_PORT') || 465)
+  const port = Number(first(env, ['MAIL_PORT', 'SMTP_PORT']) || 465)
   if (!Number.isInteger(port) || port < 1 || port > 65535) return null
-  const user = pick(env, 'MAIL_USERNAME')
   const address = pick(env, 'MAIL_FROM_ADDRESS') || user
   if (!address) return null
   const scheme = pick(env, 'MAIL_SCHEME').toLowerCase()
@@ -59,7 +75,7 @@ export function mailSettings(env: NodeJS.ProcessEnv = process.env): MailSettings
     port,
     secure,
     requireTLS: !secure && !LOOPBACK.has(host.toLowerCase()),
-    auth: user ? { user, pass: pick(env, 'MAIL_PASSWORD', false) } : undefined,
+    auth: user ? { user, pass: first(env, ['MAIL_PASSWORD', 'SMTP_PASSWORD', 'SMTP_PASS'], false) } : undefined,
     from: { name: pick(env, 'MAIL_FROM_NAME') || DEFAULT_FROM_NAME, address },
   }
 }
