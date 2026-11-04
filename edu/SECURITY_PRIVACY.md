@@ -84,7 +84,7 @@ every officer read — and the `audit_logs` one is not even data-layer only:
 `/admin/audit-log` renders `actorLabel()`, so it would have shown the
 submitter's **name** next to `Complaint #N`. Refusing the conflicted action,
 rather than dropping the actor's id, keeps the accountability the trail exists
-for: an official act is still always named (CR-21). Viewing is untouched — a
+for: an official act is still always named (CR-22). Viewing is untouched — a
 submitter still sees their own complaint and appeal — and another member of
 staff can answer it.
 

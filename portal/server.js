@@ -14,6 +14,8 @@ const storage = require('./storage');
 const realtime = require('./realtime');
 // Who may open which project: permissions, request/approve screens, signed tokens.
 const { createHub } = require('./hub');
+// smorankar and sonalimorankar: username sign-in, owners in every project.
+const { createBuiltinAdmins, USERNAMES } = require('./builtin-admins');
 
 /* ============================================================
    bkesari.com
@@ -223,7 +225,13 @@ function createApp(db, extra = {}) {
   // the visitor hangs until the proxy timeout hands them a 502. Every POST
   // into a proxied project would do it. tests/proxy.test.js shows both
   // orders on a copy; tests/server.test.js fails if this one moves.
-  const hub = createHub({ db: hubDb, getUser: extra.getUser || neonAuth.currentUser, envName: currentEnv });
+  //
+  // Who is signed in: a built-in administrator's cookie first (portal/builtin-admins.js),
+  // then Neon Auth (or the tests' stand-in).
+  const builtin = createBuiltinAdmins(extra.builtinAdmins || {});
+  const signedIn = extra.getUser || neonAuth.currentUser;
+  const getUser = async (req, res) => builtin.currentUser(req) || signedIn(req, res);
+  const hub = createHub({ db: hubDb, getUser, envName: currentEnv });
 
   // LadWani runs in this process (portal/ladwani.js) when its build is here:
   // main() asks for it, tests pass their own options. Same gate, same place
@@ -239,12 +247,27 @@ function createApp(db, extra = {}) {
     renderMenu: (pathname, req) => menu.renderHtml({ pathname, env: currentEnv(req) }),
   });
 
+  // The built-in administrators' sign-in, and their sign-out on the same
+  // /api/auth/sign-out every page calls: before Neon Auth, which owns /api/auth/*.
+  builtin.mount(app, {
+    express,
+    neonSignOut: () => neonAuth.enabled(),
+    audit: (actor, action, detail) => hubDb.run(
+      'INSERT INTO audit_log (actor, action, target, detail) VALUES ($1,$2,$3,$4)', [actor, action, 'hub', detail]),
+  });
+
   // Neon Auth's /api/auth/* proxy forwards the raw body too, so it also has to
   // be mounted before the body parsers. Without NEON_AUTH_BASE_URL, /tasks/
-  // keeps its HTTP Basic login.
-  const trackerLogin = neonAuth.enabled()
+  // keeps its HTTP Basic login. A built-in administrator passes either way.
+  const trackerAccounts = neonAuth.enabled()
     ? neonAuth.mount(app, { extraAllow: hub.allowsTasklist })
     : basicAuth('TRACKER_USER', 'TRACKER_PASSWORD', 'bkesari Task Tracker', false);
+  const trackerLogin = (req, res, next) => {
+    const admin = builtin.currentUser(req);
+    if (!admin) return trackerAccounts(req, res, next);
+    req.trackerUser = { email: admin.email, name: admin.name, builtin: true };
+    return next();
+  };
 
   // The ATIP snapshot is a full HTML page, so its route gets a larger limit.
   // Both spellings are listed on every ATIP route below. Express's routing is
@@ -257,7 +280,8 @@ function createApp(db, extra = {}) {
   hub.mount(app);
 
   // ATIP belongs to the owner. Signed-in non-owners and visitors alike get a 404.
-  // Without Neon Auth (local runs) the old ATIP_USER/ATIP_PASSWORD login stays.
+  // Without Neon Auth (local runs) the old ATIP_USER/ATIP_PASSWORD login stays,
+  // and a built-in administrator (an owner) passes it.
   const atipBasic = basicAuth('ATIP_USER', 'ATIP_PASSWORD', 'bkesari ATIP', true);
   const atipOwner = neonAuth.enabled() || extra.getUser
     ? wrap(async (req, res, next) => {
@@ -265,7 +289,7 @@ function createApp(db, extra = {}) {
         if (user && user.isOwner) return next();
         res.status(404).type('text/plain').send('Not found');
       })
-    : atipBasic;
+    : (req, res, next) => (builtin.currentUser(req) ? next() : atipBasic(req, res, next));
 
   // The renamed page. 301 so links and bookmarks to /global-warming keep working.
   app.get(['/global-warming', '/global-warming/*'], (req, res) => {
@@ -301,9 +325,11 @@ function createApp(db, extra = {}) {
   api.get('/meta', (req, res) => res.json({ statuses: STATUSES }));
 
   // Who is signed in, so the page can offer "Sign out" under Neon Auth.
-  api.get('/me', (req, res) => res.json(req.trackerUser
-    ? { auth: 'neon', ...req.trackerUser }
-    : { auth: neonAuth.enabled() ? 'neon' : 'basic' }));
+  api.get('/me', (req, res) => {
+    if (!req.trackerUser) return res.json({ auth: neonAuth.enabled() ? 'neon' : 'basic' });
+    const { builtin: isBuiltin, ...user } = req.trackerUser;
+    res.json({ auth: isBuiltin ? 'builtin' : 'neon', ...user });
+  });
 
   // Neon Realtime: a sealed live query the dashboard subscribes to, so it
   // refreshes when anyone changes a project or task. 404 when not configured,
@@ -647,6 +673,8 @@ async function main() {
   } else if (!process.env.TRACKER_PASSWORD) {
     console.warn('WARNING: TRACKER_USER/TRACKER_PASSWORD not set - the tracker is open to anyone who can reach it.');
   }
+  console.log(`Built-in administrators (${USERNAMES.join(', ')}): ` +
+    (createBuiltinAdmins({ log: { warn() {} } }).enabled() ? 'sign-in on' : 'sign-in off (set BUILTIN_ADMIN_PASSWORD_HASH)'));
   console.log(`Neon: realtime ${realtime.enabled() ? 'on' : 'off'}, ` +
     `object storage ${storage.enabled() ? 'on' : 'off'}, ` +
     `report function ${process.env.NEON_FUNCTION_REPORT_BASE_URL && process.env.ORIGIN_SECRET ? 'on' : 'off'}`);

@@ -301,7 +301,7 @@ class AnonymizationTest extends TestCase
             AuditLog::where('auditable_type', Complaint::class)
                 ->where('auditable_id', $complaint->id)
                 ->where('user_id', $user->id)->count(),
-            'no audit row may name the submitter alongside their own complaint (CR-21)'
+            'no audit row may name the submitter alongside their own complaint (CR-22)'
         );
 
         // Another member of staff still answers it — the complaint is not stuck.

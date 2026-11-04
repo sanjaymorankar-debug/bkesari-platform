@@ -886,6 +886,7 @@ and `audit_log`.
 |---|---|
 | `HUB_OWNER_EMAILS` | comma-separated owner emails (default `agtcipl@gmail.com`). The owner reaches ATIP, may decide every request, and needs a **verified** email |
 | `HUB_TOKEN_PRIVATE_KEY` | RSA private key (PEM, `\n` escapes allowed) that signs the project token. Set it on every tier; without it a key is made at start-up and tokens die on restart |
+| `BUILTIN_ADMIN_PASSWORD_HASH` | the password of the two built-in administrators, `smorankar` and `sonalimorankar`, as a scrypt hash (`node scripts/hash-builtin-admin-password.js`). Unset: they cannot sign in. See *Built-in administrators* below |
 | `TASKLIST_DATABASE_URL` / `ATIP_DATABASE_URL` | the `bk_tasklist` and `bk_atip` databases. `DATABASE_URL` is then the hub's own, holding only sign-in permissions. Unset, one database carries everything (local use) |
 
 * `/ladwani/` and `/edu/`: not signed in -> `/auth/sign-in?next=...`; signed in without
@@ -899,3 +900,43 @@ and `audit_log`.
   `tasklist` row in `project_access`.
 * `/admin/access`: the owner (all projects) and each project's admin approve or
   decline requests and revoke access. Every decision lands in `audit_log`.
+
+### Built-in administrators: `smorankar` and `sonalimorankar`
+
+Two accounts that live in the hub itself (`portal/builtin-admins.js`), not in Neon Auth.
+They type their **username** (no `@`) into the "Email or username" box on `/auth/sign-in`.
+On every tier where the hash below is set, each one is an **owner**:
+
+| Project | What they get |
+|---|---|
+| LadWani | the hub's top role, `admin`, which LadWani maps to `ADMIN`. LadWani refuses their addresses at registration and never links them to an account someone else made (`ladwani/apps/api/src/auth/auth.service.ts`) |
+| Education | `system_admin` (every permission). Education grants it to these two bkesari IDs only (`edu/app/Http/Middleware/HubSignIn.php`, `BUILTIN_ADMINS`), and never links them to an account someone else made |
+| TaskList | `owner` |
+| ATIP | the viewer (owner only) |
+| Driving Simulator, Environmental Activities | open to everyone anyway |
+| `/admin/access` | decide every project's requests, revoke anyone's access |
+
+Their bkesari IDs are `builtin:smorankar` and `builtin:sonalimorankar`. The apps see their
+emails as `smorankar@builtin.bkesari.com` and `sonalimorankar@builtin.bkesari.com`. Those
+addresses have no mailbox, and nothing is sent to them. Sign-ins and failed attempts
+are written to `audit_log`.
+
+**The password is never in this repository.** The repository is public. Make the hash once,
+on any machine with this repository and Node.js:
+
+```bash
+node scripts/hash-builtin-admin-password.js
+```
+
+It asks for the password twice (nothing is shown) and prints one line,
+`BUILTIN_ADMIN_PASSWORD_HASH=scrypt:...`. Add that variable to the hub's environment on
+**each tier** (Hostinger → the Node.js app → Environment variables; on a Mac, the hub's
+`.env`) and restart the app. Its start-up log then says
+`Built-in administrators (smorankar, sonalimorankar): sign-in on`.
+
+* Both accounts share one password. A new hash changes the password and signs both
+  accounts out everywhere. Removing the variable turns both accounts off.
+* A session lasts 12 hours (`HttpOnly`, `SameSite=Lax`, and `Secure` over HTTPS).
+* Ten wrong passwords from one address lock that address out for 15 minutes. Fifty
+  wrong passwords for one username, from any address, lock that username for 15 minutes.
+* Sign-out (on the home page, the Task Tracker or the sign-in page) also ends the built-in session.
