@@ -28,11 +28,22 @@ class LanguageTest extends TestCase
         $this->withUnencryptedCookie('k_lang', 'mr')->get('/login')->assertOk()
             ->assertSee('<html lang="mr"', false)
             ->assertSee('हे Education साठी स्वतंत्र खाते आहे.')
-            ->assertSee('मोबाइल नंबर');
+            ->assertSee('ईमेलवर कोड पाठवा');
 
         $this->withUnencryptedCookie('k_lang', 'hi')->get('/')->assertOk()
             ->assertSee('<html lang="hi"', false)
             ->assertSee('अपने स्कूल को जानिए।');
+    }
+
+    public function test_the_browsers_language_does_not_change_it(): void
+    {
+        // English unless k_lang says otherwise: Accept-Language is never read.
+        $this->get('/login', ['Accept-Language' => 'mr-IN,mr;q=0.9,hi;q=0.8'])->assertOk()
+            ->assertSee('<html lang="en"', false)
+            ->assertSee('This is a separate account for Education.');
+
+        $this->withUnencryptedCookie('k_lang', 'hi')->get('/login', ['Accept-Language' => 'mr-IN,mr;q=0.9'])->assertOk()
+            ->assertSee('<html lang="hi"', false);
     }
 
     public function test_anything_else_falls_back_to_english(): void

@@ -121,7 +121,7 @@ new class extends Component
         <div>
             <x-input-label for="mobile" :value="__('Mobile number (optional)')" />
             <x-text-input wire:model="mobile" id="mobile" name="mobile" type="tel" inputmode="tel" class="mt-1 block w-full" autocomplete="tel-national" placeholder="98765 43210" aria-describedby="profile-mobile-hint" />
-            <p id="profile-mobile-hint" class="k-hint mt-1">{{ __('With a mobile number you can sign in with a code sent by text message.') }}</p>
+            <p id="profile-mobile-hint" class="k-hint mt-1">{{ __('Sign-in codes go by email for now; a code by text message will come later.') }}</p>
             <x-input-error class="mt-2" :messages="$errors->get('mobile')" />
         </div>
 

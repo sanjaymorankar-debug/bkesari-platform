@@ -10,7 +10,7 @@ This is a large spec built incrementally — see [`ROADMAP.md`](ROADMAP.md) for 
 ## What's actually here
 
 - Auth + RBAC for 12 spec roles, each with a real working dashboard (Parent, Student, Teacher, School Admin, District/State Officer, National Admin, Researcher, System Admin)
-- **Its own accounts**: on bkesari.com, Education is a separate account from every other project (session cookie `edu_sid` on `/edu`, no shared sign-in). Email and password with a 15-minute lockout after five wrong tries, or a six-digit code sent to a mobile number (`SMS_WEBHOOK_URL`); `/sign-in`, `/sign-up`, `/forgot-password`, `/verify`
+- **Its own accounts**: on bkesari.com, Education is a separate account from every other project (session cookie `edu_sid` on `/edu`, no shared sign-in). Email and password with a 15-minute lockout after five wrong tries, or a six-digit code sent by email (Hostinger SMTP; a code by text message only where `SMS_WEBHOOK_URL` is set, on hold since 4 Nov 2026); `/sign-in`, `/sign-up`, `/forgot-password`, `/verify`
 - **Kesari design and the bkesari shell**: the pages use the hub's Kesari design system (Tailwind's colours and font point at its `--k-*` tokens, in the Education teal), the shared header and footer, a side nav on wide screens and a four-item bottom bar on phones; light and dark; English, मराठी and हिंदी (`lang/*.json`, chosen in the shell)
 - Public school registration (`/schools/register`) — the registrant becomes School Admin immediately; the school itself stays `pending` until a District/State Officer verifies it
 - Self-service parent/student/teacher onboarding (`/onboarding`) — link your account to a school; the link stays `pending` until the School Admin approves it

@@ -23,7 +23,7 @@ edu-tester agent".
 | Component | Path | Language / framework |
 |---|---|---|
 | App code: models, services, Livewire/Volt pages | `edu/app/`, `edu/resources/views/` | PHP 8.3, Laravel 13, Livewire 3.6, Volt 1.7 |
-| Education's own sign-in, the shell's endpoints, languages | `edu/config/session.php`, `edu/routes/auth.php`, `edu/app/Livewire/Forms/LoginForm.php`, `edu/app/Services/MobileSignIn.php`, `edu/app/Http/Controllers/{ShellController,Auth/SignOutController}.php`, `edu/app/Http/Middleware/SetLocale.php`, `edu/lang/*.json` | Laravel |
+| Education's own sign-in, the shell's endpoints, languages | `edu/config/session.php`, `edu/routes/auth.php`, `edu/app/Livewire/Forms/LoginForm.php`, `edu/app/Services/{EmailSignIn,MobileSignIn}.php`, `edu/app/Support/SignInCodes.php`, `edu/app/Mail/SignInCodeMail.php`, `edu/config/mail.php`, `edu/app/Http/Controllers/{ShellController,Auth/SignOutController}.php`, `edu/app/Http/Middleware/SetLocale.php`, `edu/lang/*.json` | Laravel |
 | Serving under `/edu/` | `edu/app/Providers/AppServiceProvider.php`, `edu/app/Routing/BasePathRedirector.php`, `edu/bootstrap/app.php` | Laravel |
 | Database settings for Neon | `edu/config/database.php`, `edu/app/Database/PostgresConnector.php`, `edu/app/Providers/DatabaseServiceProvider.php` | Laravel, pdo_pgsql |
 | Schema and demo data | `edu/database/migrations/` (68), `edu/database/seeders/` | Laravel migrations, PostgreSQL 16 |
@@ -326,7 +326,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | EDU-CR-18 | The committed build matches its manifest and is exactly what the sources produce | S1 row 5, S4 |
 | EDU-CR-19 | Every protected GET route refuses a guest; no private file is served; complaint evidence downloads only for those the complaint policy allows, and only through its own complaint; the suite refuses a hosted database | S6 `guest_routes.py`, `http.sh`, the S6 refusal check; `ComplaintEvidenceTest` (3); `NeonReadinessTest`'s three `test_the_suite_refuses_*` |
 | EDU-CR-20 | No score, rank or label column in the growth or benchmark tables; a school cannot verify itself | `NoLabelingRulesTest`, `BenchmarkHonestyTest`, `UdiseVerificationTest`, `ClaimedVsExperiencedTest` |
-| EDU-CR-21 | Education's own accounts: the session cookie is `edu_sid`, on the path of `APP_URL`, Secure with https, HttpOnly, SameSite=Lax; nothing the hub forwards signs anyone in; five wrong passwords lock sign-in for 15 minutes; a mobile code is hashed, single-use, expires in 10 minutes, dies after 5 wrong tries, is rate-limited and is never shown in production; all of these hold for requests sent together | `OwnAccountTest`, `MobileSignInTest`, `AttemptsTest`, `BasePathTest::test_the_session_cookie_is_sent_only_under_the_prefix_and_only_over_https`; `http.sh` cookie and `shell/me` lines; `browser.cjs` step 2 |
+| EDU-CR-21 | Education's own accounts: the session cookie is `edu_sid`, on the path of `APP_URL`, Secure with https, HttpOnly, SameSite=Lax; nothing the hub forwards signs anyone in; five wrong passwords lock sign-in for 15 minutes; a sign-in code, by email or (only where SMS is set up) by text, is hashed, single-use, expires in 10 minutes, dies after 5 wrong tries, is rate-limited, goes to no unknown address, still leaves two-factor to pass, and is shown on screen only on `APP_ENV` `local` or `dev` with nothing set up to deliver it (never on test or production); all of these hold for requests sent together | `OwnAccountTest`, `EmailSignInTest`, `MobileSignInTest`, `AttemptsTest`, `BasePathTest::test_the_session_cookie_is_sent_only_under_the_prefix_and_only_over_https`; `http.sh` cookie and `shell/me` lines; `browser.cjs` step 2 |
 
 ### R3 — change-area map
 
@@ -334,7 +334,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 |---|---|
 | `config/database.php`, `app/Database/**`, `app/Providers/DatabaseServiceProvider.php`, `phpunit.xml`, `config/queue.php` | R1 on both engines, all of S7, CR-13 to CR-15 |
 | `app/Providers/AppServiceProvider.php`, `app/Routing/**`, `bootstrap/app.php`, `routes/**`, `resources/views/layouts/**`, `resources/views/livewire/layout/**`, any `href`/`action`/`redirect` in a view | `BasePathTest`, S5, S6 `guest_routes.py`, CR-01 to CR-03, CR-19 |
-| `resources/views/livewire/pages/auth/**`, `app/Livewire/Forms/LoginForm.php`, `app/Models/TwoFactorAuthentication.php`, `app/Services/MobileSignIn.php`, `config/session.php`, `routes/auth.php`, `app/Http/Controllers/{ShellController,Auth/SignOutController}.php` | `Auth/*` (with `OwnAccountTest`, `MobileSignInTest`), `TwoFactorAuthTest`, `browser.cjs`, CR-02, CR-10, CR-21 |
+| `resources/views/livewire/pages/auth/**`, `app/Livewire/Forms/LoginForm.php`, `app/Models/TwoFactorAuthentication.php`, `app/Services/{EmailSignIn,MobileSignIn}.php`, `app/Support/{SignInCodes,Attempts}.php`, `app/Mail/SignInCodeMail.php`, `resources/views/emails/sign-in-code*.blade.php`, `config/mail.php`, `config/session.php`, `routes/auth.php`, `app/Http/Controllers/{ShellController,Auth/SignOutController}.php` | `Auth/*` (with `OwnAccountTest`, `EmailSignInTest`, `MobileSignInTest`), `TwoFactorAuthTest`, `LanguageTest` (the strings), `browser.cjs`, CR-02, CR-10, CR-21 |
 | `app/Http/Middleware/SetLocale.php`, `lang/*.json`, `bootstrap/app.php` (cookie encryption) | `LanguageTest`, S5 |
 | `database/migrations/**` | S3b, S3c (regenerate `database/edu/01_edu_schema.sql` with `pg_dump --schema-only --no-owner --no-privileges` and its migrations log), S7.4, CR-16, CR-17, the schema-level tests in `AnonymizationTest`, `NoLabelingRulesTest`, `BenchmarkHonestyTest`, `HealthAccessMatrixTest` |
 | `database/seeders/**` | S3b, `database/edu/02` and `03` if the rows they carry changed, `TEST_ACCOUNTS.md` |
@@ -522,7 +522,11 @@ VERDICT: PASS | FAIL | BLOCKED
   record of the last time-step used. Rate-limited now, not replay-proof.
 - **Mobile codes are never sent to a real SMS provider in a test.** The webhook contract
   (`POST {to, text}`, Bearer token) is checked with `Http::fake()`; the provider's own behaviour,
-  delivery and DLT template registration are outside this spec.
+  delivery and DLT template registration are outside this spec. SMS is on hold (4 Nov 2026).
+- **Email codes never reach Hostinger's SMTP in a test.** `EmailSignInTest` sends through the
+  app's real mailer to a transport it reads; implicit TLS on port 465, Hostinger's
+  authentication, sending limits, spam placement and bounces are checked only on a tier, by
+  asking for a code for an address someone reads (root `DEPLOY.md` Part 2).
 - **The shell and Kesari are the hub's.** `/shared/menu.js` and `/kesari-ui/` are only loaded here
   (S5 checks they arrive and the account menu works); their own rendering, strings and contrast
   are `portal-tester`'s.

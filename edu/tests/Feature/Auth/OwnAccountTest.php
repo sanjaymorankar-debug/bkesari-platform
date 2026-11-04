@@ -5,6 +5,7 @@ namespace Tests\Feature\Auth;
 use App\Http\Middleware\HubSignIn;
 use App\Livewire\Forms\LoginForm;
 use App\Models\User;
+use App\Services\MobileSignIn;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -83,7 +84,7 @@ class OwnAccountTest extends TestCase
         $user = User::factory()->create();
         Cache::flush();
         $attempt = fn (string $password) => Volt::test('pages.auth.login')
-            ->call('useMethod', 'email')
+            ->call('useMethod', 'password')
             ->set('form.email', $user->email)
             ->set('form.password', $password)
             ->call('login');
@@ -109,7 +110,7 @@ class OwnAccountTest extends TestCase
         $user = User::factory()->create();
         Cache::flush();
         $attempt = fn (string $password) => Volt::test('pages.auth.login')
-            ->call('useMethod', 'email')
+            ->call('useMethod', 'password')
             ->set('form.email', $user->email)->set('form.password', $password)->call('login');
 
         foreach (range(1, LoginForm::MAX_ATTEMPTS - 1) as $i) {
@@ -130,7 +131,7 @@ class OwnAccountTest extends TestCase
         Cache::flush();
 
         foreach (range(1, 3) as $i) {
-            $component = Volt::test('pages.auth.login')->call('useMethod', 'email')
+            $component = Volt::test('pages.auth.login')->call('useMethod', 'password')
                 ->set('form.email', $user->email)->set('form.password', 'nope')->call('login');
         }
 
@@ -155,7 +156,7 @@ class OwnAccountTest extends TestCase
 
         // Twelve wrong passwords and, last, the right one.
         foreach ([...array_fill(0, 12, 'wrong-password'), 'password'] as $password) {
-            Volt::test('pages.auth.login')->call('useMethod', 'email')
+            Volt::test('pages.auth.login')->call('useMethod', 'password')
                 ->set('form.email', $user->email)->set('form.password', $password)->call('login')
                 ->assertHasErrors('form.email');
         }
@@ -173,6 +174,39 @@ class OwnAccountTest extends TestCase
         $this->get('/verify')->assertRedirect(route('login'));
         $this->actingAs(User::factory()->unverified()->create())
             ->get('/verify')->assertOk()->assertSeeVolt('pages.auth.verify-email');
+    }
+
+    public function test_the_sign_in_screen_offers_an_emailed_code_and_a_password_and_mobile_only_with_sms(): void
+    {
+        config(['services.sms.webhook_url' => null]);
+
+        // SMS on hold: a code by email, and the password.
+        $this->get('/sign-in')->assertOk()
+            ->assertSee('id="tab-code"', false)->assertSee('Email me a code')
+            ->assertSee('id="tab-password"', false)
+            ->assertDontSee('id="tab-mobile"', false)->assertDontSee('Mobile number');
+
+        // An SMS provider adds the mobile number, first.
+        config(['services.sms.webhook_url' => 'https://sms.example.test/send']);
+        $html = $this->get('/sign-in')->assertOk()->getContent();
+        $this->assertMatchesRegularExpression('/id="tab-mobile".*id="tab-code".*id="tab-password"/s', $html);
+        $this->assertStringContainsString('Mobile number', $html);
+    }
+
+    public function test_a_sign_in_code_is_never_shown_on_test_or_production(): void
+    {
+        config(['services.sms.webhook_url' => null, 'mail.default' => 'log']);
+        $user = User::factory()->create(['mobile' => '+919876543210']);
+        Cache::flush();
+
+        foreach (['test', 'production'] as $env) {
+            $this->app['env'] = $env;
+
+            Volt::test('pages.auth.login')->call('useMethod', 'code')->set('codeEmail', $user->email)->call('sendEmailCode')
+                ->assertHasErrors('codeEmail')->assertSet('shownEmailCode', null)->assertSet('emailSentTo', '')
+                ->assertSee('Sign in with your password instead.');
+            $this->assertSame(['status' => 'unavailable'], app(MobileSignIn::class)->send('+919876543210', '203.0.113.1'));
+        }
     }
 
     public function test_every_sign_in_screen_says_it_is_a_separate_education_account(): void

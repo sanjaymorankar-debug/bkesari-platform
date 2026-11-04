@@ -57,13 +57,14 @@ async function urlsEscapingPrefix(page) {
   }, HUB);
 }
 
-// Education's own sign-in, by email (the mobile tab is first wherever SMS
-// codes can be delivered).
+// Education's own sign-in, by email and password (a code by email is the
+// first tab wherever mail can be delivered, and a code by text message where
+// SMS is set up).
 async function signIn(page, email) {
-  const emailTab = page.locator('#tab-email');
-  if (await emailTab.count() && (await emailTab.getAttribute('aria-selected')) !== 'true') {
-    await emailTab.click();
-    await page.waitForSelector('#email');
+  const passwordTab = page.locator('#tab-password');
+  if (await passwordTab.count() && (await passwordTab.getAttribute('aria-selected')) !== 'true') {
+    await passwordTab.click();
+    await page.waitForSelector('#password');
   }
   await page.fill('#email', email);
   await page.fill('#password', PASSWORD);

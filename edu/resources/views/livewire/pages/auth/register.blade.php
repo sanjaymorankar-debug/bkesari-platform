@@ -109,7 +109,7 @@ new #[Layout('layouts.guest')] class extends Component
         <div class="k-field">
             <x-input-label for="mobile" :value="__('Mobile number (optional)')" />
             <x-text-input wire:model="mobile" id="mobile" type="tel" name="mobile" inputmode="tel" autocomplete="tel-national" placeholder="98765 43210" aria-describedby="mobile-hint" />
-            <p id="mobile-hint" class="k-hint">{{ __('Add it to sign in with a code sent by text message.') }}</p>
+            <p id="mobile-hint" class="k-hint">{{ __('Optional. Sign-in codes go by email for now; a code by text message will come later.') }}</p>
             <x-input-error :messages="$errors->get('mobile')" />
         </div>
 

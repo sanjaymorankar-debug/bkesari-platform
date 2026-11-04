@@ -3,19 +3,21 @@
 namespace App\Services;
 
 use App\Models\User;
-use App\Support\Attempts;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Hash;
+use App\Support\SignInCodes;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\RateLimiter;
 use Throwable;
 
 /**
  * Signing in with a mobile number and a six-digit code sent by text message.
  *
- * - The code is random, kept only as a bcrypt hash, lasts 10 minutes, is used
- *   once, and is thrown away after 5 wrong tries.
+ * SMS delivery is on hold (owner's decision, 4 Nov 2026): the sign-in screen
+ * offers this only where SMS_WEBHOOK_URL is set (offered()). Codes by email
+ * (App\Services\EmailSignIn) are the alternative to the password meanwhile.
+ *
+ * - The code (App\Support\SignInCodes) is random, kept only as a bcrypt
+ *   hash, lasts 10 minutes, is used once, and is thrown away after 5 wrong
+ *   tries.
  * - Sending is rate-limited per number (3 codes per 10 minutes) and per
  *   address (10 per hour), so the form cannot be used to flood a phone or
  *   run up the SMS bill, and guessing is bounded at 15 tries per 10 minutes.
@@ -24,19 +26,19 @@ use Throwable;
  *
  * Where the text goes depends on the deployment (mode()):
  *   sms     SMS_WEBHOOK_URL is set: POST {"to": "+91…", "text": "…"} to it,
- *           with SMS_WEBHOOK_TOKEN as a Bearer token.
- *   screen  no provider and APP_ENV is not production: the code is handed back
- *           to be shown on the page. For local development and tests only.
- *   off     no provider in production: mobile sign-in says it is not
- *           available yet, and people use email.
+ *           with SMS_WEBHOOK_TOKEN as a Bearer token. Never shown on screen.
+ *   screen  no provider, and APP_ENV is local or dev: the code is handed
+ *           back to be shown on the page. Development only.
+ *   off     no provider on any other APP_ENV (test, production, ...): no
+ *           code is made, and people use email.
  */
 class MobileSignIn
 {
-    public const CODE_LENGTH = 6;
+    public const CODE_LENGTH = SignInCodes::LENGTH;
 
-    public const CODE_TTL_SECONDS = 600;
+    public const CODE_TTL_SECONDS = SignInCodes::TTL_SECONDS;
 
-    public const MAX_TRIES = 5;
+    public const MAX_TRIES = SignInCodes::MAX_TRIES;
 
     public const SENDS_PER_NUMBER = 3;
 
@@ -52,18 +54,31 @@ class MobileSignIn
 
     public const MODE_OFF = 'off';
 
+    private SignInCodes $codes;
+
+    public function __construct()
+    {
+        $this->codes = new SignInCodes('mobile-sign-in');
+    }
+
     public function mode(): string
     {
         if (filled(config('services.sms.webhook_url'))) {
             return self::MODE_SMS;
         }
 
-        return app()->environment('production') ? self::MODE_OFF : self::MODE_SCREEN;
+        return SignInCodes::mayShowOnScreen() ? self::MODE_SCREEN : self::MODE_OFF;
     }
 
     public function available(): bool
     {
         return $this->mode() !== self::MODE_OFF;
+    }
+
+    /** Whether the sign-in screen offers a code by text message: only with an SMS provider. */
+    public function offered(): bool
+    {
+        return $this->mode() === self::MODE_SMS;
     }
 
     /**
@@ -79,22 +94,12 @@ class MobileSignIn
             return ['status' => 'unavailable'];
         }
 
-        $limits = [
-            [$this->numberKey($mobile), self::SENDS_PER_NUMBER, self::SEND_WINDOW_SECONDS],
-            [$this->addressKey($ip), self::SENDS_PER_ADDRESS, self::ADDRESS_WINDOW_SECONDS],
-        ];
-        foreach ($limits as [$key, $max, $window]) {
-            if (RateLimiter::tooManyAttempts($key, $max)) {
-                return ['status' => 'throttled', 'retryAfter' => RateLimiter::availableIn($key)];
-            }
-        }
-        // The limit is decided on each request's own count (Attempts::hit),
-        // not only on the check above: requests that arrive together all
-        // pass that check before any of them is counted.
-        foreach ($limits as [$key, $max, $window]) {
-            if (Attempts::hit($key, $window) > $max) {
-                return ['status' => 'throttled', 'retryAfter' => RateLimiter::availableIn($key)];
-            }
+        $wait = $this->codes->throttle(
+            $mobile, self::SENDS_PER_NUMBER, self::SEND_WINDOW_SECONDS,
+            $ip, self::SENDS_PER_ADDRESS, self::ADDRESS_WINDOW_SECONDS,
+        );
+        if ($wait !== null) {
+            return ['status' => 'throttled', 'retryAfter' => $wait];
         }
 
         $user = User::where('mobile', $mobile)->first();
@@ -103,12 +108,7 @@ class MobileSignIn
             return ['status' => 'sent'];
         }
 
-        $code = str_pad((string) random_int(0, 10 ** self::CODE_LENGTH - 1), self::CODE_LENGTH, '0', STR_PAD_LEFT);
-        Cache::put($this->codeKey($mobile), [
-            'user_id' => $user->id,
-            'hash' => Hash::make($code),
-            'expires_at' => now()->addSeconds(self::CODE_TTL_SECONDS)->getTimestamp(),
-        ], self::CODE_TTL_SECONDS);
+        $code = $this->codes->issue($mobile, $user->id);
 
         if ($this->mode() === self::MODE_SCREEN) {
             return ['status' => 'sent', 'code' => $code];
@@ -124,7 +124,7 @@ class MobileSignIn
                 ])
                 ->throw();
         } catch (Throwable $e) {
-            Cache::forget($this->codeKey($mobile));
+            $this->codes->forget($mobile);
             Log::warning('Mobile sign-in: the SMS provider refused the message: '.$e->getMessage());
 
             return ['status' => 'failed'];
@@ -140,71 +140,13 @@ class MobileSignIn
      */
     public function verify(string $mobile, string $code): array
     {
-        $key = $this->codeKey($mobile);
-        $entry = Cache::get($key);
-
-        if (! is_array($entry) || ($entry['expires_at'] ?? 0) <= now()->getTimestamp()) {
-            Cache::forget($key);
-
-            return ['status' => 'expired'];
+        $result = $this->codes->verify($mobile, $code);
+        if ($result['status'] !== 'ok') {
+            return $result;
         }
 
-        // The try is counted before the code is checked, with an atomic
-        // increment on a counter of this code's own (its hash is salted, so a
-        // new code starts a new count): requests that arrive together each
-        // get their own number, so no more than MAX_TRIES are ever checked.
-        // Reading the entry, adding one and writing it back would let every
-        // request that read it first through as the first try.
-        $remaining = max(1, $entry['expires_at'] - now()->getTimestamp());
-        $codeId = hash('sha256', (string) $entry['hash']);
-        $triesKey = $key.':tries:'.$codeId;
-        Cache::add($triesKey, 0, $remaining);
-        $tries = Cache::increment($triesKey);
+        $user = User::find($result['userId']);
 
-        if ($tries === false) {
-            return ['status' => 'expired'];
-        }
-        if ($tries > self::MAX_TRIES) {
-            Cache::forget($key);
-
-            return ['status' => 'locked'];
-        }
-
-        $code = preg_replace('/\D+/', '', $code);
-        if (strlen($code) === self::CODE_LENGTH && Hash::check($code, $entry['hash'])) {
-            // Spent by whichever request claims it first (add() only writes a
-            // key that is not there), so one code signs in once even when
-            // several requests carry it at the same moment.
-            if (! Cache::add($key.':spent:'.$codeId, true, $remaining)) {
-                return ['status' => 'expired'];
-            }
-            Cache::forget($key);
-            $user = User::find($entry['user_id']);
-
-            return $user && $user->mobile === $mobile ? ['status' => 'ok', 'user' => $user] : ['status' => 'expired'];
-        }
-
-        if ($tries >= self::MAX_TRIES) {
-            Cache::forget($key);
-
-            return ['status' => 'locked'];
-        }
-
-        return ['status' => 'wrong', 'triesLeft' => self::MAX_TRIES - $tries];
-    }
-
-    private function codeKey(string $mobile): string
-    {
-        return 'mobile-sign-in:code:'.hash('sha256', $mobile);
-    }
-
-    private function numberKey(string $mobile): string
-    {
-        return 'mobile-sign-in:send:'.hash('sha256', $mobile);
-    }
-
-    private function addressKey(string $ip): string
-    {
-        return 'mobile-sign-in:address:'.$ip;
+        return $user && $user->mobile === $mobile ? ['status' => 'ok', 'user' => $user] : ['status' => 'expired'];
     }
 }

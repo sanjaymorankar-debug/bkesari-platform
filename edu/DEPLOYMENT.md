@@ -191,7 +191,21 @@ pg_dump --format=custom --no-owner -h <DB_HOST> -p <DB_PORT> -U <DB_USERNAME> -d
 
 ## Mail delivery
 
-Production `.env` uses `MAIL_MAILER=sendmail` (Hostinger's local relay — no external SMTP credentials needed) with `MAIL_FROM_ADDRESS=noreply@edutest.agtci.com`. This was chosen over a third-party SMTP provider specifically to avoid managing external credentials, at the cost of no delivery guarantee — shared-hosting sendmail relays are commonly rate-limited or land in spam. Every send is wrapped in try/catch (`App\Livewire\Concerns\SendsMailSafely`), so a mail failure never breaks registration/invite flows, and all three mail-sending flows (school-staff invites, school-to-member invitations, parent-registered child accounts) still show the credential/invite-link on screen as the reliable fallback. If deliverability proves too unreliable in practice, revisit with a transactional provider — see `ROADMAP.md`.
+Every bkesari.com tier sends mail through **Hostinger's SMTP** with Laravel's own `smtp` mailer (since 4 Nov 2026; before that, `MAIL_MAILER=sendmail`, Hostinger's local relay). The settings are the same mailbox settings the other bkesari apps use, under Laravel's names (`.env.example`, and the root `DEPLOY.md` Part 2):
+
+```
+MAIL_MAILER=smtp
+MAIL_SCHEME=smtps                      # port 465 is implicit TLS
+MAIL_HOST=smtp.hostinger.com
+MAIL_PORT=465
+MAIL_USERNAME=no-reply@bkesari.com     # the whole mailbox address
+MAIL_PASSWORD=<the mailbox password, from hPanel -> Emails>
+MAIL_FROM_ADDRESS="no-reply@bkesari.com"   # the same mailbox
+MAIL_FROM_NAME="Education · bkesari"
+MAIL_TIMEOUT=15                        # seconds; codes are sent while the person waits
+```
+
+Mail now carries the one-time sign-in codes (below), so it is no longer only a convenience. Invitations and child accounts still go through `App\Livewire\Concerns\SendsMailSafely` (a failure is logged and the flow carries on, with the credential or invite link on screen as before). A sign-in code is sent at once, not queued: if the mail server refuses it, the person is told and the code is thrown away. Spam placement and bounces are still unmeasured — see `ROADMAP.md`.
 
 ## Accounts, sign-in and the shared look (since 3 Nov 2026)
 
@@ -199,7 +213,9 @@ Education keeps its own accounts, end to end. The hub in front of `/edu/` no lon
 
 - **Session cookie.** `edu_sid`, HttpOnly, SameSite=Lax, sent only to the path of `APP_URL` (`/edu` behind bkesari.com) and Secure when `APP_URL` is https (`config/session.php`). Leave `SESSION_COOKIE`, `SESSION_PATH` and `SESSION_SECURE_COOKIE` out of `.env` so they follow `APP_URL`; an old `SESSION_PATH=/` line widens the cookie to every project on the domain. Changing the cookie name signs everyone out once.
 - **Sign-in lockout.** Five wrong passwords for one email from one address lock sign-in for 15 minutes (`App\Livewire\Forms\LoginForm`). The counter lives in the cache store (`CACHE_STORE=database` on every tier).
-- **Mobile sign-in.** `SMS_WEBHOOK_URL` and `SMS_WEBHOOK_TOKEN`: the provider's webhook receives `POST {"to":"+91XXXXXXXXXX","text":"..."}` with `Authorization: Bearer <token>`. Without them, production says "SMS sign-in is not available yet; use email" (any other `APP_ENV` shows the code on screen, for development only). Codes are six digits, stored hashed in the cache, valid 10 minutes, 5 tries, 3 per number per 10 minutes and 10 per address per hour (`App\Services\MobileSignIn`). People add a number at sign-up or on their profile (`users.mobile`, migration `2026_11_03_000000_add_mobile_to_users`; a database loaded from `database/edu/01_edu_schema.sql` already has it).
+- **Sign-in codes by email.** "Email me a code" sits next to the password: an account with that address gets a six-digit code by email, in the page's language (`App\Services\EmailSignIn`, `App\Mail\SignInCodeMail`). Codes are stored hashed in the cache, valid 10 minutes, used once, thrown away after 5 wrong tries, 3 per email address per 10 minutes and 10 per IP address per hour; an unknown address gets the same answer and no mail; an account with two-factor still has to pass it. Every account has an email (the column is required), but not every address is an inbox someone reads: a child's account a parent set up with a made-up address, or the demo accounts on dev and test (`@test.agtci.com`, `TEST_ACCOUNTS.md`). Those can sign in only with a password while SMS is on hold.
+- **Mobile sign-in: on hold** (owner's decision, 4 Nov 2026). The sign-in screen offers a code by text message only when `SMS_WEBHOOK_URL` is set; leave it and `SMS_WEBHOOK_TOKEN` unset. With them, the provider's webhook receives `POST {"to":"+91XXXXXXXXXX","text":"..."}` with `Authorization: Bearer <token>`; the code rules are the same as for email, per number (`App\Services\MobileSignIn`). People can still add a number at sign-up or on their profile (`users.mobile`, migration `2026_11_03_000000_add_mobile_to_users`; a database loaded from `database/edu/01_edu_schema.sql` already has it).
+- **When a code is shown on screen.** Only when `APP_ENV` is `local` or `dev` **and** nothing is set up to deliver it (for email, `MAIL_MAILER=log` or `array`; for mobile, no `SMS_WEBHOOK_URL`). On `test`, `production` or any other `APP_ENV` it never is: with no mailer there, the screen says the code could not be sent and to use the password, and no code is kept. The tiers' `APP_ENV` is `dev` on devedu.bkesari.com, `test` on testedu.bkesari.com and `production` on edu.bkesari.com (`DEPLOY.md` Part 2).
 - **Kesari and the shell.** The pages load `/kesari-ui/1.0.0/kesari.css`, `/kesari-ui/1.0.0/kesari.js` and `/shared/menu.js` from the hub. Behind bkesari.com leave `HUB_ASSET_ORIGIN` empty (same origin); a copy reached directly sets `HUB_ASSET_ORIGIN=https://bkesari.com`. The shell asks `/edu/shell/me` who is signed in and signs out with `POST /edu/logout`.
 - **Language.** English, Marathi or Hindi from the shell's `k_lang` cookie (`App\Http\Middleware\SetLocale`, strings in `lang/*.json`); the cookie is read unencrypted because the browser writes it.
 

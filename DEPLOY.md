@@ -158,6 +158,40 @@ php artisan migrate --force
    back under `/edu/`. Only a site that is used directly, not through the hub, takes its own
    hostname here.
 
+   `APP_ENV` names the tier: **`dev`** on devedu.bkesari.com, **`test`** on testedu.bkesari.com,
+   **`production`** on edu.bkesari.com (`.env.example` says `production`; change it on dev and
+   test). In the app it decides one thing: a one-time sign-in code may be shown on the page only
+   on `dev` (and `local`), and only when no mailer is set up. On `test` and `production` it never
+   is.
+
+   **Mail, through Hostinger's SMTP** (since 4 Nov 2026). SMS delivery is on hold, so sign-in
+   codes go to the person's email, next to the password; password resets and invitations use
+   the same mailer. Every tier's `.env` takes the mailbox settings the other bkesari apps use, under
+   Laravel's names (the password is the mailbox's, from hPanel → Emails; `MAIL_FROM_ADDRESS`
+   should be the same mailbox as `MAIL_USERNAME`):
+
+```bash
+MAIL_MAILER=smtp
+MAIL_SCHEME=smtps                 # port 465 is implicit TLS
+MAIL_HOST=smtp.hostinger.com
+MAIL_PORT=465
+MAIL_USERNAME=no-reply@bkesari.com
+MAIL_PASSWORD=<the mailbox password>
+MAIL_FROM_ADDRESS="no-reply@bkesari.com"
+MAIL_FROM_NAME="Education · bkesari"
+MAIL_TIMEOUT=15                   # seconds; a code is sent while the person waits
+```
+
+   Leave `SMS_WEBHOOK_URL` and `SMS_WEBHOOK_TOKEN` unset: the sign-in screen offers a code by
+   text message only when `SMS_WEBHOOK_URL` is set. Without a working mailer, test and
+   production refuse to make a code and say to use the password instead. On dev only,
+   `MAIL_MAILER=log` puts the code on the page instead of in an email; the demo accounts'
+   `@test.agtci.com` addresses receive no mail, so on dev they sign in with the password unless
+   that is set. To check the mailbox settings, ask for a code for an account whose address you
+   read (or `php artisan tinker` →
+   `Mail::raw('test', fn ($m) => $m->to('you@example.com')->subject('Education mail test'))`).
+   After changing any of these, run `php artisan config:cache` again (step 3).
+
    `bk_edu` already exists on Neon with the migrations applied and no data, so `migrate`
    reports nothing to do there; the starting data is still needed. It differs by tier:
 

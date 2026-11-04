@@ -3,39 +3,70 @@
 use App\Livewire\Forms\LoginForm;
 use App\Models\TwoFactorAuthentication;
 use App\Models\User;
+use App\Services\EmailSignIn;
 use App\Services\MobileSignIn;
 use App\Support\IndianMobile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.guest')] class extends Component
 {
     public LoginForm $form;
 
-    /** 'mobile' (a code by text message) or 'email' (email and password). */
-    public string $method = 'email';
+    /**
+     * 'code' (a code sent by email), 'password' (email and password), or
+     * 'mobile' (a code by text message, offered only where SMS is set up).
+     */
+    #[Locked]
+    public string $method = 'password';
 
+    /** A code by email: the address typed, and the code typed. */
+    public string $codeEmail = '';
+
+    public string $emailCode = '';
+
+    /** The address a code was sent to, normalised; '' until one is sent. */
+    #[Locked]
+    public string $emailSentTo = '';
+
+    /** APP_ENV local or dev with no mail server only: the code itself. */
+    #[Locked]
+    public ?string $shownEmailCode = null;
+
+    /** A code by text message: the number typed, and the code typed. */
     public string $mobile = '';
 
     public string $code = '';
 
     /** The number a code was sent to, normalised; '' until one is sent. */
+    #[Locked]
     public string $sentTo = '';
 
-    /** Development and tests only, with no SMS provider: the code itself. */
+    /** APP_ENV local or dev with no SMS provider only: the code itself. */
+    #[Locked]
     public ?string $shownCode = null;
 
-    public function mount(MobileSignIn $mobileSignIn): void
+    public function mount(MobileSignIn $mobileSignIn, EmailSignIn $emailSignIn): void
     {
-        // Mobile first wherever it can actually deliver a code.
-        $this->method = $mobileSignIn->available() ? 'mobile' : 'email';
+        // A code first wherever one can actually be delivered: by text
+        // message where SMS is set up, otherwise by email.
+        $this->method = match (true) {
+            $mobileSignIn->offered() => 'mobile',
+            $emailSignIn->available() => 'code',
+            default => 'password',
+        };
     }
 
     public function useMethod(string $method): void
     {
-        $this->method = $method === 'mobile' ? 'mobile' : 'email';
+        $this->method = match ($method) {
+            'mobile' => app(MobileSignIn::class)->offered() ? 'mobile' : 'code',
+            'code' => 'code',
+            default => 'password',
+        };
         $this->resetErrorBag();
     }
 
@@ -69,10 +100,83 @@ new #[Layout('layouts.guest')] class extends Component
         $this->redirectIntended(default: route('dashboard', absolute: false), navigate: true);
     }
 
+    public function sendEmailCode(EmailSignIn $emailSignIn): void
+    {
+        $this->resetErrorBag();
+        $this->shownEmailCode = null;
+        // Phones paste addresses with a space at either end.
+        $this->codeEmail = trim($this->codeEmail);
+
+        $this->validate(['codeEmail' => ['required', 'string', 'email', 'max:255']], [
+            'codeEmail.required' => __('Enter your email address.'),
+            'codeEmail.email' => __('Enter a valid email address.'),
+            'codeEmail.max' => __('Enter a valid email address.'),
+        ]);
+
+        $email = EmailSignIn::normalize($this->codeEmail);
+        $result = $emailSignIn->send($email, request()->ip());
+
+        match ($result['status']) {
+            'unavailable' => $this->addError('codeEmail', __('We could not send a code by email. Sign in with your password instead.')),
+            'throttled' => $this->addError('codeEmail', __('Too many codes asked for. Try again in :minutes min, or sign in with your password.', [
+                'minutes' => max(1, (int) ceil(($result['retryAfter'] ?? 60) / 60)),
+            ])),
+            'failed' => $this->addError('codeEmail', __('We could not send the email just now. Try again in a minute, or sign in with your password.')),
+            default => null,
+        };
+
+        if ($result['status'] === 'sent') {
+            $this->emailSentTo = $email;
+            $this->emailCode = '';
+            $this->shownEmailCode = $result['code'] ?? null;
+        }
+    }
+
+    public function verifyEmailCode(EmailSignIn $emailSignIn): void
+    {
+        $this->resetErrorBag();
+
+        if ($this->emailSentTo === '') {
+            $this->addError('codeEmail', __('Ask for a code first.'));
+
+            return;
+        }
+
+        $this->validate(['emailCode' => ['required', 'string']], ['emailCode.required' => __('Enter the 6-digit code.')]);
+
+        $result = $emailSignIn->verify($this->emailSentTo, $this->emailCode);
+
+        if ($result['status'] !== 'ok') {
+            $this->emailCode = '';
+            $this->dispatch('otp-reset');
+            $this->addError('emailCode', $this->codeError($result));
+            if ($result['status'] !== 'wrong') {
+                $this->shownEmailCode = null;
+            }
+
+            return;
+        }
+
+        $this->signInWithCode($result['user']);
+    }
+
+    public function changeEmail(): void
+    {
+        $this->reset('emailSentTo', 'emailCode', 'shownEmailCode');
+        $this->resetErrorBag();
+    }
+
     public function sendCode(MobileSignIn $mobileSignIn): void
     {
         $this->resetErrorBag();
         $this->shownCode = null;
+
+        // Offered only where SMS is set up (SMS delivery is on hold).
+        if (! $mobileSignIn->offered()) {
+            $this->addError('mobile', __('SMS sign-in is not available yet; use email.'));
+
+            return;
+        }
 
         $normalized = IndianMobile::normalize($this->mobile);
         if ($normalized === null) {
@@ -116,11 +220,7 @@ new #[Layout('layouts.guest')] class extends Component
         if ($result['status'] !== 'ok') {
             $this->code = '';
             $this->dispatch('otp-reset');
-            $this->addError('code', match ($result['status']) {
-                'wrong' => trans_choice('That code is not right. :count try left.|That code is not right. :count tries left.', $result['triesLeft']),
-                'locked' => __('Too many wrong codes. Ask for a new code.'),
-                default => __('That code has expired or was never sent. Ask for a new code.'),
-            });
+            $this->addError('code', $this->codeError($result));
             if ($result['status'] !== 'wrong') {
                 $this->shownCode = null;
             }
@@ -128,8 +228,28 @@ new #[Layout('layouts.guest')] class extends Component
             return;
         }
 
-        $user = $result['user'];
+        $this->signInWithCode($result['user']);
+    }
 
+    public function changeNumber(): void
+    {
+        $this->reset('sentTo', 'code', 'shownCode');
+        $this->resetErrorBag();
+    }
+
+    /** @param  array{status: string, triesLeft?: int}  $result */
+    private function codeError(array $result): string
+    {
+        return match ($result['status']) {
+            'wrong' => trans_choice('That code is not right. :count try left.|That code is not right. :count tries left.', $result['triesLeft']),
+            'locked' => __('Too many wrong codes. Ask for a new code.'),
+            default => __('That code has expired or was never sent. Ask for a new code.'),
+        };
+    }
+
+    /** A code proved the address or number; an account with 2FA still has to pass it. */
+    private function signInWithCode(User $user): void
+    {
         if ($this->hasTwoFactor($user)) {
             $this->toTwoFactorChallenge($user, false);
 
@@ -140,12 +260,6 @@ new #[Layout('layouts.guest')] class extends Component
         Session::regenerate();
 
         $this->redirectIntended(default: route('dashboard', absolute: false), navigate: true);
-    }
-
-    public function changeNumber(): void
-    {
-        $this->reset('sentTo', 'code', 'shownCode');
-        $this->resetErrorBag();
     }
 
     private function hasTwoFactor(User $user): bool
@@ -166,7 +280,7 @@ new #[Layout('layouts.guest')] class extends Component
 
     public function with(): array
     {
-        return ['mobileAvailable' => app(MobileSignIn::class)->available()];
+        return ['mobileOffered' => app(MobileSignIn::class)->offered()];
     }
 }; ?>
 
@@ -177,24 +291,25 @@ new #[Layout('layouts.guest')] class extends Component
     <x-auth-session-status class="mt-4" :status="session('status')" />
 
     <div class="k-tabs mt-4" role="tablist" aria-label="{{ __('How to sign in') }}">
-        <button type="button" role="tab" id="tab-mobile" @if ($method === 'mobile') aria-controls="panel-mobile" @endif
-            aria-selected="{{ $method === 'mobile' ? 'true' : 'false' }}" wire:click="useMethod('mobile')">
-            {{ __('Mobile number') }}
+        @if ($mobileOffered)
+            <button type="button" role="tab" id="tab-mobile" @if ($method === 'mobile') aria-controls="panel-mobile" @endif
+                aria-selected="{{ $method === 'mobile' ? 'true' : 'false' }}" wire:click="useMethod('mobile')">
+                {{ __('Mobile number') }}
+            </button>
+        @endif
+        <button type="button" role="tab" id="tab-code" @if ($method === 'code') aria-controls="panel-code" @endif
+            aria-selected="{{ $method === 'code' ? 'true' : 'false' }}" wire:click="useMethod('code')">
+            {{ __('Email me a code') }}
         </button>
-        <button type="button" role="tab" id="tab-email" @if ($method === 'email') aria-controls="panel-email" @endif
-            aria-selected="{{ $method === 'email' ? 'true' : 'false' }}" wire:click="useMethod('email')">
-            {{ __('Email') }}
+        <button type="button" role="tab" id="tab-password" @if ($method === 'password') aria-controls="panel-password" @endif
+            aria-selected="{{ $method === 'password' ? 'true' : 'false' }}" wire:click="useMethod('password')">
+            {{ __('Password') }}
         </button>
     </div>
 
-    @if ($method === 'mobile')
+    @if ($method === 'mobile' && $mobileOffered)
         <div id="panel-mobile" role="tabpanel" aria-labelledby="tab-mobile">
-            @if (! $mobileAvailable)
-                <div class="k-banner k-banner--warning" role="status">
-                    <p>{{ __('SMS sign-in is not available yet; use email.') }}</p>
-                </div>
-                <button type="button" class="k-btn k-btn--block" wire:click="useMethod('email')">{{ __('Sign in with email') }}</button>
-            @elseif ($sentTo === '')
+            @if ($sentTo === '')
                 <form wire:submit="sendCode" novalidate>
                     <div class="k-field">
                         <label for="mobile" class="k-label">{{ __('Mobile number') }}</label>
@@ -222,6 +337,9 @@ new #[Layout('layouts.guest')] class extends Component
                             <p><strong>{{ __('Development only.') }}</strong> {{ __('No SMS provider is set up, so the code is shown here instead: :code', ['code' => $shownCode]) }}</p>
                         </div>
                     @endif
+                    @error('mobile')
+                        <p class="k-error" role="alert">{{ $message }}</p>
+                    @enderror
 
                     <div class="k-field">
                         <span id="code-label" class="k-label">{{ __('Code') }}</span>
@@ -245,8 +363,65 @@ new #[Layout('layouts.guest')] class extends Component
                 </form>
             @endif
         </div>
+    @elseif ($method === 'code')
+        <div id="panel-code" role="tabpanel" aria-labelledby="tab-code">
+            @if ($emailSentTo === '')
+                <form wire:submit="sendEmailCode" id="email-code-request" novalidate>
+                    <div class="k-field">
+                        <label for="code-email" class="k-label">{{ __('Email') }}</label>
+                        <input wire:model="codeEmail" id="code-email" name="email" type="email" autocomplete="email"
+                            class="k-input" required autofocus
+                            aria-describedby="code-email-hint{{ $errors->has('codeEmail') ? ' code-email-error' : '' }}"
+                            @error('codeEmail') aria-invalid="true" @enderror>
+                        <p id="code-email-hint" class="k-hint">{{ __('We will email a 6-digit code to this address. It works for 10 minutes.') }}</p>
+                        @error('codeEmail')
+                            <p id="code-email-error" class="k-error" role="alert">{{ $message }}</p>
+                        @enderror
+                    </div>
+                    <button type="submit" class="k-btn k-btn--block" wire:loading.attr="aria-busy" wire:target="sendEmailCode">{{ __('Email me a code') }}</button>
+                </form>
+            @else
+                <form wire:submit="verifyEmailCode" id="email-code-sign-in" novalidate>
+                    <p>{{ __('Enter the 6-digit code we sent to :email.', ['email' => $emailSentTo]) }}
+                        <span class="k-muted">{{ __('If no account uses this email, no code is sent.') }}</span></p>
+
+                    @if ($shownEmailCode)
+                        <div class="k-banner k-banner--brand" role="status">
+                            <p><strong>{{ __('Development only.') }}</strong> {{ __('No mail server is set up, so the code is shown here instead: :code', ['code' => $shownEmailCode]) }}</p>
+                        </div>
+                    @endif
+                    @error('codeEmail')
+                        <p class="k-error" role="alert">{{ $message }}</p>
+                    @enderror
+
+                    <div class="k-field">
+                        <span id="email-code-label" class="k-label">{{ __('Code') }}</span>
+                        <div class="k-otp" role="group" aria-labelledby="email-code-label" data-k-otp="6" data-name="email-otp" wire:ignore
+                            x-data x-init="window.Kesari && window.Kesari.wireOtp($el); $nextTick(() => $el.querySelector('input:not([type=hidden])')?.focus())"
+                            x-on:kesari:otp="$wire.emailCode = $event.detail.value"
+                            x-on:otp-reset.window="$el.querySelectorAll('input').forEach((i) => { i.value = '' }); $el.querySelector('input:not([type=hidden])')?.focus()">
+                            <input id="email-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+                                class="k-input !w-40" x-on:input="$wire.emailCode = $event.target.value" aria-labelledby="email-code-label">
+                        </div>
+                        @error('emailCode')
+                            <p class="k-error" role="alert">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <button type="submit" class="k-btn k-btn--block" wire:loading.attr="aria-busy" wire:target="verifyEmailCode">{{ __('Sign in') }}</button>
+                    <div class="k-row k-row--between mt-3">
+                        <button type="button" class="k-btn k-btn--ghost" wire:click="changeEmail">{{ __('Change email') }}</button>
+                        <button type="button" class="k-btn k-btn--ghost" wire:click="sendEmailCode">{{ __('Send a new code') }}</button>
+                    </div>
+                </form>
+            @endif
+
+            <p class="mt-4 mb-0">
+                <button type="button" class="k-btn k-btn--ghost" wire:click="useMethod('password')">{{ __('Sign in with your password') }}</button>
+            </p>
+        </div>
     @else
-        <div id="panel-email" role="tabpanel" aria-labelledby="tab-email">
+        <div id="panel-password" role="tabpanel" aria-labelledby="tab-password">
             <form wire:submit="login" id="email-sign-in" novalidate>
                 <div class="k-field">
                     <x-input-label for="email" :value="__('Email')" />

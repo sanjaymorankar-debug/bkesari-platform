@@ -21,9 +21,10 @@ use Tests\TestCase;
 /**
  * Signing in with a mobile number and a six-digit code (App\Services\MobileSignIn).
  *
- * With no SMS provider the suite runs in "screen" mode (APP_ENV=testing): the
- * code comes back to the page. The provider and production cases switch the
- * configuration per test.
+ * SMS is on hold, so the sign-in screen offers this only with an SMS provider
+ * (SMS_WEBHOOK_URL). Each test has one, faked: the tests read the code out of
+ * the text message the provider was handed. The cases with no provider unset
+ * it, and set APP_ENV per test.
  */
 class MobileSignInTest extends TestCase
 {
@@ -31,11 +32,25 @@ class MobileSignInTest extends TestCase
 
     private const MOBILE = '+919876543210';
 
+    private const WEBHOOK = 'https://sms.example.test/send';
+
+    /** The HTTP status the faked SMS provider answers with. */
+    private int $smsStatus = 200;
+
     protected function setUp(): void
     {
         parent::setUp();
-        config(['services.sms.webhook_url' => null, 'services.sms.webhook_token' => null]);
+        config(['services.sms.webhook_url' => self::WEBHOOK, 'services.sms.webhook_token' => 'secret-token']);
+        Http::fake(fn () => Http::response($this->smsStatus === 200 ? ['ok' => true] : ['error' => 'down'], $this->smsStatus));
         Cache::flush();
+    }
+
+    /** The code in the last text message the provider was handed. */
+    private function textedCode(): ?string
+    {
+        $last = Http::recorded()->last();
+
+        return $last && preg_match('/sign-in code is (\d{6})\./', (string) $last[0]['text'], $m) ? $m[1] : null;
     }
 
     private function asha(): User
@@ -72,10 +87,11 @@ class MobileSignInTest extends TestCase
         $asha = $this->asha();
 
         $component = $this->askForCode();
-        $code = $component->get('shownCode');
+        $code = $this->textedCode();
 
-        $this->assertMatchesRegularExpression('/^\d{6}$/', $code);
-        $component->assertSee('Development only.')->assertSee($code)->assertSee("+91\u{00A0}•••••\u{00A0}•3210");
+        $this->assertMatchesRegularExpression('/^\d{6}$/', (string) $code);
+        $component->assertSet('shownCode', null)->assertDontSee('Development only.')->assertDontSee($code)
+            ->assertSee("+91\u{00A0}•••••\u{00A0}•3210");
 
         $component->set('code', $code)->call('verifyCode')
             ->assertHasNoErrors()
@@ -87,7 +103,8 @@ class MobileSignInTest extends TestCase
     public function test_the_code_is_kept_only_as_a_hash(): void
     {
         $this->asha();
-        $code = $this->askForCode()->get('shownCode');
+        $this->askForCode();
+        $code = $this->textedCode();
 
         $entry = Cache::get('mobile-sign-in:code:'.hash('sha256', self::MOBILE));
         $this->assertIsArray($entry);
@@ -98,7 +115,8 @@ class MobileSignInTest extends TestCase
     public function test_a_code_works_once(): void
     {
         $this->asha();
-        $code = $this->askForCode()->get('shownCode');
+        $this->askForCode();
+        $code = $this->textedCode();
 
         $service = app(MobileSignIn::class);
         $this->assertSame('ok', $service->verify(self::MOBILE, $code)['status']);
@@ -109,7 +127,7 @@ class MobileSignInTest extends TestCase
     {
         $this->asha();
         $component = $this->askForCode();
-        $code = $component->get('shownCode');
+        $code = $this->textedCode();
 
         $this->travel(10)->minutes();
         $this->travel(1)->seconds();
@@ -123,7 +141,7 @@ class MobileSignInTest extends TestCase
     {
         $this->asha();
         $component = $this->askForCode();
-        $code = $component->get('shownCode');
+        $code = $this->textedCode();
         $wrong = $code === '000000' ? '111111' : '000000';
 
         foreach ([4, 3, 2, 1] as $left) {
@@ -182,7 +200,8 @@ class MobileSignInTest extends TestCase
     public function test_wrong_codes_sent_together_still_get_only_five_tries(): void
     {
         $this->asha();
-        $code = $this->askForCode()->get('shownCode');
+        $this->askForCode();
+        $code = $this->textedCode();
         $wrong = $code === '000000' ? '111111' : '000000';
         $service = app(MobileSignIn::class);
 
@@ -197,7 +216,8 @@ class MobileSignInTest extends TestCase
     public function test_a_code_carried_by_several_requests_at_once_signs_in_once(): void
     {
         $this->asha();
-        $code = $this->askForCode()->get('shownCode');
+        $this->askForCode();
+        $code = $this->textedCode();
         $service = app(MobileSignIn::class);
 
         $this->assertSame(['ok', 'expired', 'expired'], $this->atOnce(3, fn () => $service->verify(self::MOBILE, $code)['status']));
@@ -224,6 +244,7 @@ class MobileSignInTest extends TestCase
         $component->assertHasNoErrors()->assertSet('sentTo', '+919123456789')->assertSet('shownCode', null)
             ->assertSee('If no account uses this number, no code is sent.');
         $this->assertNull(Cache::get('mobile-sign-in:code:'.hash('sha256', '+919123456789')));
+        Http::assertNothingSent();
     }
 
     public function test_a_number_that_is_not_an_indian_mobile_is_refused(): void
@@ -233,8 +254,6 @@ class MobileSignInTest extends TestCase
 
     public function test_with_a_provider_the_code_goes_by_sms_and_is_not_shown(): void
     {
-        config(['services.sms.webhook_url' => 'https://sms.example.test/send', 'services.sms.webhook_token' => 'secret-token']);
-        Http::fake(['sms.example.test/*' => Http::response(['ok' => true])]);
         $asha = $this->asha();
 
         $component = $this->askForCode()->assertHasNoErrors()->assertSet('shownCode', null)->assertDontSee('Development only.');
@@ -257,27 +276,75 @@ class MobileSignInTest extends TestCase
 
     public function test_a_provider_failure_is_reported_and_leaves_no_code(): void
     {
-        config(['services.sms.webhook_url' => 'https://sms.example.test/send']);
-        Http::fake(['sms.example.test/*' => Http::response(['error' => 'down'], 503)]);
+        $this->smsStatus = 503;
         $this->asha();
 
         $this->askForCode()->assertHasErrors('mobile')->assertSee('We could not send the text message')->assertSet('sentTo', '');
         $this->assertNull(Cache::get('mobile-sign-in:code:'.hash('sha256', self::MOBILE)));
     }
 
-    public function test_in_production_without_a_provider_mobile_sign_in_says_to_use_email(): void
+    public function test_without_a_provider_the_sign_in_screen_does_not_offer_mobile_codes(): void
     {
-        $this->app['env'] = 'production';
+        config(['services.sms.webhook_url' => null]);
         $this->asha();
 
-        Volt::test('pages.auth.login')->assertSet('method', 'email')
-            ->call('useMethod', 'mobile')
-            ->assertSee('SMS sign-in is not available yet; use email.')
-            ->set('mobile', '98765 43210')->call('sendCode')
-            ->assertHasErrors('mobile')->assertSet('sentTo', '')->assertSet('shownCode', null);
+        foreach (['local', 'dev', 'testing', 'test', 'production'] as $env) {
+            $this->app['env'] = $env;
+            Cache::flush();
 
-        $this->assertSame(MobileSignIn::MODE_OFF, app(MobileSignIn::class)->mode());
-        $this->assertNull(Cache::get('mobile-sign-in:code:'.hash('sha256', self::MOBILE)));
+            $this->assertFalse(app(MobileSignIn::class)->offered(), $env);
+            Volt::test('pages.auth.login')->assertNotSet('method', 'mobile')->assertDontSee('Mobile number')
+                ->call('useMethod', 'mobile')->assertSet('method', 'code')
+                ->set('mobile', '98765 43210')->call('sendCode')
+                ->assertHasErrors('mobile')->assertSet('sentTo', '')->assertSet('shownCode', null);
+            $this->assertNull(Cache::get('mobile-sign-in:code:'.hash('sha256', self::MOBILE)), $env);
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_a_code_is_shown_on_screen_only_on_local_or_dev_without_a_provider(): void
+    {
+        config(['services.sms.webhook_url' => null]);
+        $this->asha();
+        $service = app(MobileSignIn::class);
+
+        foreach (['local', 'dev'] as $env) {
+            $this->app['env'] = $env;
+            Cache::flush();
+
+            $this->assertSame(MobileSignIn::MODE_SCREEN, $service->mode(), $env);
+            $result = $service->send(self::MOBILE, '203.0.113.1');
+            $this->assertSame('sent', $result['status'], $env);
+            $this->assertMatchesRegularExpression('/^\d{6}$/', $result['code'] ?? '', $env);
+            $this->assertSame('ok', $service->verify(self::MOBILE, $result['code'])['status'], $env);
+        }
+
+        // Test (testedu.bkesari.com), production and anything else: never
+        // shown, and no code is made at all.
+        foreach (['testing', 'test', 'staging', 'production'] as $env) {
+            $this->app['env'] = $env;
+            Cache::flush();
+
+            $this->assertSame(MobileSignIn::MODE_OFF, $service->mode(), $env);
+            $this->assertSame(['status' => 'unavailable'], $service->send(self::MOBILE, '203.0.113.1'), $env);
+            $this->assertNull(Cache::get('mobile-sign-in:code:'.hash('sha256', self::MOBILE)), $env);
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_with_a_provider_the_code_is_never_shown_on_any_tier(): void
+    {
+        $this->asha();
+
+        foreach (['local', 'dev', 'test', 'production'] as $env) {
+            $this->app['env'] = $env;
+            Cache::flush();
+
+            $result = app(MobileSignIn::class)->send(self::MOBILE, '203.0.113.1');
+            $this->assertSame(['status' => 'sent'], $result, $env);
+            $this->assertMatchesRegularExpression('/^\d{6}$/', (string) $this->textedCode(), $env);
+        }
+        Http::assertSentCount(4);
     }
 
     public function test_an_account_with_two_factor_still_has_to_pass_it(): void
@@ -290,7 +357,7 @@ class MobileSignInTest extends TestCase
         ]);
 
         $component = $this->askForCode();
-        $component->set('code', $component->get('shownCode'))->call('verifyCode')
+        $component->set('code', $this->textedCode())->call('verifyCode')
             ->assertRedirect(route('two-factor.challenge', absolute: false));
 
         $this->assertGuest();
