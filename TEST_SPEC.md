@@ -538,9 +538,11 @@ with no network at all; #6a–#6c, S5 (43), S6 (31) and S7 unchanged.
 Then the built-in administrators (`34918dd`, measured 2026-11-04 plus the portal-tester fixes: attempts
 counted before the hash check, the per-username ceiling kept when the client table is full, the client key
 capped): S2 **139**; R1 **166** (`builtin-admins` **20**, new: 17 from `34918dd`, +3 from portal-tester;
-`neon` **12**, +1); #6a–#6c, #9a, S5 (43), S6 (31) and S7 (17) unchanged. #12: the hub's own audit now lists
+`neon` **12**, +1); #6b, #6c, #9a, S5 (43), S6 (31) and S7 (17) unchanged. #12: the hub's own audit now lists
 one moderate advisory (qs 6.16.0, `qs.stringify` with `arrayFormat: 'comma'`, which the hub does not call;
-report only).
+report only). Then LadWani's side (`f475c3b`: the built-in administrators' addresses reserved at
+registration, and never linked to an account found only by its email): #6a **228** in **29** suites (+3:
+`hub-login.spec.ts` 2, `auth.service.spec.ts` 1); everything else unchanged.
 
 Expected, and only these: in S2 the three PostgreSQL suites skip, because S2 runs without
 `TEST_DATABASE_URL` on purpose (node lists them as `# SKIP` lines under `# suites`, not
