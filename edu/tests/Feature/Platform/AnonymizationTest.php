@@ -6,9 +6,12 @@ use App\Models\AnonymousIdentity;
 use App\Models\Appeal;
 use App\Models\AuditLog;
 use App\Models\Complaint;
+use App\Models\ComplaintResponse;
 use App\Models\ComplaintStatusHistory;
 use App\Models\IdentityAccessLog;
 use App\Models\OfficerJurisdiction;
+use App\Models\SafeguardingEvent;
+use App\Models\SafeguardingReport;
 use App\Models\School;
 use App\Models\SchoolStaff;
 use App\Models\User;
@@ -17,12 +20,14 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Livewire\Volt\Volt;
+use PHPUnit\Framework\AssertionFailedError;
+use Tests\Feature\Platform\Concerns\AssertsAnonymityInvariants;
 use Tests\Feature\Platform\Concerns\SetsUpPlatformData;
 use Tests\TestCase;
 
 class AnonymizationTest extends TestCase
 {
-    use RefreshDatabase, SetsUpPlatformData;
+    use AssertsAnonymityInvariants, RefreshDatabase, SetsUpPlatformData;
 
     public function test_complaints_table_has_no_user_identifying_column(): void
     {
@@ -312,6 +317,8 @@ class AnonymizationTest extends TestCase
             ->call('respond');
 
         $this->assertSame(1, $complaint->responses()->where('responder_user_id', $otherAdmin->id)->count());
+
+        $this->assertNoRowNamesASubmitterBesideTheirOwnAnonymousRecord();
     }
 
     /**
@@ -337,6 +344,8 @@ class AnonymizationTest extends TestCase
             ->assertForbidden();
 
         $this->assertSame(0, IdentityAccessLog::count());
+
+        $this->assertNoRowNamesASubmitterBesideTheirOwnAnonymousRecord();
     }
 
     /** And one level up: an officer does not decide the appeal they filed themselves. */
@@ -373,6 +382,8 @@ class AnonymizationTest extends TestCase
             0,
             AuditLog::where('action', 'appeal.decided')->where('user_id', $user->id)->count()
         );
+
+        $this->assertNoRowNamesASubmitterBesideTheirOwnAnonymousRecord();
     }
 
     /** @return array{0: Complaint, 1: User} */
@@ -445,5 +456,234 @@ class AnonymizationTest extends TestCase
 
         $this->assertSame($ref1, $ref2);
         $this->assertSame(1, AnonymousIdentity::count());
+    }
+    /**
+     * The invariant above, proved to actually detect each link it claims to
+     * cover. A blanket query is only worth what its joins are: one wrong
+     * column name and it passes every run while the leak it exists to catch
+     * sits in the table. So each of the ten relations is planted with a row
+     * that *is* the leak, and the invariant must trip for every one.
+     *
+     * This is what the per-action tests cannot give: they cover the writers
+     * that exist today.
+     */
+    public function test_the_submitter_link_invariant_detects_a_leak_in_every_relation_it_covers(): void
+    {
+        // Push the user ids well clear of the record ids first. Without this
+        // the submitter is user 1 and the planted records are row 1, so a
+        // join wired to the wrong column (`a.user_id = e.<some other id>`)
+        // still matches by coincidence and the relation looks covered when it
+        // is not — which is exactly the failure this test exists to catch.
+        User::factory()->count(30)->create();
+
+        [$school, $complaint, $submitter] = $this->confirmedComplaint();
+        $this->assertGreaterThan(20, $submitter->id);
+
+        $appeal = Appeal::create([
+            'complaint_id' => $complaint->id,
+            'district_id' => $complaint->district_id,
+            'state_id' => $complaint->state_id,
+            'anonymous_ref' => $complaint->anonymous_ref,
+            'reason' => 'The school never addressed the substance of the complaint.',
+            'status' => 'submitted',
+        ]);
+
+        $report = SafeguardingReport::create([
+            'reference' => SafeguardingReport::generateReference(),
+            'school_id' => $school->id,
+            'district_id' => $school->district_id,
+            'state_id' => $school->state_id,
+            'anonymous_ref' => $complaint->anonymous_ref,
+            'reporter_role' => 'parent',
+            'category' => 'child_sexual_abuse',
+            'description' => 'A detailed account of the concern, long enough to be actionable.',
+        ]);
+
+        // Clean to start with: nothing in this fixture names the submitter.
+        $this->assertNoRowNamesASubmitterBesideTheirOwnAnonymousRecord();
+
+        $id = $submitter->id;
+
+        $plant = [
+            'complaint_responses.responder_user_id' => fn () => ComplaintResponse::create([
+                'complaint_id' => $complaint->id, 'responder_type' => 'school',
+                'responder_user_id' => $id, 'message' => 'Answered by the person who filed it.',
+            ]),
+            'complaint_status_history.changed_by_user_id' => fn () => ComplaintStatusHistory::create([
+                'complaint_id' => $complaint->id, 'from_status' => 'submitted',
+                'to_status' => 'investigating', 'changed_by_user_id' => $id,
+            ]),
+            'identity_access_logs.officer_user_id' => fn () => IdentityAccessLog::create([
+                'officer_user_id' => $id, 'anonymous_ref' => $complaint->anonymous_ref,
+                'action' => 'complaint-identity-reveal', 'reason' => 'Revealed my own identity to myself.',
+            ]),
+            'appeals.reviewed_by_user_id' => fn () => $appeal->forceFill(['reviewed_by_user_id' => $id])->save(),
+            'audit_logs -> complaints' => fn () => AuditLog::create([
+                'user_id' => $id, 'action' => 'complaint.responded',
+                'auditable_type' => Complaint::class, 'auditable_id' => $complaint->id,
+            ]),
+            'audit_logs -> appeals' => fn () => AuditLog::create([
+                'user_id' => $id, 'action' => 'appeal.decided',
+                'auditable_type' => Appeal::class, 'auditable_id' => $appeal->id,
+            ]),
+            'safeguarding_reports.assigned_officer_user_id' => fn () => $report->forceFill(['assigned_officer_user_id' => $id])->save(),
+            'safeguarding_reports.external_report_acknowledged_by' => fn () => $report->forceFill(['external_report_acknowledged_by' => $id])->save(),
+            'safeguarding_reports.closed_by_user_id' => fn () => $report->forceFill(['closed_by_user_id' => $id])->save(),
+            'safeguarding_events.actor_user_id' => fn () => SafeguardingEvent::create([
+                'safeguarding_report_id' => $report->id, 'event_type' => 'viewed',
+                'actor_user_id' => $id, 'occurred_at' => now(),
+            ]),
+        ];
+
+        foreach ($plant as $relation => $makeLeak) {
+            $makeLeak();
+
+            try {
+                $this->assertNoRowNamesASubmitterBesideTheirOwnAnonymousRecord();
+                $this->fail('the invariant missed a planted leak in '.$relation);
+            } catch (AssertionFailedError $e) {
+                $this->assertStringContainsString($relation, $e->getMessage());
+
+                // And nothing else tripped: one planted row, one relation, so
+                // no join is quietly matching rows it has no business in.
+                $this->assertSame(
+                    1,
+                    substr_count($e->getMessage(), ' (user '),
+                    'one planted leak must trip exactly one relation: '.$e->getMessage()
+                );
+            }
+
+            // Put it back, so each relation is proved on its own.
+            match (true) {
+                str_starts_with($relation, 'complaint_responses') => ComplaintResponse::query()->delete(),
+                str_starts_with($relation, 'complaint_status_history') => ComplaintStatusHistory::query()->delete(),
+                str_starts_with($relation, 'identity_access_logs') => IdentityAccessLog::query()->delete(),
+                str_starts_with($relation, 'appeals') => $appeal->forceFill(['reviewed_by_user_id' => null])->save(),
+                str_starts_with($relation, 'audit_logs') => AuditLog::query()->delete(),
+                str_starts_with($relation, 'safeguarding_events') => SafeguardingEvent::query()->delete(),
+                default => $report->forceFill([
+                    'assigned_officer_user_id' => null,
+                    'external_report_acknowledged_by' => null,
+                    'closed_by_user_id' => null,
+                ])->save(),
+            };
+
+            $this->assertNoRowNamesASubmitterBesideTheirOwnAnonymousRecord();
+        }
+    }
+
+    /**
+     * A staff member who filed a safeguarding report at their own school
+     * cannot handle it — the same two-hats rule as a complaint, on the
+     * table that holds the platform's most sensitive records. The behaviour
+     * is covered in detail by `SafeguardingTest`; this states it through
+     * CR-04's own invariant, which is where a new writer would be caught.
+     */
+    public function test_a_reporter_who_is_also_an_officer_leaves_no_link_on_their_safeguarding_case(): void
+    {
+        $school = $this->makeSchool();
+        $officer = User::factory()->create();
+        $officer->assignRole('child_safety_officer');
+        SchoolStaff::create([
+            'user_id' => $officer->id, 'school_id' => $school->id,
+            'designation' => 'Child Safety Officer',
+        ]);
+
+        Volt::actingAs($officer)->test('safeguarding.report', ['school' => $school])
+            ->set('category', 'child_sexual_abuse')
+            ->set('description', 'A detailed account of the concern, long enough to be actionable.')
+            ->set('understoodLegalDuty', true)
+            ->call('submit');
+
+        $report = SafeguardingReport::firstOrFail();
+        $this->assertTrue(
+            AnonymousIdentity::where('user_id', $officer->id)
+                ->where('anonymous_ref', $report->anonymous_ref)->exists()
+        );
+
+        // Every official route on the case, and opening it at all.
+        Volt::actingAs($officer)->test('safeguarding.show', ['report' => $report])->assertForbidden();
+
+        $service = app(\App\Services\SafeguardingService::class);
+        $this->assertFalse($service->canView($officer, $report));
+        $this->assertFalse($service->canManage($officer, $report));
+
+        $this->assertNoRowNamesASubmitterBesideTheirOwnAnonymousRecord();
+    }
+    /**
+     * `system_admin` is the role the hub's built-in administrators are given
+     * (`HubSignIn::BUILTIN_ADMINS`), and it holds **every** permission the
+     * seeder defines — `respond-to-complaint`, `access-protected-identity`,
+     * `handle-safeguarding-cases` and the rest. It also passes the final
+     * `hasAnyRole([...])` branch of `ComplaintPolicy::review()`,
+     * `appeals/show.blade.php::canReview()` and
+     * `SafeguardingService::canView()`. Nothing stops such an account also
+     * being a verified parent somewhere: a school registration, a profile
+     * edit or an ordinary sign-up can attach any address, and the role is
+     * granted on the `sub` of a hub token, not on the absence of a parent
+     * relationship.
+     *
+     * So the self-dealing refusals have to come *before* those role branches,
+     * not after them. This is the test that says so.
+     */
+    public function test_a_builtin_system_admin_who_is_also_a_submitter_is_refused_on_every_official_path(): void
+    {
+        $school = $this->makeSchool();
+        $category = $this->makeCategory();
+
+        $user = $this->makeVerifiedParent($school);
+        $user->assignRole('system_admin');
+        // Exactly what the hub mints for a built-in administrator.
+        $user->forceFill(['hub_user_id' => 'builtin:smorankar'])->save();
+        $user->refresh();
+
+        $this->assertTrue($user->can('respond-to-complaint'));
+        $this->assertTrue($user->can('access-protected-identity'));
+        $this->assertTrue($user->can('handle-safeguarding-cases'));
+
+        $complaint = $this->fileComplaint($user, $school, $category, 'Fee receipt never issued');
+
+        // Responding to, and revealing the identity behind, their own complaint.
+        Volt::actingAs($user)->test('complaints.show', ['complaint' => $complaint])
+            ->set('responseMessage', 'Looked at it myself, all fine.')
+            ->call('respond')
+            ->assertForbidden();
+
+        Volt::actingAs($user)->test('complaints.show', ['complaint' => $complaint->fresh()])
+            ->set('identityReason', 'Confirming who filed this complaint.')
+            ->call('revealIdentity')
+            ->assertForbidden();
+
+        // Deciding their own appeal.
+        $complaint->update(['status' => 'escalated']);
+
+        Volt::actingAs($user)->test('appeals.create', ['complaint' => $complaint->fresh()])
+            ->set('reason', 'Nobody at the school ever looked at the missing receipt.')
+            ->call('submit');
+
+        $appeal = Appeal::firstOrFail();
+
+        Volt::actingAs($user)->test('appeals.show', ['appeal' => $appeal])
+            ->set('decisionNote', 'Upholding my own appeal.')
+            ->call('decide', 'upheld')
+            ->assertForbidden();
+
+        // And handling the safeguarding case they reported.
+        Volt::actingAs($user)->test('safeguarding.report', ['school' => $school])
+            ->set('category', 'child_sexual_abuse')
+            ->set('description', 'A detailed account of the concern, long enough to be actionable.')
+            ->set('understoodLegalDuty', true)
+            ->call('submit');
+
+        $report = SafeguardingReport::firstOrFail();
+        $service = app(\App\Services\SafeguardingService::class);
+
+        $this->assertFalse($service->canView($user, $report), 'the system_admin branch must not reinstate the reporter');
+        $this->assertFalse($service->canManage($user, $report));
+        Volt::actingAs($user)->test('safeguarding.show', ['report' => $report])->assertForbidden();
+
+        $appeal->refresh();
+        $this->assertNull($appeal->reviewed_by_user_id);
+        $this->assertNoRowNamesASubmitterBesideTheirOwnAnonymousRecord();
     }
 }

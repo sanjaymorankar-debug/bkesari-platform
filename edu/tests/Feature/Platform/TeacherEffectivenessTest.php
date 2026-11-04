@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Platform;
 
+use App\Models\ParentSchoolRelationship;
 use App\Models\StudentAcademicRecord;
 use App\Models\TeacherEffectivenessScore;
 use App\Models\TeacherFeedback;
@@ -135,5 +136,66 @@ class TeacherEffectivenessTest extends TestCase
         $score = app(TeacherEffectivenessIndexService::class)->recalculate($teacher);
 
         $this->assertArrayNotHasKey('value_add', $score->component_breakdown);
+    }
+
+    /**
+     * Two hats again, this time on the rating side: a teacher whose own child
+     * attends the school they teach at is a verified teacher *and* a verified
+     * parent there, which is all `sharedVerifiedSchoolId()` asks for. Nothing
+     * checked that the teacher being rated was not the rater, so they could
+     * file anonymous ratings of **themselves**, straight into the Teacher
+     * Effectiveness Index (and `teacher_feedback` has no one-rating-per-rater
+     * constraint, so repeatedly).
+     *
+     * Two things wrong with the row it wrote: the index the platform publishes
+     * is gameable by its own subject — the same objection as "a school cannot
+     * verify itself" (CR-20) — and `teacher_feedback.teacher_user_id` then
+     * names the submitter beside their own anonymous feedback, which is the
+     * one thing a feedback row must never carry (CR-04).
+     */
+    public function test_a_teacher_who_is_also_a_parent_cannot_rate_themselves(): void
+    {
+        $this->seedComponents();
+        $school = $this->makeSchool();
+
+        $teacher = User::factory()->create();
+        $teacher->assignRole('teacher');
+        $teacher->assignRole('parent');
+        TeacherSchoolRelationship::create([
+            'user_id' => $teacher->id, 'school_id' => $school->id,
+            'status' => 'verified', 'verified_at' => now(),
+        ]);
+        ParentSchoolRelationship::create([
+            'user_id' => $teacher->id, 'school_id' => $school->id,
+            'status' => 'verified', 'verified_at' => now(),
+        ]);
+        $teacher->refresh();
+
+        // Refused the same way as rating a teacher at another school: the
+        // submission is a 403, with its own message.
+        Volt::actingAs($teacher)->test('teacher-feedback.create', ['teacher' => $teacher])
+            ->set('scores.communication', 5)
+            ->call('submit')
+            ->assertForbidden();
+
+        $this->assertSame(0, TeacherFeedback::where('teacher_user_id', $teacher->id)->count(),
+            'a teacher must not be able to rate themselves');
+        $this->assertSame(0, TeacherEffectivenessScore::where('teacher_user_id', $teacher->id)->count());
+
+        // No row names the rater beside their own anonymous feedback.
+        $this->assertSame(0, \App\Models\TeacherFeedback::query()
+            ->join('anonymous_identities as a', function ($join) {
+                $join->on('a.anonymous_ref', '=', 'teacher_feedback.anonymous_ref')
+                    ->on('a.user_id', '=', 'teacher_feedback.teacher_user_id');
+            })->count());
+
+        // A real parent at the same school still rates them.
+        $parent = $this->makeVerifiedParent($school);
+
+        Volt::actingAs($parent)->test('teacher-feedback.create', ['teacher' => $teacher])
+            ->set('scores.communication', 4)
+            ->call('submit');
+
+        $this->assertSame(1, TeacherFeedback::where('teacher_user_id', $teacher->id)->count());
     }
 }

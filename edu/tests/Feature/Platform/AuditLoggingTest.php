@@ -17,6 +17,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Livewire\Volt\Volt;
 use PragmaRX\Google2FA\Google2FA;
+use Tests\Feature\Platform\Concerns\AssertsAnonymityInvariants;
 use Tests\Feature\Platform\Concerns\SetsUpPlatformData;
 use Tests\TestCase;
 
@@ -36,7 +37,7 @@ use Tests\TestCase;
  */
 class AuditLoggingTest extends TestCase
 {
-    use RefreshDatabase, SetsUpPlatformData;
+    use AssertsAnonymityInvariants, RefreshDatabase, SetsUpPlatformData;
 
     private function rowsFor(string $action): Collection
     {
@@ -334,6 +335,11 @@ class AuditLoggingTest extends TestCase
         $this->assertSame($colleague->id, $row->user_id);
 
         $this->assertNoAuditRowLinksASubmitterToTheirOwnComplaint();
+
+        // `audit_logs` is one of ten relations that can carry this link; the
+        // rest (responses, the timeline, appeals, identity access and the
+        // safeguarding columns) are held by the same invariant.
+        $this->assertNoRowNamesASubmitterBesideTheirOwnAnonymousRecord();
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AnonymousIdentity;
 use App\Models\SafeguardingEvent;
 use App\Models\SafeguardingReport;
 use App\Models\SchoolStaff;
@@ -39,10 +40,33 @@ class SafeguardingService
      * Who may see an individual safeguarding case.
      *
      * Note the absence of a `school_admin` branch — that is the point, not an
-     * oversight, and there is a test asserting it stays absent.
+     * oversight, and there is a test asserting it stays absent. Note also the
+     * absence of a branch for the reporter: a reporter follows their case by
+     * the `reference` they were given, never through this record.
      */
     public function canView(User $user, SafeguardingReport $report): bool
     {
+        // One person can hold two hats — the reporting form has a `staff`
+        // branch because a Child Safety Officer whose own child attends the
+        // school they work at does file these. They may report, but they are
+        // then not part of the case's audience, in either capacity: every
+        // column this unlocks writes the actor's id into the same row as the
+        // report's `anonymous_ref` (`assigned_officer_user_id`,
+        // `external_report_acknowledged_by`, `closed_by_user_id`) or beside
+        // its id (`safeguarding_events.actor_user_id`, written even for an
+        // open). Any one of them naming the reporter rebuilds the
+        // reporter -> report link that this table carries no `user_id` column
+        // precisely to prevent — in the most sensitive records the platform
+        // holds, and with none of the controls IdentityResolutionService
+        // imposes on reversing a ref. Refusing the conflicted access, rather
+        // than dropping the actor's id, keeps every official act named
+        // (CR-22); and POCSO section 19 is the reason this workflow separates
+        // reporting from handling in the first place, so the person who
+        // reported is the last person who should handle it.
+        if ($this->isReporter($user, $report)) {
+            return false;
+        }
+
         if ($user->hasRole('system_admin')) {
             return true;
         }
@@ -75,6 +99,25 @@ class SafeguardingService
     public function canManage(User $user, SafeguardingReport $report): bool
     {
         return $this->canView($user, $report);
+    }
+
+    /**
+     * Whether this user is the anonymous reporter behind the case.
+     *
+     * A forward lookup on a user id the caller already holds — it answers "is
+     * this the reporter?" and reveals no identity, so it is not a reversal and
+     * does not belong behind IdentityResolutionService (the same reasoning as
+     * `Complaint::isSubmitter()`).
+     */
+    public function isReporter(User $user, SafeguardingReport $report): bool
+    {
+        if ($report->anonymous_ref === null) {
+            return false;
+        }
+
+        return AnonymousIdentity::where('user_id', $user->id)
+            ->where('anonymous_ref', $report->anonymous_ref)
+            ->exists();
     }
 
     /**

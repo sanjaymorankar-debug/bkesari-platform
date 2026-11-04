@@ -92,6 +92,50 @@ staff can answer it.
 `record()` where it should have used `recordAnonymous()`,
 `test_no_audit_row_ever_names_a_user_alongside_a_complaint_or_feedback` fails.
 
+**Safeguarding cases follow the same rule, and it matters most there.**
+`safeguarding_reports` is anonymised exactly like `complaints` — an
+`anonymous_ref` and no `user_id` — but its own row carries three actor columns
+(`assigned_officer_user_id`, `external_report_acknowledged_by`,
+`closed_by_user_id`), and `safeguarding_events.actor_user_id` records even an
+*open*. The reporting form has a `staff` branch because staff do file these, so
+a Child Safety Officer whose own child attends the school they work at can be
+both reporter and handler. Any one of those columns naming the reporter would
+rebuild the reporter→report link, in the most sensitive records the platform
+holds, and POCSO section 19 is the reason this workflow separates reporting
+from handling in the first place. So `SafeguardingService::canView()` refuses
+the reporter outright — before the `system_admin` branch, which otherwise
+passes everything — and `canManage()` inherits that refusal, which covers
+acknowledging, recording the external report, starting an investigation,
+adding a note and closing. The queue leaves the reporter's own case out rather
+than offering a link that 403s. Unlike a complaint, a reporter was never an
+audience for the case record: they follow it by the `reference` they were
+given, and `canView()` has no owner branch by design.
+
+The rule is stated once as a set of queries in
+`tests/Feature/Platform/Concerns/AssertsAnonymityInvariants.php`: **no row may
+name a user beside an anonymous record that same user submitted**, over all ten
+relations that could carry such a link (complaint responses, the complaint
+timeline, identity access, appeals, `audit_logs` for complaints and for
+appeals, the three safeguarding columns and the safeguarding trail). Asserting
+it as a query rather than per action is deliberate — the per-action tests only
+cover the writers that exist today, and
+`AnonymizationTest::test_the_submitter_link_invariant_detects_a_leak_in_every_relation_it_covers`
+plants a leak in each relation in turn to prove the joins actually bite.
+
+The rating side has the same two-hats problem with a different consequence. A
+teacher whose own child attends the school they teach at is a verified teacher
+*and* a verified parent there, which was all the shared-school check on the
+teacher-rating form asked for — so they could file anonymous ratings of
+**themselves**, repeatedly (`teacher_feedback` has no one-rating-per-rater
+constraint), straight into the Teacher Effectiveness Index. Beyond the obvious
+— an index the platform publishes must not be gameable by its own subject, the
+same objection as "a school cannot verify itself" — the row carried
+`teacher_user_id` beside an `anonymous_ref` resolving to the same person, so a
+feedback row named its own submitter. The form now refuses the rater as their
+own subject. Rating a school one works at is *not* refused: a verified parent's
+view of their child's school is a genuine one, and `school_feedback` carries no
+user column for it to leak.
+
 ## RBAC
 
 `spatie/laravel-permission`, 10 roles matching the spec (public/parent/student/teacher/school_admin/district_officer/state_officer/national_admin/researcher/system_admin). Authorization is enforced via Laravel Policies (`app/Policies/ComplaintPolicy.php`, `SchoolPolicy.php`), not just route middleware — e.g. a school_admin route-level check alone wouldn't stop them viewing another school's complaint; the policy checks their actual `school_staff` assignment.
