@@ -7,6 +7,7 @@ use App\Models\School;
 use App\Models\SchoolStaff;
 use App\Models\State;
 use App\Models\User;
+use App\Rules\NotReservedEmail;
 use App\Services\AIAssistService;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Auth;
@@ -103,13 +104,13 @@ new #[Layout('layouts.app')] class extends Component
             'phone' => ['nullable', 'string', 'max:20'],
             'email' => ['nullable', 'email', 'max:255'],
             'additionalStaff.*.name' => ['nullable', 'string', 'max:255'],
-            'additionalStaff.*.email' => ['nullable', 'email', 'max:255', 'distinct'],
+            'additionalStaff.*.email' => ['nullable', 'email', 'max:255', 'distinct', new NotReservedEmail],
             'additionalStaff.*.designation' => ['nullable', 'string', 'max:60'],
         ];
 
         if (! Auth::check()) {
             $rules['adminName'] = ['required', 'string', 'max:255'];
-            $rules['adminEmail'] = ['required', 'email', 'max:255', 'unique:users,email'];
+            $rules['adminEmail'] = ['required', 'email', 'max:255', 'unique:users,email', new NotReservedEmail];
             $rules['adminPassword'] = ['required', 'confirmed', Rules\Password::defaults()];
         }
 
