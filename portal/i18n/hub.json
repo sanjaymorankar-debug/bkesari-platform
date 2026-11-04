@@ -120,7 +120,7 @@
     "chooser.signIn": "Sign in to {name}",
     "chooser.join": "Create an account",
     "chooser.movedT": "Used a bkesari ID before?",
-    "chooser.moved": "Since 3 Nov 2026 there is no single bkesari ID. We copied your details into each project you had used. Sign in there with your mobile number and a one-time code, or set a new password with 'Forgot password'.",
+    "chooser.moved": "Since 3 Nov 2026 there is no single bkesari ID. We copied your details into each project you had used. Sign in there with your email and a one-time code, or set a new password with 'Forgot password'.",
     "chooser.admin": "Hub administrator sign-in",
 
     "nf.title": "Page not found",
@@ -260,7 +260,7 @@
     "chooser.signIn": "{name} मध्ये साइन इन",
     "chooser.join": "खाते तयार करा",
     "chooser.movedT": "आधी bkesari ID वापरत होता?",
-    "chooser.moved": "3 Nov 2026 पासून एकच bkesari ID नाही. तुम्ही वापरलेल्या प्रत्येक प्रकल्पात आम्ही तुमचा तपशील कॉपी केला आहे. तिथे मोबाइल नंबर आणि वन-टाइम कोडने साइन इन करा, किंवा 'पासवर्ड विसरलात' वापरून नवीन पासवर्ड ठेवा.",
+    "chooser.moved": "3 Nov 2026 पासून एकच bkesari ID नाही. तुम्ही वापरलेल्या प्रत्येक प्रकल्पात आम्ही तुमचा तपशील कॉपी केला आहे. तिथे तुमचा ईमेल आणि वन-टाइम कोडने साइन इन करा, किंवा 'पासवर्ड विसरलात' वापरून नवीन पासवर्ड ठेवा.",
     "chooser.admin": "हब प्रशासक साइन इन",
 
     "nf.title": "पान सापडले नाही",
@@ -400,7 +400,7 @@
     "chooser.signIn": "{name} में साइन इन",
     "chooser.join": "खाता बनाएँ",
     "chooser.movedT": "पहले bkesari ID इस्तेमाल करते थे?",
-    "chooser.moved": "3 Nov 2026 से एक ही bkesari ID नहीं है। आपने जिन प्रोजेक्ट का उपयोग किया था, उनमें हमने आपका विवरण कॉपी कर दिया है। वहाँ मोबाइल नंबर और वन-टाइम कोड से साइन इन करें, या 'पासवर्ड भूल गए' से नया पासवर्ड रखें।",
+    "chooser.moved": "3 Nov 2026 से एक ही bkesari ID नहीं है। आपने जिन प्रोजेक्ट का उपयोग किया था, उनमें हमने आपका विवरण कॉपी कर दिया है। वहाँ अपने ईमेल और वन-टाइम कोड से साइन इन करें, या 'पासवर्ड भूल गए' से नया पासवर्ड रखें।",
     "chooser.admin": "हब एडमिन साइन इन",
 
     "nf.title": "पेज नहीं मिला",

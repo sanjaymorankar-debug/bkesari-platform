@@ -186,8 +186,9 @@ S7 cannot run (section 6).
 
 S7 ends **every other session of that role** (that is the point: it is what Neon's suspend does),
 including a local hub you have running on the same role, which then reconnects. Run it after
-R1, never alongside it. Like S5's first hub, the parity hub runs `APP_ENV=dev`, so its smoke step
-sends `/edu/` to the Education dev site unless `EDU_ORIGIN` is exported to a local upstream.
+R1, never alongside it. The parity hub runs `APP_ENV=dev` with `/edu/` sent to `scripts/edu-standin.js`
+(started by the script on 3111, or `EDU_STANDIN_PORT`), never to the Education dev site (D-031). CI's
+smoke step does the same.
 
 ## 3. Standard suite
 

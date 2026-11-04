@@ -78,7 +78,7 @@ describe('the hub on PostgreSQL', { skip }, () => {
     assert.match(hi.text, /निजता सूचना/);
     assert.match(hi.text, /DPDP/);
     const accept = await html(new Browser(base), '/', { 'accept-language': 'hi-IN,hi;q=0.9,en;q=0.5' });
-    assert.match(accept.text, /<html lang="hi"/, 'the browser\'s language when no choice is saved');
+    assert.match(accept.text, /<html lang="en"/, 'English until the visitor picks a language, whatever the browser says (D-030)');
   });
 
   test('the old shared sign-in\'s addresses land on "choose a project"; its APIs are gone', async () => {

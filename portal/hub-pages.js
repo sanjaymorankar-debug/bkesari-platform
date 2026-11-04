@@ -14,16 +14,14 @@ const KESARI = '/kesari-ui/1.0.0';
 const LANGS = ['en', 'mr', 'hi'];
 const esc = menu.escapeHtml;
 
-/** The visitor's language from the k_lang cookie, else Accept-Language, else English. */
+/**
+ * The visitor's language: the one they picked with the shell's switcher (the
+ * k_lang cookie), else English. The browser's own language is not used: the
+ * owner's rule is English by default, changed only by the visitor (D-030).
+ */
 function langOf(req) {
   const m = /(?:^|;\s*)k_lang=(en|mr|hi)(?:;|$)/.exec(String((req && req.headers && req.headers.cookie) || ''));
-  if (m) return m[1];
-  const al = String((req && req.headers && req.headers['accept-language']) || '').toLowerCase();
-  for (const part of al.split(',')) {
-    const code = part.trim().slice(0, 2);
-    if (LANGS.includes(code)) return code;
-  }
-  return 'en';
+  return m ? m[1] : 'en';
 }
 
 function t(lang, key, vars) {

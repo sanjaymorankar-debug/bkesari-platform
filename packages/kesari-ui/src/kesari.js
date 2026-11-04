@@ -45,14 +45,11 @@
   /* ---------- language ---------- */
   const isLang = (c) => LANGS.some((l) => l.code === c);
 
-  /** The language to show: saved choice, then cookie, then the browser's, then English. */
-  function resolveLang({ saved, cookie, navigatorLangs } = {}) {
+  // English unless the person chose a language here (saved, or the k_lang
+  // cookie the switcher writes). The browser's language is not used (D-030).
+  function resolveLang({ saved, cookie } = {}) {
     if (isLang(saved)) return saved;
     if (isLang(cookie)) return cookie;
-    for (const n of navigatorLangs || []) {
-      const c = String(n || '').slice(0, 2).toLowerCase();
-      if (isLang(c)) return c;
-    }
     return 'en';
   }
 
@@ -60,7 +57,6 @@
     return resolveLang({
       saved: store.get('kesari.lang'),
       cookie: readCookie('k_lang'),
-      navigatorLangs: win && win.navigator ? win.navigator.languages || [win.navigator.language] : [],
     });
   }
 

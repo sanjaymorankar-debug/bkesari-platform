@@ -235,7 +235,10 @@ function createProjectAuth(o) {
   /* ---------- users ---------- */
   const findByEmail = (email) => db.get(`SELECT * FROM ${T.users} WHERE lower(email) = $1`, [email]);
   const findByMobile = (mobile) => db.get(`SELECT * FROM ${T.users} WHERE mobile = $1`, [mobile]);
-  const echoCodes = (req) => tier(req) !== 'prod';
+  // A code or link is shown on screen only on the dev tier (and local runs),
+  // and only when nothing could deliver it. Never on test or production
+  // (decision D-029): there it goes by email or SMS, or not at all.
+  const echoCodes = (req) => tier(req) === 'dev';
 
   async function deliver(req, kind, to, subject, text, devValue) {
     let sent = false;
@@ -245,7 +248,7 @@ function createProjectAuth(o) {
       log.error(`${name}: ${kind} to ${kind === 'sms' ? to.slice(0, 2) + '******' + to.slice(-2) : to} failed:`, err.message);
     }
     if (sent) return {};
-    if (echoCodes(req)) return { dev: devValue }; // dev/test only: no provider configured
+    if (echoCodes(req)) return { dev: devValue }; // dev only: no provider configured
     throw new AuthError(503, 'delivery', kind === 'sms'
       ? 'We could not send the SMS right now. Try again later or sign in with email.'
       : 'We could not send the email right now. Try again later.');
@@ -365,39 +368,60 @@ function createProjectAuth(o) {
     res.json({ ok: true });
   }));
 
+  // A one-time code by email (the default while SMS is on hold, D-029) or by
+  // SMS: { email } or { mobile }. The code's target is the address itself.
+  function codeTarget(body) {
+    if (body.email !== undefined && body.email !== null && body.email !== '') {
+      const email = normalizeEmail(body.email);
+      if (!email) throw new AuthError(400, 'email', 'Enter a valid email address.');
+      return { channel: 'mail', target: email, find: () => findByEmail(email) };
+    }
+    const mobile = normalizeMobile(body.mobile);
+    if (!mobile) throw new AuthError(400, 'mobile', 'Enter a valid 10-digit Indian mobile number.');
+    return { channel: 'sms', target: mobile, find: () => findByMobile(mobile) };
+  }
+
   router.post('/otp/send', wrap(async (req, res) => {
     if (!methods.includes('otp')) throw new AuthError(404, 'method', 'OTP sign-in is not offered here.');
     const body = req.body || {};
-    const mobile = normalizeMobile(body.mobile);
-    if (!mobile) throw new AuthError(400, 'mobile', 'Enter a valid 10-digit Indian mobile number.');
+    const { channel, target, find } = codeTarget(body);
     const purpose = body.purpose === 'sign-up' ? 'sign-up' : 'sign-in';
-    const existing = await findByMobile(mobile);
+    const existing = await find();
     if (purpose === 'sign-up' && !allowSignUp) throw new AuthError(403, 'closed', 'New accounts are not open here.');
-    await limit(`otp:mobile:${mobile}`, 5, 60 * 60);
+    await limit(`otp:${channel === 'mail' ? 'email' : 'mobile'}:${target}`, 5, 60 * 60);
     await limit(`otp:ip:${clientIp(req)}`, 20, 60 * 60);
-    // Do not reveal whether a number is registered: always answer the same way.
+    // Do not reveal whether an address is registered: always answer the same way.
     const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
     const mode = existing ? 'sign-in' : (allowSignUp ? 'sign-up' : 'none');
     if (mode !== 'none') {
-      await db.run(`UPDATE ${T.otp} SET used_at = now() WHERE target = $1 AND used_at IS NULL`, [mobile]);
+      await db.run(`UPDATE ${T.otp} SET used_at = now() WHERE target = $1 AND used_at IS NULL`, [target]);
       await db.run(`INSERT INTO ${T.otp} (target, purpose, code_hash, expires_at) VALUES ($1,$2,$3, now() + make_interval(mins => $4))`,
-        [mobile, mode, otpHash(mobile, mode, code), OTP_MINUTES]);
+        [target, mode, otpHash(target, mode, code), OTP_MINUTES]);
     }
-    const out = mode === 'none' ? {} : await deliver(req, 'sms', mobile, null,
-      `${code} is your ${name} code. It works for ${OTP_MINUTES} minutes. Never share it. - bkesari`, code);
-    await audit(existing ? existing.id : null, mobile, 'otp-sent', mode, req);
+    let out = {};
+    if (mode !== 'none' && channel === 'mail') {
+      out = await deliver(req, 'mail', target, `${code} is your ${name} code`,
+        `Your ${name} code is ${code}\n\nIt works for ${OTP_MINUTES} minutes, once. Never share it with anyone.\n\n`
+        + `This is a separate account for ${name}.\nIf you did not ask for this code, ignore this email.\n\n- bkesari`, code);
+    } else if (mode !== 'none') {
+      out = await deliver(req, 'sms', target, null,
+        `${code} is your ${name} code. It works for ${OTP_MINUTES} minutes. Never share it. - bkesari`, code);
+    } else if (channel === 'mail' ? !notify.mail : !notify.sms) {
+      // Nothing to send, but answer as a real send would, provider or not.
+      if (!echoCodes(req)) await deliver(req, channel, target, '', '', '');
+    }
+    await audit(existing ? existing.id : null, target, 'otp-sent', `${mode} ${channel}`, req);
     res.json({ sent: true, expiresInMinutes: OTP_MINUTES, newAccount: mode === 'sign-up', ...(out.dev ? { devCode: out.dev } : {}) });
   }));
 
   router.post('/otp/verify', wrap(async (req, res) => {
     const body = req.body || {};
-    const mobile = normalizeMobile(body.mobile);
+    const { channel, target, find } = codeTarget(body);
     const code = String(body.code || '').replace(/\D/g, '');
-    if (!mobile) throw new AuthError(400, 'mobile', 'Enter a valid 10-digit Indian mobile number.');
     if (code.length !== 6) throw new AuthError(400, 'code', 'Enter the 6-digit code.');
     await limit(`otpcheck:ip:${clientIp(req)}`, 30, 15 * 60);
     const expired = () => new AuthError(400, 'expired', 'That code has expired. Ask for a new one.');
-    const row = await db.get(`SELECT id, purpose, code_hash, attempts FROM ${T.otp} WHERE target = $1 AND used_at IS NULL AND expires_at > now() ORDER BY id DESC LIMIT 1`, [mobile]);
+    const row = await db.get(`SELECT id, purpose, code_hash, attempts FROM ${T.otp} WHERE target = $1 AND used_at IS NULL AND expires_at > now() ORDER BY id DESC LIMIT 1`, [target]);
     if (!row) throw expired();
     // Claim a try before comparing, in one statement: requests that arrive
     // together each get their own, so no more than OTP_MAX_TRIES are ever checked.
@@ -408,19 +432,22 @@ function createProjectAuth(o) {
       if (now && now.live) throw new AuthError(429, 'tries', 'Too many wrong codes. Ask for a new one.');
       throw expired();
     }
-    if (!sameText(otpHash(mobile, row.purpose, code), row.code_hash)) {
+    if (!sameText(otpHash(target, row.purpose, code), row.code_hash)) {
       throw new AuthError(400, 'code', `That code is not right. ${OTP_MAX_TRIES - tryNo.attempts} tries left.`);
     }
     // Spend it, also in one statement: of two requests carrying the right code, one signs in.
     if (!(await db.get(`UPDATE ${T.otp} SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id`, [row.id]))) throw expired();
-    let user = await findByMobile(mobile);
+    const col = channel === 'mail' ? 'email' : 'mobile';
+    let user = await find();
     if (!user) {
       if (row.purpose !== 'sign-up' || !allowSignUp) throw new AuthError(403, 'closed', 'New accounts are not open here.');
       const nm = String(body.name || '').trim().slice(0, 120) || null;
-      user = await db.get(`INSERT INTO ${T.users} (mobile, name, mobile_verified) VALUES ($1,$2,TRUE) RETURNING *`, [mobile, nm]);
-      await audit(user.id, mobile, 'sign-up', 'otp', req);
-    } else if (!user.mobile_verified) {
-      user = await db.get(`UPDATE ${T.users} SET mobile_verified = TRUE WHERE id = $1 RETURNING *`, [user.id]);
+      // Two first sign-ups for one address at once: the unique index lets one in.
+      user = await db.get(`INSERT INTO ${T.users} (${col}, name, ${col}_verified) VALUES ($1,$2,TRUE) ON CONFLICT DO NOTHING RETURNING *`, [target, nm])
+        || await find();
+      await audit(user.id, target, 'sign-up', `otp ${channel}`, req);
+    } else if (!user[`${col}_verified`]) {
+      user = await db.get(`UPDATE ${T.users} SET ${col}_verified = TRUE WHERE id = $1 RETURNING *`, [user.id]);
     }
     if (user.status !== 'active') throw new AuthError(403, 'status', 'This account is suspended.');
     const csrf = await startSession(req, res, user, 'otp');

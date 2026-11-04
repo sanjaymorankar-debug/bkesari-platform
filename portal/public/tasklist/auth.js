@@ -11,7 +11,9 @@
   const params = new URLSearchParams(location.search);
   const next = (() => { const n = params.get('next') || ''; return /^\/tasklist\/[^/\\]/.test(n) || n === '/tasklist/' ? n : '/tasklist/'; })();
   let csrf = null;
-  let mobile = null;
+  // Where the code goes: { email } by default (SMS is on hold), or { mobile }.
+  let target = null;
+  let channel = 'email';
 
   async function call(path, body) {
     if (!csrf) await session();
@@ -56,7 +58,11 @@
   const done = () => { location.href = next; };
 
   // Already signed in? Straight to the app.
-  session().then((s) => { if (s.user && (mode === 'sign-in' || mode === 'sign-up')) done(); }).catch(() => {});
+  session().then((s) => {
+    if (s.user && (mode === 'sign-in' || mode === 'sign-up')) done();
+    // A mobile number is offered only once an SMS provider is set up.
+    if (s.smsLive) $('switch-channel').hidden = false;
+  }).catch(() => {});
 
   /* ---- tabs (arrow keys move between them) ---- */
   const tabs = [$('tab-otp'), $('tab-pw')];
@@ -76,20 +82,45 @@
   });
   if (params.get('method') === 'password') select(tabs[1]);
 
-  /* ---- mobile + OTP ---- */
+  /* ---- one-time code: by email, or by SMS when it is live ---- */
   const digits = (v) => { let d = String(v || '').replace(/\D/g, ''); if (d.length === 12 && d.startsWith('91')) d = d.slice(2); if (d.length === 11 && d.startsWith('0')) d = d.slice(1); return d; };
+  const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  function useChannel(c) {
+    channel = c;
+    $('email-field').hidden = c !== 'email';
+    $('mobile-field').hidden = c !== 'mobile';
+    $('code-email').required = c === 'email';
+    $('mobile').required = c === 'mobile';
+    const sw = $('switch-channel');
+    sw.setAttribute('data-i18n', c === 'email' ? 'auth.useMobile' : 'auth.useEmail');
+    sw.textContent = t(c === 'email' ? 'auth.useMobile' : 'auth.useEmail');
+    const ch = $('change');
+    ch.setAttribute('data-i18n', c === 'email' ? 'auth.changeEmail' : 'auth.changeNumber');
+    ch.textContent = t(c === 'email' ? 'auth.changeEmail' : 'auth.changeNumber');
+  }
+  $('switch-channel').addEventListener('click', () => { useChannel(channel === 'email' ? 'mobile' : 'email'); $(channel === 'email' ? 'code-email' : 'mobile').focus(); });
   $('otp-send').addEventListener('submit', async (e) => {
     e.preventDefault();
     showError('');
-    const m = digits($('mobile').value);
-    if (!fieldError('mobile', 'mobile-err', /^[6-9]\d{9}$/.test(m) ? '' : t('auth.err.mobile'))) return;
+    let to;
+    if (channel === 'email') {
+      const v = $('code-email').value.trim();
+      if (!fieldError('code-email', 'code-email-err', EMAIL.test(v) ? '' : t('auth.err.email'))) return;
+      to = { email: v };
+    } else {
+      const m = digits($('mobile').value);
+      if (!fieldError('mobile', 'mobile-err', /^[6-9]\d{9}$/.test(m) ? '' : t('auth.err.mobile'))) return;
+      to = { mobile: m };
+    }
     busy(e.target, true);
     try {
-      const r = await call('/otp/send', { mobile: m, purpose: mode === 'sign-up' ? 'sign-up' : 'sign-in' });
-      mobile = m;
+      const r = await call('/otp/send', { ...to, purpose: mode === 'sign-up' ? 'sign-up' : 'sign-in' });
+      target = to;
       $('otp-send').hidden = true;
       $('otp-verify').hidden = false;
-      $('code-sent').textContent = t('auth.codeSent', { mobile: `${m.slice(0, 5)} ${m.slice(5)}` });
+      $('code-sent').textContent = to.email
+        ? t('auth.codeSentEmail', { email: to.email })
+        : t('auth.codeSent', { mobile: `${to.mobile.slice(0, 5)} ${to.mobile.slice(5)}` });
       devNote(r.devCode ? K.escapeHtml(t('auth.devCode', { code: r.devCode })) : '');
       const first = document.querySelector('.k-otp input');
       if (first) first.focus();
@@ -102,13 +133,13 @@
     if (!fieldError(null, 'code-err', code.length === 6 ? '' : t('auth.err.code'))) return;
     busy(e.target, true);
     try {
-      await call('/otp/verify', { mobile, code, name: $('otp-name').value });
+      await call('/otp/verify', { ...target, code, name: $('otp-name').value });
       done();
     } catch (ex) { fieldError(null, 'code-err', ex.message); } finally { busy(e.target, false); }
   });
   document.querySelector('.k-otp').addEventListener('kesari:otp', (e) => { if (e.detail.complete) $('otp-verify').requestSubmit(); });
   $('resend').addEventListener('click', () => { $('otp-verify').hidden = true; $('otp-send').hidden = false; $('otp-send').requestSubmit(); });
-  $('change').addEventListener('click', () => { $('otp-verify').hidden = true; $('otp-send').hidden = false; devNote(''); $('mobile').focus(); });
+  $('change').addEventListener('click', () => { $('otp-verify').hidden = true; $('otp-send').hidden = false; devNote(''); $(channel === 'email' ? 'code-email' : 'mobile').focus(); });
 
   /* ---- email + password ---- */
   $('pw-form').addEventListener('submit', async (e) => {

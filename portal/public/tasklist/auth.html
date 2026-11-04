@@ -30,7 +30,7 @@
     <!-- Sign in / sign up -->
     <section data-mode="sign-in sign-up">
       <div class="k-tabs" role="tablist" aria-label="Method">
-        <button type="button" role="tab" id="tab-otp" aria-controls="pane-otp" aria-selected="true" data-i18n="auth.tabOtp">Mobile + OTP</button>
+        <button type="button" role="tab" id="tab-otp" aria-controls="pane-otp" aria-selected="true" data-i18n="auth.tabCode">Email code</button>
         <button type="button" role="tab" id="tab-pw" aria-controls="pane-pw" aria-selected="false" tabindex="-1" data-i18n="auth.tabPassword">Email + password</button>
       </div>
 
@@ -40,7 +40,13 @@
             <label class="k-label" for="otp-name" data-i18n="auth.name">Your name</label>
             <input class="k-input" id="otp-name" autocomplete="name" maxlength="120">
           </div>
-          <div class="k-field">
+          <div class="k-field" id="email-field">
+            <label class="k-label" for="code-email" data-i18n="auth.codeEmail">Email address</label>
+            <span class="k-hint" id="code-email-hint" data-i18n="auth.codeEmailHint">We will email you a 6-digit code</span>
+            <input class="k-input" id="code-email" type="email" inputmode="email" autocomplete="email" maxlength="254" aria-describedby="code-email-hint code-email-err" required>
+            <span class="k-error" id="code-email-err"></span>
+          </div>
+          <div class="k-field" id="mobile-field" hidden>
             <label class="k-label" for="mobile" data-i18n="auth.mobile">Mobile number</label>
             <span class="k-hint" id="mobile-hint" data-i18n="auth.mobileHint">10 digits, India (+91)</span>
             <div class="tl-prefix"><span aria-hidden="true">+91</span>
@@ -48,6 +54,7 @@
             <span class="k-error" id="mobile-err"></span>
           </div>
           <button class="k-btn k-btn--block" type="submit" data-i18n="auth.sendCode">Send code</button>
+          <button type="button" class="k-btn k-btn--ghost k-btn--sm" id="switch-channel" data-i18n="auth.useMobile" hidden>Use my mobile number instead</button>
         </form>
         <form id="otp-verify" novalidate hidden>
           <p id="code-sent" class="k-muted" role="status"></p>
@@ -59,7 +66,7 @@
           <button class="k-btn k-btn--block" type="submit" data-i18n="auth.verify">Verify and continue</button>
           <div class="k-row k-row--between tl-auth-links">
             <button type="button" class="k-btn k-btn--ghost k-btn--sm" id="resend" data-i18n="auth.resend">Send a new code</button>
-            <button type="button" class="k-btn k-btn--ghost k-btn--sm" id="change" data-i18n="auth.changeNumber">Change number</button>
+            <button type="button" class="k-btn k-btn--ghost k-btn--sm" id="change" data-i18n="auth.changeEmail">Change email</button>
           </div>
         </form>
       </div>

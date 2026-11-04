@@ -60,7 +60,10 @@ code() { curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$@"; }
 
 LOG=$(mktemp); JAR=$(mktemp); CSRF=""; HUB=""
 stop_hub() { [ -n "$HUB" ] && kill "$HUB" 2>/dev/null; wait "$HUB" 2>/dev/null; HUB=""; }
-trap 'stop_hub; rm -f "$LOG" "$JAR"' EXIT
+# /edu/ goes to a local stand-in, never to the live Education dev site (D-031).
+EDU_PORT=${EDU_STANDIN_PORT:-3111}
+node "$ROOT/scripts/edu-standin.js" "$EDU_PORT" >/dev/null 2>&1 & EDU=$!
+trap 'stop_hub; kill "$EDU" 2>/dev/null; rm -f "$LOG" "$JAR"' EXIT
 
 # json <key>: that key of the JSON object on stdin, or nothing.
 json() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const v=JSON.parse(s)[process.argv[1]];if(v!==undefined&&v!==null)console.log(v)}catch{}})' "$1"; }
@@ -83,7 +86,7 @@ start_hub() {
   if curl -s -o /dev/null --max-time 2 "$BASE/"; then echo "        something is already listening on $PORT" >"$LOG"; return 1; fi
   : > "$LOG"
   ( cd "$ROOT" && exec env -u DB_HOST -u DB_PORT -u DB_NAME -u DB_USER -u DB_PASSWORD -u DB_SSL \
-      DATABASE_URL="$1" DATABASE_URL_UNPOOLED="${2:-}" PORT="$PORT" APP_ENV=dev \
+      DATABASE_URL="$1" DATABASE_URL_UNPOOLED="${2:-}" PORT="$PORT" APP_ENV=dev EDU_ORIGIN="http://127.0.0.1:$EDU_PORT" \
       ATIP_USER=$U ATIP_PASSWORD=$PW ATIP_PUBLISH_TOKEN=$TOKEN \
       node portal/server.js ) >"$LOG" 2>&1 &
   HUB=$!

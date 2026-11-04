@@ -93,6 +93,8 @@ jobs:
           DATABASE_URL_UNPOOLED: postgresql://bk_portal:ci-only-not-a-real-password@127.0.0.1:5432/bk_portal_test
           PORT: 3100
           APP_ENV: dev
+          # /edu/ goes to a local stand-in, never to devedu.bkesari.com (D-031).
+          EDU_ORIGIN: http://127.0.0.1:3111
           HUB_ADMIN_EMAIL: ci@example.com
           HUB_ADMIN_PASSWORD: ci-only-not-a-real-password
           HUB_AUTH_SECRET: ci-only-not-a-real-secret-0123456789abcdef
@@ -101,6 +103,7 @@ jobs:
           ATIP_PUBLISH_TOKEN: ci-only-not-a-real-token
         run: |
           set -euo pipefail
+          node scripts/edu-standin.js 3111 & echo $! > /tmp/edu.pid
           npm start & echo $! > /tmp/hub.pid
           for attempt in $(seq 1 20); do
             if curl -fsS --max-time 5 http://127.0.0.1:3100/ -o /dev/null; then break; fi
@@ -133,7 +136,7 @@ jobs:
           code=$(signin wrong-password)
           [ "$code" = 401 ] || { echo "::error::a wrong hub admin password was not rejected ($code)"; exit 1; }
 
-          kill "$(cat /tmp/hub.pid)"
+          kill "$(cat /tmp/hub.pid)" "$(cat /tmp/edu.pid)"
 
   # edu/'s PHPUnit suite, three times: on in-memory sqlite (edu/phpunit.xml's
   # default, so it also runs anywhere with no database), on PostgreSQL, which

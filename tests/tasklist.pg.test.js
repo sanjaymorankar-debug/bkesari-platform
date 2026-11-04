@@ -153,25 +153,82 @@ describe('TaskList on PostgreSQL', { skip }, () => {
     assert.deepEqual(n, { users: 1, sessions: 1 });
   });
 
-  test('on production without an SMS provider a code is refused, never shown on screen', async (t) => {
+  test('on test and production without a provider a code is refused, never shown on screen; only dev shows it', async (t) => {
     const made = createApp(db, { notify: () => ({}), log: quiet });
     const s2 = await new Promise((r) => { const s = made.app.listen(0, '127.0.0.1', () => r(s)); });
     t.after(() => new Promise((r) => s2.close(r)));
     const b = new Browser(`http://127.0.0.1:${s2.address().port}`);
-    process.env.APP_ENV = 'prod';
-    try {
-      const s = await b.fetch('GET', '/tasklist/api/auth/session');
-      const r = await b.fetch('POST', '/tasklist/api/auth/otp/send', { json: { mobile: '9876500002' }, csrf: s.json.csrf });
-      assert.equal(r.status, 503);
-      assert.equal(r.json.devCode, undefined);
-    } finally {
-      process.env.APP_ENV = '';
+    let i = 0;
+    for (const tierName of ['prod', 'test']) {
+      process.env.APP_ENV = tierName;
+      try {
+        const s = await b.fetch('GET', '/tasklist/api/auth/session');
+        for (const to of [{ mobile: `98765000${20 + i}` }, { email: `nobox${i}@example.com` }]) {
+          i += 1;
+          const r = await b.fetch('POST', '/tasklist/api/auth/otp/send', { json: to, csrf: s.json.csrf });
+          assert.equal(r.status, 503, `${tierName} ${JSON.stringify(to)}: ${r.text}`);
+          assert.equal(r.json.devCode, undefined);
+          assert.doesNotMatch(r.text, /\b\d{6}\b/, 'no code anywhere in the answer');
+        }
+        const f = await b.fetch('POST', '/tasklist/api/auth/password/forgot', { json: { email: 'nobox0@example.com' }, csrf: s.json.csrf });
+        assert.equal(f.json.devResetLink, undefined);
+      } finally {
+        process.env.APP_ENV = '';
+      }
     }
-    // dev and test show it, since there is no other way to sign in there.
+    // dev (here: a local address) shows it, since nothing could deliver it.
     const s = await b.fetch('GET', '/tasklist/api/auth/session');
-    const r = await b.fetch('POST', '/tasklist/api/auth/otp/send', { json: { mobile: '9876500002' }, csrf: s.json.csrf });
-    assert.equal(r.status, 200);
-    assert.match(r.json.devCode, /^\d{6}$/);
+    for (const to of [{ mobile: '9876500002' }, { email: 'devbox@example.com' }]) {
+      const r = await b.fetch('POST', '/tasklist/api/auth/otp/send', { json: to, csrf: s.json.csrf });
+      assert.equal(r.status, 200);
+      assert.match(r.json.devCode, /^\d{6}$/);
+    }
+  });
+
+  test('email + code: a new address gets an account; the code goes by email only, works once and takes 5 guesses', async () => {
+    const b = new Browser(base);
+    const s = await b.fetch('GET', '/tasklist/api/auth/session');
+    assert.equal(s.json.smsLive, true, 'this suite has a fake SMS provider');
+    assert.equal(s.json.mailLive, true);
+    assert.equal((await b.fetch('POST', '/tasklist/api/auth/otp/send', { json: { email: 'not-an-email' }, csrf: s.json.csrf })).status, 400);
+    const send = await b.fetch('POST', '/tasklist/api/auth/otp/send', { json: { email: ' Kavya.Code@Example.com ', purpose: 'sign-up' }, csrf: s.json.csrf });
+    assert.equal(send.status, 200, send.text);
+    assert.equal(send.json.devCode, undefined, 'a delivered code is never also shown');
+    const mail = [...sent.mail].reverse().find((m) => m.to === 'kavya.code@example.com');
+    assert.ok(mail, 'the code went to the address, lower-cased');
+    assert.match(mail.subject, /^\d{6} is your TaskList code$/);
+    assert.match(mail.text, /This is a separate account for TaskList\./);
+    const code = mail.text.match(/\b(\d{6})\b/)[1];
+    const wrong = code === '000000' ? '111111' : '000000';
+    const bad = await b.fetch('POST', '/tasklist/api/auth/otp/verify', { json: { email: 'kavya.code@example.com', code: wrong }, csrf: s.json.csrf });
+    assert.equal(bad.status, 400);
+    assert.match(bad.json.error, /4 tries left/);
+    const ok = await b.fetch('POST', '/tasklist/api/auth/otp/verify', { json: { email: 'KAVYA.CODE@example.com', code, name: 'Kavya' }, csrf: s.json.csrf });
+    assert.equal(ok.status, 200, ok.text);
+    assert.equal(ok.json.created, true);
+    assert.equal(ok.json.user.email, 'kavya.code@example.com');
+    const row = await db.get("SELECT email_verified, mobile FROM tl_users WHERE email = 'kavya.code@example.com'");
+    assert.deepEqual(row, { email_verified: true, mobile: null });
+    const again = await new Browser(base).fetch('POST', '/tasklist/api/auth/otp/verify', { json: { email: 'kavya.code@example.com', code } });
+    assert.notEqual(again.status, 200, 'the same code never signs in twice');
+
+    // A second sign-in by code finds the same account.
+    const b2 = new Browser(base);
+    const s2 = await b2.fetch('GET', '/tasklist/api/auth/session');
+    await b2.fetch('POST', '/tasklist/api/auth/otp/send', { json: { email: 'kavya.code@example.com' }, csrf: s2.json.csrf });
+    const code2 = [...sent.mail].reverse().find((m) => m.to === 'kavya.code@example.com').text.match(/\b(\d{6})\b/)[1];
+    const in2 = await b2.fetch('POST', '/tasklist/api/auth/otp/verify', { json: { email: 'kavya.code@example.com', code: code2 }, csrf: s2.json.csrf });
+    assert.equal(in2.status, 200, in2.text);
+    assert.equal(in2.json.created, false);
+    assert.equal(in2.json.user.id, ok.json.user.id);
+
+    // Five wrong guesses use the code up.
+    await b2.fetch('POST', '/tasklist/api/auth/otp/send', { json: { email: 'kavya.code@example.com' }, csrf: s2.json.csrf });
+    const code3 = [...sent.mail].reverse().find((m) => m.to === 'kavya.code@example.com').text.match(/\b(\d{6})\b/)[1];
+    const miss = code3 === '222222' ? '333333' : '222222';
+    for (let k = 0; k < 5; k += 1) await b2.fetch('POST', '/tasklist/api/auth/otp/verify', { json: { email: 'kavya.code@example.com', code: miss }, csrf: s2.json.csrf });
+    const late = await b2.fetch('POST', '/tasklist/api/auth/otp/verify', { json: { email: 'kavya.code@example.com', code: code3 }, csrf: s2.json.csrf });
+    assert.notEqual(late.status, 200, 'the right code after 5 misses is refused');
   });
 
   test('cross-site and non-JSON requests are refused', async () => {

@@ -24,7 +24,7 @@
  *              tl_users row with their email and no password; the owner's has
  *              role 'owner'. Every list and task from the old shared tracker
  *              (user_id NULL) goes to the owner. They sign in with "Forgot
- *              password" (email) or mobile + OTP once they add a mobile.
+ *              password" (email), or a one-time code sent to that email.
  *   LadWani    accounts were already made in LadWani's own database the first
  *   Education  time each person came through the hub (users.hub_user_id). Those
  *              are kept as they are; this only checks each one is there and lists
@@ -79,7 +79,7 @@ export function message(person) {
       + 'From 3 Nov 2026 there is no single bkesari ID. Each project now has its own account, '
       + 'so signing in to one never signs you in to another.\n\n'
       + `We have kept your place in ${person.projects.length === 1 ? 'the project' : 'each project'} you used:\n${lines.join('\n')}\n\n`
-      + 'Open the link, then sign in with your mobile number and a one-time code, or choose "Forgot password?" '
+      + 'Open the link, then sign in with this email address and the one-time code we send to it, or choose "Forgot password?" '
       + 'to set a password for that project.\n\n— bkesari.com',
   };
 }
@@ -156,8 +156,8 @@ async function main(argv = process.argv.slice(2), env = process.env, log = conso
 
     if (notify) {
       const { createNotifier } = await import(new URL('../portal/notify.js', import.meta.url));
-      const n = createNotifier('HUB', env);
-      if (!n.mail) throw new Error('--notify: no mail provider configured (RESEND_API_KEY + MAIL_FROM, or MAIL_WEBHOOK_URL).');
+      const n = createNotifier('HUB', env, { fromName: 'bkesari' });
+      if (!n.mail) throw new Error('--notify: no mail provider configured (MAIL_HOST + MAIL_USERNAME + MAIL_PASSWORD for Hostinger email, or RESEND_API_KEY + MAIL_FROM, or MAIL_WEBHOOK_URL).');
       for (const p of people) {
         const m = message(p);
         try { await n.mail(p.email, m.subject, m.text); result.find((r) => r.email === p.email).notified = 'yes'; } catch (err) {

@@ -95,8 +95,9 @@ safe to re-run.
 | `DATABASE_URL_UNPOOLED` | the same, with *Connection pooling* **off**. Used only to create the tables |
 | `HUB_AUTH_SECRET` | long random secret (`openssl rand -hex 32`), **different per tier**. Seals the hub's forms and codes; TaskList's and LadWani's secrets are derived from it unless `TASKLIST_AUTH_SECRET` / `LADWANI_JWT_SECRET` are set |
 | `HUB_ADMIN_EMAIL`, `HUB_ADMIN_PASSWORD_HASH` | the first hub admin, made at start when there is none (bcrypt hash: `node -e "console.log(require('bcryptjs').hashSync(process.argv[1], 11))" 'the password'`). `HUB_ADMIN_PASSWORD` (plain) also works; remove it after the first start. An address on `HUB_OWNER_EMAILS` (default `agtcipl@gmail.com`) gets the owner role, which also opens `/ATIP/` |
-| `SMS_WEBHOOK_URL`, `SMS_WEBHOOK_TOKEN` | where one-time codes go: POST `{"to":"+91…","text":"…"}` with `Authorization: Bearer <token>` to your SMS gateway or a relay. **Unset on production, mobile sign-in is refused** (dev and test show the code on screen). **Warning:** a code shown on screen lets anyone who knows a member's number sign in as them. Before real people's accounts reach test.bkesari.com (the migration in Part 9 copies them), set an SMS provider on test too (decision D-028). Per project: `TASKLIST_SMS_WEBHOOK_URL` |
-| `RESEND_API_KEY` + `MAIL_FROM`, or `MAIL_WEBHOOK_URL` | password-reset and verification emails. Per project: `TASKLIST_…`, `HUB_…` |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | **Hostinger email (SMTP), required on test and production.** One-time sign-in codes, password resets and verification links go by email (D-029). `MAIL_HOST=smtp.hostinger.com`, `MAIL_PORT=465`, `MAIL_USERNAME` = the mailbox (for example `no-reply@bkesari.com`, created in hPanel → Emails), `MAIL_PASSWORD` = its password, `MAIL_FROM_ADDRESS` = the same address (the default), `MAIL_FROM_NAME` optional (each project sets its own: "TaskList · bkesari", "LadWani · bkesari"). Without them on test or production, code sign-in answers "could not send" and only password sign-in works; **no code is ever shown on screen there** — only the dev tier shows one, and only when no mail is set. Per project: `TASKLIST_MAIL_…`, `LADWANI_MAIL_…`, `HUB_MAIL_…` |
+| `SMS_WEBHOOK_URL`, `SMS_WEBHOOK_TOKEN` | **On hold (D-029); leave unset.** When an SMS gateway is chosen: POST `{"to":"+91…","text":"…"}` with `Authorization: Bearer <token>`. While unset, the sign-in screens offer codes by email only |
+| `RESEND_API_KEY` + `MAIL_FROM`, or `MAIL_WEBHOOK_URL` | alternatives to SMTP for the hub and TaskList, used only when `MAIL_HOST` is not set |
 | `TRUST_PROXY` | Express `trust proxy`. Default `loopback` (Hostinger's front end); set it to the front end's address if the visitor's IP shows as one address for everyone |
 | `ATIP_USER`, `ATIP_PASSWORD` | login for `/ATIP/` |
 | `ATIP_PUBLISH_TOKEN` | long random secret. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Use a **different one per tier** (dev/test/production). |
@@ -905,7 +906,7 @@ HUB_DATABASE_URL="<hub, direct>" TASKLIST_DATABASE_URL="<tasklist, direct>" \
 # 2. Apply: TaskList accounts for everyone who could open the old tracker; its
 #    lists and tasks go to the owner. LadWani and Education already have accounts.
 node tools/migrate_shared_id.mjs --apply
-# 3. Tell people, once (needs RESEND_API_KEY + MAIL_FROM or MAIL_WEBHOOK_URL):
+# 3. Tell people, once (needs the MAIL_* settings of Part 1, Hostinger email):
 node tools/migrate_shared_id.mjs --apply --notify
 ```
 

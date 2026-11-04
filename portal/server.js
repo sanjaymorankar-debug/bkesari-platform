@@ -244,12 +244,12 @@ function createApp(db, extra = {}) {
     renderMenu: (pathname, req) => menu.renderHtml({ pathname, env: currentEnv(req), lang: pages.langOf(req) }),
   });
 
-  const notifyHub = extra.notify ? extra.notify('HUB') : createNotifier('HUB', env);
+  const notifyHub = extra.notify ? extra.notify('HUB') : createNotifier('HUB', env, { fromName: 'bkesari' });
   const hub = createHub({ db: hubDb, env, envName: currentEnv, notify: notifyHub, log: extra.log || console });
 
   const tasklist = createTaskList({
     db, tier: currentEnv, log: extra.log || console,
-    notify: extra.notify ? extra.notify('TASKLIST') : createNotifier('TASKLIST', env),
+    notify: extra.notify ? extra.notify('TASKLIST') : createNotifier('TASKLIST', env, { fromName: 'TaskList · bkesari' }),
     secret: projectSecret('TASKLIST'),
     realtime,
     // Neon Function `report` (functions/report.ts): last-seven-days figures

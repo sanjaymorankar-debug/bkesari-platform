@@ -113,7 +113,7 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
 
   function send(req, res, { title, description, body, status = 200, isOwner: owner = false, scripts, pathname }) {
     const lang = pages.langOf(req);
-    res.status(status).set({ 'Cache-Control': 'no-cache', Vary: 'Cookie, Accept-Language' }).type('html')
+    res.status(status).set({ 'Cache-Control': 'no-cache', Vary: 'Cookie' }).type('html')
       .send(pages.layout({ req, lang, env: envName(req), title, description, body: body(lang), isOwner: owner, scripts, pathname }));
   }
 

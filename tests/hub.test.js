@@ -39,8 +39,9 @@ test('every string the hub pages ask for exists', () => {
 
 test('the language: the k_lang cookie, else the browser\'s, else English', () => {
   assert.equal(pages.langOf({ headers: { cookie: 'a=1; k_lang=mr; b=2' } }), 'mr');
-  assert.equal(pages.langOf({ headers: { cookie: 'k_lang=xx', 'accept-language': 'hi-IN,hi;q=0.9' } }), 'hi');
-  assert.equal(pages.langOf({ headers: { 'accept-language': 'fr-FR,mr;q=0.8' } }), 'mr');
+  // The browser's language is not used: English until the visitor picks one (D-030).
+  assert.equal(pages.langOf({ headers: { cookie: 'k_lang=xx', 'accept-language': 'hi-IN,hi;q=0.9' } }), 'en');
+  assert.equal(pages.langOf({ headers: { 'accept-language': 'fr-FR,mr;q=0.8' } }), 'en');
   assert.equal(pages.langOf({ headers: {} }), 'en');
   assert.equal(pages.langOf(null), 'en');
 });

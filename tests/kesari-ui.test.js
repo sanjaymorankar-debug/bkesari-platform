@@ -129,7 +129,8 @@ test('numbers use Indian grouping, and rupees', () => {
 test('the language: saved choice, then cookie, then browser, then English', () => {
   assert.equal(K.resolveLang({ saved: 'mr', cookie: 'hi' }), 'mr');
   assert.equal(K.resolveLang({ saved: 'xx', cookie: 'hi' }), 'hi');
-  assert.equal(K.resolveLang({ navigatorLangs: ['fr-FR', 'hi-IN'] }), 'hi');
+  // The browser's language is not used: English until the person picks one (D-030).
+  assert.equal(K.resolveLang({ navigatorLangs: ['fr-FR', 'hi-IN'] }), 'en');
   assert.equal(K.resolveLang({}), 'en');
   assert.equal(K.readCookie('k_lang', 'a=1; k_lang=mr'), 'mr');
   assert.deepEqual(K.LANGS.map((l) => l.code), ['en', 'mr', 'hi']);
