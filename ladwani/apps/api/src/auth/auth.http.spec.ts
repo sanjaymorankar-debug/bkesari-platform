@@ -6,8 +6,9 @@ import cookieParser from 'cookie-parser'
 import { hash } from 'bcryptjs'
 import { AuthModule } from './auth.module'
 import { PrismaService } from '../prisma/prisma.service'
-import { AuthService, OTP_MAX_TRIES, OTP_SENDS_PER_HOUR } from './auth.service'
+import { AuthService, BUILTIN_AUDIT, OTP_MAX_TRIES, OTP_SENDS_PER_HOUR, TOO_MANY_TRIES } from './auth.service'
 import { MAIL_UNAVAILABLE } from './code-delivery.service'
+import { BUILTIN_PASSWORD_MESSAGE, BUILTIN_TRIES_PER_IP, BUILTIN_TRIES_PER_NAME, RESERVED_EMAIL_MESSAGE, hashBuiltinPassword } from './builtin-admins'
 import { MAIL_TRANSPORT } from '../mail/mail-transport'
 import { FakeMailTransport } from '../mail/fake-mail-transport'
 
@@ -33,12 +34,16 @@ function matches(row: Row, where: Row = {}): boolean {
 }
 
 let seq = 0
-function table(rows: Row[], decorate: (r: Row) => Row = (r) => r, defaults: () => Row = () => ({})) {
+/** A table; `unique` columns refuse a second row with the same value (not null), as PostgreSQL does (P2002). */
+function table(rows: Row[], decorate: (r: Row) => Row = (r) => r, defaults: () => Row = () => ({}), unique: string[] = []) {
   const pick = (where: Row) => rows.filter((r) => matches(r, where))
   return {
     rows,
     create: async ({ data }: Row) => {
       const row = { id: `id-${++seq}`, createdAt: new Date(Date.now() + seq), ...defaults(), ...data }
+      if (unique.some((k) => row[k] != null && rows.some((r) => r[k] === row[k]))) {
+        throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' })
+      }
       rows.push(row)
       return decorate(row)
     },
@@ -69,20 +74,26 @@ function table(rows: Row[], decorate: (r: Row) => Row = (r) => r, defaults: () =
 
 function fakeDb() {
   const db: Row = {}
-  db.role = table([{ id: 'r-member', code: 'MEMBER' }])
+  db.role = table([{ id: 'r-member', code: 'MEMBER' }, { id: 'r-admin', code: 'ADMIN' }], undefined, undefined, ['code'])
   db.userRole = table([])
-  db.member = table([])
+  db.member = table([], undefined, undefined, ['userId'])
   db.verificationToken = table([])
   db.refreshToken = table([])
   db.uploadedFile = table([])
   db.approval = table([], undefined, () => ({ submittedAt: new Date() }))
   db.consentRecord = table([])
   db.approvalRule = table([])
-  db.user = table([], (u) => ({
-    ...u,
-    member: db.member.rows.find((m: Row) => m.userId === u.id) ?? null,
-    userRoles: db.userRole.rows.filter((ur: Row) => ur.userId === u.id).map((ur: Row) => ({ role: db.role.rows.find((r: Row) => r.id === ur.roleId) })),
-  }))
+  db.auditLog = table([])
+  db.user = table(
+    [],
+    (u) => ({
+      ...u,
+      member: db.member.rows.find((m: Row) => m.userId === u.id) ?? null,
+      userRoles: db.userRole.rows.filter((ur: Row) => ur.userId === u.id).map((ur: Row) => ({ role: db.role.rows.find((r: Row) => r.id === ur.roleId) })),
+    }),
+    undefined,
+    ['email', 'mobile'],
+  )
   // An interactive transaction runs one at a time, as the row lock it takes
   // (SELECT ... FOR UPDATE, a no-op here) makes them for one account.
   let queue: Promise<unknown> = Promise.resolve()
@@ -158,6 +169,10 @@ describe('LadWani auth over HTTP', () => {
     delete process.env.HUB_JWKS_URL
     delete process.env.LADWANI_COOKIE_PATH
     delete process.env.COOKIE_PATH
+    // The hub process may hold the real one; a case sets its own.
+    delete process.env.BUILTIN_ADMIN_PASSWORD_HASH
+    delete process.env.LADWANI_VISITOR_HEADER
+    delete process.env.VISITOR_HEADER
     db = fakeDb()
 
     @Global()
@@ -640,6 +655,255 @@ describe('LadWani auth over HTTP', () => {
     })
   })
 
+  describe('the built-in administrators (D-036)', () => {
+    const PASSWORD = 'test-only-builtin-password-1'
+    const ADDRESS = 'smorankar@builtin.bkesari.com'
+    let builtinHash: string
+
+    beforeAll(async () => {
+      // The cheapest cost the API accepts, so the many tries below stay fast.
+      builtinHash = await hashBuiltinPassword(PASSWORD, { N: 2 ** 14, r: 8, p: 1 })
+    })
+    beforeEach(() => {
+      process.env.BUILTIN_ADMIN_PASSWORD_HASH = builtinHash
+    })
+
+    const signIn = (identifier: string, password = PASSWORD, headers: Record<string, string> = {}) =>
+      call('POST', '/auth/login', { body: { identifier, password }, headers })
+    const builtinRows = () => db.user.rows.filter((u: Row) => typeof u.email === 'string' && u.email.endsWith('@builtin.bkesari.com'))
+    const rolesOf = (userId: string) =>
+      db.userRole.rows.filter((ur: Row) => ur.userId === userId).map((ur: Row) => db.role.rows.find((r: Row) => r.id === ur.roleId)?.code)
+    const sessionUser = async (r: Reply) => (await call('GET', '/auth/session', { headers: { cookie: `lw_sid=${sid(r)}` } })).body.user
+
+    it("sign in with the username, however it is typed: LadWani's ADMIN, with LadWani's own session", async () => {
+      const r = await signIn('  SMorankar ', PASSWORD, { host: 'dev.bkesari.com' })
+      expect(r.status).toBe(200)
+      expect(r.body.data.user).toEqual({ id: expect.any(String), roles: ['ADMIN'], memberId: expect.any(String) })
+      const cookie = r.cookies.find((c) => c.startsWith('lw_sid='))!
+      for (const part of [/; Path=\/ladwani(;|$)/, /; HttpOnly/, /; Secure/, /; SameSite=Lax/]) expect(cookie).toMatch(part)
+      const [row] = builtinRows()
+      expect(row).toMatchObject({ id: r.body.data.user.id, email: ADDRESS, status: 'ACTIVE', emailVerified: true })
+      expect(row.mobile ?? null).toBeNull()
+      expect(db.member.rows.find((m: Row) => m.userId === row.id)).toMatchObject({ id: r.body.data.user.memberId, firstName: 'smorankar' })
+      expect(await sessionUser(r)).toMatchObject({ name: 'smorankar', email: ADDRESS })
+      // A session like anyone's: it refreshes, and signing out ends it.
+      const refreshed = await call('POST', '/auth/refresh', { headers: { cookie: `lw_sid=${sid(r)}` } })
+      expect(refreshed.status).toBe(200)
+      expect(refreshed.body.data.user.roles).toEqual(['ADMIN'])
+      await call('POST', '/auth/logout', { body: {}, headers: { cookie: `lw_sid=${sid(refreshed)}` } })
+      expect(await sessionUser(refreshed)).toBeNull()
+    })
+
+    it('is the same row every time, one for each of the two', async () => {
+      const first = await signIn('smorankar')
+      const again = await signIn('SMORANKAR')
+      const other = await signIn('sonalimorankar')
+      expect([first.status, again.status, other.status]).toEqual([200, 200, 200])
+      expect(again.body.data.user.id).toBe(first.body.data.user.id)
+      expect(other.body.data.user.id).not.toBe(first.body.data.user.id)
+      expect(builtinRows().map((u: Row) => u.email).sort()).toEqual([ADDRESS, 'sonalimorankar@builtin.bkesari.com'])
+      for (const u of builtinRows()) {
+        expect(rolesOf(u.id)).toEqual(['ADMIN'])
+        expect(db.member.rows.filter((m: Row) => m.userId === u.id)).toHaveLength(1)
+      }
+    })
+
+    it('puts back what the row must have: active, verified, not locked or deleted, and ADMIN', async () => {
+      const made = await db.user.create({
+        data: { email: ADDRESS, passwordHash: 'x', status: 'SUSPENDED', emailVerified: false, failedAttempts: 5, lockedUntil: new Date(Date.now() + 60_000), deletedAt: new Date() },
+      })
+      await db.userRole.create({ data: { userId: made.id, roleId: 'r-member' } })
+      const r = await signIn('smorankar')
+      expect(r.status).toBe(200)
+      expect(r.body.data.user.id).toBe(made.id)
+      expect(r.body.data.user.roles).toEqual(['MEMBER', 'ADMIN'])
+      expect(builtinRows()).toEqual([expect.objectContaining({ status: 'ACTIVE', emailVerified: true, failedAttempts: 0, lockedUntil: null, deletedAt: null })])
+    })
+
+    it('makes the ADMIN role where the seed has not run', async () => {
+      db.role.rows.splice(db.role.rows.findIndex((x: Row) => x.code === 'ADMIN'), 1)
+      expect((await signIn('smorankar')).body.data.user.roles).toEqual(['ADMIN'])
+      expect((await signIn('sonalimorankar')).body.data.user.roles).toEqual(['ADMIN'])
+      expect(db.role.rows.filter((x: Row) => x.code === 'ADMIN')).toHaveLength(1)
+    })
+
+    it('a wrong password is answered like any wrong password, and makes nothing', async () => {
+      await addUser(db)
+      const member = await call('POST', '/auth/login', { body: { identifier: 'asha@example.com', password: 'Wrong1pass' } })
+      const unknown = await call('POST', '/auth/login', { body: { identifier: 'nobody@example.com', password: 'Wrong1pass' } })
+      const builtin = await signIn('smorankar', 'not-the-password')
+      expect([member.status, unknown.status, builtin.status]).toEqual([401, 401, 401])
+      expect(builtin.body).toEqual(member.body)
+      expect(builtin.body).toEqual(unknown.body)
+      expect(builtin.body.message).toBe('Invalid credentials.')
+      expect(builtin.cookies).toEqual([])
+      expect(builtinRows()).toEqual([])
+    })
+
+    it.each([
+      ['unset', undefined],
+      ['blank', '  '],
+      ['too cheap a hash', `scrypt:1024:8:1:${Buffer.alloc(16, 1).toString('base64url')}:${Buffer.alloc(32, 2).toString('base64url')}`],
+      ['a bcrypt hash', '$2y$12$abcdefghijklmnopqrstuuWm1jK0H3pZp2Tq7yQm2y5P6m0Qz9yR6'],
+    ])('is off when BUILTIN_ADMIN_PASSWORD_HASH is %s: the right password is a wrong one, and nothing else changes', async (_what, value) => {
+      if (value === undefined) delete process.env.BUILTIN_ADMIN_PASSWORD_HASH
+      else process.env.BUILTIN_ADMIN_PASSWORD_HASH = value
+      await addUser(db)
+      const r = await signIn('smorankar')
+      expect(r.status).toBe(401)
+      expect(r.body).toEqual((await call('POST', '/auth/login', { body: { identifier: 'asha@example.com', password: 'Wrong1pass' } })).body)
+      expect(r.cookies).toEqual([])
+      expect(builtinRows()).toEqual([])
+      expect(db.auditLog.rows.map((a: Row) => a.newValue)).toEqual([{ username: 'smorankar', outcome: 'off' }])
+      // Everyone else signs in as before.
+      expect((await call('POST', '/auth/login', { body: { identifier: 'asha@example.com', password: 'Correct1pass' } })).status).toBe(200)
+    })
+
+    it('signs in by the username only: its address gets the wrong-password answer and counts nothing against the row', async () => {
+      await signIn('smorankar')
+      for (let i = 0; i < 6; i++) {
+        const r = await signIn(i % 2 ? ADDRESS : ' SMorankar@Builtin.Bkesari.com ')
+        expect(r.status).toBe(401)
+        expect(r.body.message).toBe('Invalid credentials.')
+      }
+      expect(builtinRows()[0]).toMatchObject({ failedAttempts: 0, lockedUntil: null })
+      expect((await signIn('smorankar')).status).toBe(200)
+    })
+
+    it('audits every try, sign-ins and failures, without the password', async () => {
+      await signIn('smorankar', 'a-wrong-guess-123')
+      const ok = await signIn('smorankar')
+      expect(db.auditLog.rows.map((a: Row) => [a.action, a.entityType, a.entityId, a.actorId, a.actorRole ?? null, a.newValue])).toEqual([
+        [BUILTIN_AUDIT.failed, 'builtin_admin', 'smorankar', 'anonymous', null, { username: 'smorankar', outcome: 'wrong-password' }],
+        [BUILTIN_AUDIT.signedIn, 'builtin_admin', 'smorankar', ok.body.data.user.id, 'ADMIN', { username: 'smorankar', outcome: 'signed-in' }],
+      ])
+      expect(db.auditLog.rows.every((a: Row) => typeof a.ipAddress === 'string' && /127\.0\.0\.1/.test(a.ipAddress))).toBe(true)
+      expect(JSON.stringify(db.auditLog.rows)).not.toMatch(/a-wrong-guess-123|test-only-builtin-password-1/)
+    })
+
+    it(`counts each try before the check: past ${BUILTIN_TRIES_PER_IP} from one address in 15 minutes, even the right password gets 429`, async () => {
+      // As inside the hub, which names the visitor's address (portal/ladwani.js).
+      process.env.LADWANI_VISITOR_HEADER = 'x-bkesari-visitor'
+      const from = (ip: string, password?: string) => signIn('smorankar', password, { 'x-bkesari-visitor': `ip:${ip}` })
+      for (let i = 0; i < BUILTIN_TRIES_PER_IP; i++) expect((await from('203.0.113.7', `wrong-${i}`)).status).toBe(401)
+      const blocked = await from('203.0.113.7')
+      expect(blocked.status).toBe(429)
+      expect(blocked.body.message).toBe(TOO_MANY_TRIES)
+      expect(blocked.cookies).toEqual([])
+      expect(db.auditLog.rows[BUILTIN_TRIES_PER_IP]).toMatchObject({ action: BUILTIN_AUDIT.limited, ipAddress: '203.0.113.7', newValue: { username: 'smorankar', outcome: 'limited' } })
+      // Another address has its own budget.
+      expect((await from('203.0.113.8')).status).toBe(200)
+      // Tries older than the window no longer count.
+      for (const a of db.auditLog.rows) a.createdAt = new Date(Date.now() - 16 * 60_000)
+      expect((await from('203.0.113.7')).status).toBe(200)
+    })
+
+    it(`and past ${BUILTIN_TRIES_PER_NAME} for one username, from any number of addresses; the other username is counted apart`, async () => {
+      for (let i = 0; i < BUILTIN_TRIES_PER_NAME; i++) {
+        await expect(auth.login({ identifier: 'smorankar', password: 'wrong' }, `198.51.100.${i}`)).rejects.toThrow('Invalid credentials.')
+      }
+      await expect(auth.login({ identifier: 'smorankar', password: PASSWORD }, '192.0.2.1')).rejects.toThrow(TOO_MANY_TRIES)
+      await expect(auth.login({ identifier: 'sonalimorankar', password: PASSWORD }, '192.0.2.1')).resolves.toMatchObject({ user: { roles: ['ADMIN'] } })
+    })
+
+    describe('requests sent together', () => {
+      it(`never check more than ${BUILTIN_TRIES_PER_IP} passwords for one address`, async () => {
+        const replies = await Promise.all(Array.from({ length: 25 }, (_, i) => signIn('smorankar', i % 2 ? PASSWORD : `wrong-${i}`)))
+        const statuses = replies.map((r) => r.status)
+        expect(statuses.filter((s) => s !== 429).length).toBeLessThanOrEqual(BUILTIN_TRIES_PER_IP)
+        expect(statuses.filter((s) => s === 429).length).toBeGreaterThanOrEqual(25 - BUILTIN_TRIES_PER_IP)
+        expect(statuses.every((s) => [200, 401, 429].includes(s))).toBe(true)
+        // Every try was counted.
+        expect(db.auditLog.rows).toHaveLength(25)
+        expect(builtinRows().length).toBeLessThanOrEqual(1)
+      })
+
+      it(`never check more than ${BUILTIN_TRIES_PER_NAME} passwords for one username`, async () => {
+        const results = await Promise.allSettled(Array.from({ length: 70 }, (_, i) => auth.login({ identifier: 'sonalimorankar', password: 'wrong' }, `198.51.100.${i}`)))
+        const messages = results.map((r) => (r.status === 'rejected' ? (r.reason as Error).message : 'signed in'))
+        expect(messages.filter((m) => m === 'Invalid credentials.').length).toBeLessThanOrEqual(BUILTIN_TRIES_PER_NAME)
+        expect(messages.filter((m) => m !== 'Invalid credentials.').every((m) => m === TOO_MANY_TRIES)).toBe(true)
+      })
+
+      it('the first sign-ins, arriving together, make one row with one member and one ADMIN grant', async () => {
+        const results = await Promise.all(
+          Array.from({ length: 6 }, (_, i) => auth.login({ identifier: i % 2 ? 'SMORANKAR' : 'smorankar', password: PASSWORD }, `192.0.2.${i}`)),
+        )
+        expect(new Set(results.map((r) => r.user.id)).size).toBe(1)
+        expect(builtinRows()).toHaveLength(1)
+        const [row] = builtinRows()
+        expect(rolesOf(row.id)).toEqual(['ADMIN'])
+        expect(db.member.rows.filter((m: Row) => m.userId === row.id)).toHaveLength(1)
+        // Each got a session of its own.
+        expect(new Set(results.map((r) => r.refreshToken)).size).toBe(6)
+      })
+    })
+
+    it('has no password of its own and cannot set one (403), and its address is refused (400)', async () => {
+      withMail()
+      const login = await signIn('smorankar')
+      const [row] = builtinRows()
+      const before = row.passwordHash
+      const forgot = await call('POST', '/auth/password/forgot', { body: { identifier: 'smorankar' } })
+      expect(forgot.status).toBe(403)
+      expect(forgot.body.message).toBe(BUILTIN_PASSWORD_MESSAGE)
+      const reset = await call('POST', '/auth/password/reset', { body: { identifier: ' SMORANKAR ', otp: '123456', password: 'NewPass123' } })
+      expect(reset.status).toBe(403)
+      expect(reset.body.message).toBe(BUILTIN_PASSWORD_MESSAGE)
+      for (const identifier of [ADDRESS, ' SMorankar@Builtin.Bkesari.com ']) {
+        const f = await call('POST', '/auth/password/forgot', { body: { identifier } })
+        const rr = await call('POST', '/auth/password/reset', { body: { identifier, otp: '123456', password: 'NewPass123' } })
+        expect([f.status, f.body.message, rr.status, rr.body.message]).toEqual([400, RESERVED_EMAIL_MESSAGE, 400, RESERVED_EMAIL_MESSAGE])
+      }
+      expect(row.passwordHash).toBe(before)
+      expect(mail.outbox).toEqual([])
+      expect(db.verificationToken.rows).toEqual([])
+      // Nothing above ended its session.
+      expect(await sessionUser(login)).toMatchObject({ email: ADDRESS })
+    })
+
+    it('its domain is reserved everywhere: sign-up, codes and password resets refuse it (400) and write nothing', async () => {
+      withMail()
+      for (const email of [ADDRESS, ' SonaliMorankar@Builtin.Bkesari.com ', 'anyone@builtin.bkesari.com']) {
+        const replies = [
+          await call('POST', '/auth/register', { body: { firstName: 'Some', lastName: 'One', email } }),
+          await call('POST', '/auth/register', { body: { firstName: 'Some', lastName: 'One', email, mobile: '9988776655', password: 'Chosen1pass' } }),
+          await call('POST', '/auth/otp/send', { body: { email } }),
+          await call('POST', '/auth/otp/login', { body: { email, otp: '123456' } }),
+          await call('POST', '/auth/password/forgot', { body: { identifier: email } }),
+          await call('POST', '/auth/password/reset', { body: { identifier: email, otp: '123456', password: 'NewPass123' } }),
+        ]
+        expect(replies.map((r) => r.status)).toEqual([400, 400, 400, 400, 400, 400])
+        for (const r of replies) expect(r.body.message).toBe(RESERVED_EMAIL_MESSAGE)
+      }
+      expect(db.user.rows).toEqual([])
+      expect(db.verificationToken.rows).toEqual([])
+      expect(mail.outbox).toEqual([])
+    })
+
+    it('the email-code hand-over (D-035) never reaches it: no code is sent or taken, and its sessions stay', async () => {
+      withMail()
+      const login = await signIn('smorankar')
+      const [row] = builtinRows()
+      const before = row.passwordHash
+      expect((await call('POST', '/auth/otp/send', { body: { email: ADDRESS } })).status).toBe(400)
+      // Even codes made for the row some other way, by email or by mobile, sign nothing in and end nothing.
+      row.mobile = '9000000001'
+      const code = '424242'
+      for (const type of ['EMAIL_LOGIN', 'MOBILE_LOGIN', 'EMAIL_VERIFY']) {
+        await db.verificationToken.create({ data: { userId: row.id, type, tokenHash: await hash(code, 4), expiresAt: new Date(Date.now() + 60_000), usedAt: null } })
+      }
+      expect((await call('POST', '/auth/otp/login', { body: { email: ADDRESS, otp: code } })).status).toBe(400)
+      expect((await call('POST', '/auth/otp/login', { body: { mobile: '9000000001', otp: code } })).status).toBe(401)
+      expect((await call('POST', '/auth/otp/send', { body: { mobile: '9000000001' } })).body.devOtp).toBeUndefined()
+      expect(row.passwordHash).toBe(before)
+      expect(row.mobileVerified).toBeFalsy()
+      expect(db.refreshToken.rows.filter((t: Row) => t.userId === row.id && !t.revokedAt)).toHaveLength(1)
+      expect(await sessionUser(login)).toMatchObject({ email: ADDRESS })
+      expect(mail.outbox).toEqual([])
+    })
+  })
+
   describe('sign-up', () => {
     it('needs an email: the code verifies it', async () => {
       const noEmail = await call('POST', '/auth/register', { body: { firstName: 'Meera', lastName: 'Joshi', mobile: '9876543211' } })
@@ -669,6 +933,39 @@ describe('LadWani auth over HTTP', () => {
       const mobile = await call('POST', '/auth/register', { body: { firstName: 'Asha', lastName: 'L', email: 'other@example.com', mobile: '9876543210' } })
       expect(mobile.status).toBe(409)
       expect(mobile.body).toMatchObject({ reason: 'MOBILE_TAKEN' })
+    })
+
+    it('the mobile number is optional (D-037): left out, blank or null, the account has none', async () => {
+      withMail()
+      const replies = [
+        await call('POST', '/auth/register', { body: { firstName: 'Meera', lastName: 'Joshi', email: 'meera@example.com' } }),
+        await call('POST', '/auth/register', { body: { firstName: 'Ravi', lastName: 'Patil', email: 'ravi@example.com', mobile: '  ' } }),
+        await call('POST', '/auth/register', { body: { firstName: 'Asha', lastName: 'Kale', email: 'asha.kale@example.com', mobile: null } }),
+      ]
+      // No number is not a taken number: any number of accounts can have none.
+      expect(replies.map((r) => r.status)).toEqual([201, 201, 201])
+      expect(db.user.rows.map((u: Row) => u.mobile ?? null)).toEqual([null, null, null])
+      // The code still goes by email and signs the account in.
+      const r = await call('POST', '/auth/otp/login', { body: { email: 'meera@example.com', otp: mail.lastCode('meera@example.com') } })
+      expect(r.status).toBe(200)
+      expect((await call('GET', '/auth/session', { headers: { cookie: `lw_sid=${sid(r)}` } })).body.user).toMatchObject({ name: 'Meera Joshi', email: 'meera@example.com' })
+    })
+
+    it('a mobile number that is given must still be valid, and on one account only', async () => {
+      await addUser(db)
+      withMail()
+      expect((await call('POST', '/auth/register', { body: { firstName: 'Meera', lastName: 'Joshi', email: 'meera@example.com', mobile: '12345' } })).status).toBe(400)
+      const taken = await call('POST', '/auth/register', { body: { firstName: 'Meera', lastName: 'Joshi', email: 'meera@example.com', mobile: '+91 98765 43210' } })
+      expect(taken.status).toBe(409)
+      expect(taken.body.reason).toBe('MOBILE_TAKEN')
+      expect(db.user.rows).toHaveLength(1)
+    })
+
+    it('an account with no email or mobile is never found by a blank identifier', async () => {
+      await addUser(db, { email: null, mobile: null })
+      const r = await call('POST', '/auth/login', { body: { identifier: '   ', password: 'Correct1pass' } })
+      expect(r.status).toBe(401)
+      expect(db.user.rows[0].failedAttempts).toBe(0)
     })
 
     it('step 4 sends the ID proof to review and the status never names a reviewer', async () => {

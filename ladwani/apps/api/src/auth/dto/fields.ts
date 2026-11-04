@@ -1,6 +1,6 @@
 import { applyDecorators } from '@nestjs/common'
 import { Transform } from 'class-transformer'
-import { IsEmail, IsString, Matches, MaxLength, MinLength } from 'class-validator'
+import { IsEmail, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
 
 /**
  * An Indian mobile number as people type it -- "+91 98765 43210",
@@ -20,6 +20,21 @@ export const MOBILE_PATTERN = /^[6-9]\d{9}$/
 export function IsIndianMobile() {
   return applyDecorators(
     Transform(({ value }) => normalizeMobile(value)),
+    Matches(MOBILE_PATTERN, { message: 'Enter a valid 10-digit Indian mobile number' }),
+  )
+}
+
+/**
+ * IsIndianMobile, where the number may be left out: absent, null, or blank
+ * (spaces only) all mean "no number" and reach the service as undefined.
+ */
+export function IsOptionalIndianMobile() {
+  return applyDecorators(
+    Transform(({ value }) => {
+      const mobile = normalizeMobile(value)
+      return mobile === null || mobile === '' ? undefined : mobile
+    }),
+    IsOptional(),
     Matches(MOBILE_PATTERN, { message: 'Enter a valid 10-digit Indian mobile number' }),
   )
 }

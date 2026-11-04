@@ -5,13 +5,14 @@ export interface RegisterRequestDto {
   lastName: string
   /** Required: the sign-up code is emailed here (SMS is on hold). */
   email: string
-  /** Kept on the account; not verified while SMS is on hold. */
-  mobile: string
+  /** Optional while SMS is on hold (D-037): kept when given (one account per number), verified once SMS is back. */
+  mobile?: string
   /** Optional: an account can start with the emailed code and set one later. */
   password?: string
 }
 
 export interface LoginRequestDto {
+  /** Email, mobile number, or a built-in administrator's username (D-036). */
   identifier: string
   password: string
 }

@@ -113,9 +113,10 @@ function StepButtons({ busy, onBack, label }: { busy: boolean; onBack?: () => vo
 }
 
 /**
- * Step 1: name, email and mobile, then the code emailed to that address.
- * Creates the account and signs it in; the code verifies the email. The
- * mobile number is kept on the account (no texts are sent while SMS is on hold).
+ * Step 1: name, email and (optionally) mobile, then the code emailed to that
+ * address. Creates the account and signs it in; the code verifies the email.
+ * The mobile number is optional while SMS is on hold (D-037): when given it is
+ * kept on the account, and verified once SMS is available.
  */
 function StepContact({ progress, onDone }: StepProps) {
   const t = useT()
@@ -141,14 +142,16 @@ function StepContact({ progress, onDone }: StepProps) {
     if (firstName.trim().length < 2) next.firstName = t('validation.firstName')
     if (!lastName.trim()) next.lastName = t('validation.lastName')
     if (!cleanAddress) next.email = t('validation.email')
-    if (!cleanNumber) next.mobile = t('validation.mobile')
+    // Optional: only a number that is typed must be a valid one.
+    if (mobile.trim() && !cleanNumber) next.mobile = t('validation.mobile')
     setErrors(next)
     if (Object.keys(next).length) return
     setBusy(true)
     try {
       const contact = { firstName: firstName.trim(), lastName: lastName.trim(), email: cleanAddress, mobile: cleanNumber }
       saveProgress({ ...progress, step: 1, ...contact })
-      const reply = await api.postFull<{ userId: string }>('/auth/register', contact)
+      const { mobile: number, ...required } = contact
+      const reply = await api.postFull<{ userId: string }>('/auth/register', number ? contact : required)
       setSent({ existing: false, devCode: reply.devOtp ?? null })
       setEmail(cleanAddress)
       setMobile(cleanNumber)
@@ -225,8 +228,8 @@ function StepContact({ progress, onDone }: StepProps) {
         error={errors.email}
       />
       <TextField
-        label={t('field.mobile')}
-        hint={t('field.mobileHint')}
+        label={`${t('field.mobile')} (${t('common.optional')})`}
+        hint={t('signUp.mobileHint')}
         type="tel"
         inputMode="numeric"
         autoComplete="tel-national"

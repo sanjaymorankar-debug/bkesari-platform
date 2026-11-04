@@ -225,7 +225,11 @@ function CodeSignIn({ channel }: { channel: 'email' | 'sms' }) {
   )
 }
 
-/** Email or mobile number + password. */
+/**
+ * Email, mobile number or username + password. The username is for the
+ * built-in administrators (D-036), so nothing here asks for an email shape:
+ * the API tells an email, a mobile number and a username apart.
+ */
 function PasswordSignIn() {
   const t = useT()
   const { login } = useAuth()
@@ -259,6 +263,8 @@ function PasswordSignIn() {
       <TextField
         label={t('field.identifier')}
         autoComplete="username"
+        autoCapitalize="none"
+        spellCheck={false}
         value={identifier}
         onChange={(e) => setIdentifier(e.target.value)}
         error={fieldErrors.identifier}

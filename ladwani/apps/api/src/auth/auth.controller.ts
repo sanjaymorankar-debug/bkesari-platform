@@ -11,6 +11,7 @@ import { OtpLoginDto, SendOtpDto } from './dto/otp.dto'
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto'
 import { SameOriginGuard } from './same-origin.guard'
 import { appBase, clearSessionCookie, readSessionCookie, setSessionCookie } from './session-cookie'
+import { clientAddress } from '../common/visitor-throttler.guard'
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000
 
@@ -36,7 +37,11 @@ export class AuthController {
     private delivery: CodeDeliveryService,
   ) {}
 
-  /** Creates the account and emails it a code (409 with reason EMAIL_TAKEN or MOBILE_TAKEN when one is in use). */
+  /**
+   * Creates the account and emails it a code (409 with reason EMAIL_TAKEN or
+   * MOBILE_TAKEN when one is in use; the mobile is optional, D-037). 400 for an
+   * address on the built-in administrators' domain.
+   */
   @Post('register')
   @Throttle({ default: { limit: 5, ttl: 60 * 60 * 1000 } })
   async register(@Body() dto: RegisterDto, @Req() req: Request) {
@@ -55,11 +60,16 @@ export class AuthController {
     return { data: result }
   }
 
+  /**
+   * Email or mobile + password, or a built-in administrator's username +
+   * the built-in password (D-036; AuthService.builtinLogin, whose own limits
+   * count per client address and per username, on top of this route's).
+   */
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: FIFTEEN_MINUTES } })
   async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    return this.signedIn(req, res, await this.auth.login(dto))
+    return this.signedIn(req, res, await this.auth.login(dto, clientAddress(req)))
   }
 
   /**

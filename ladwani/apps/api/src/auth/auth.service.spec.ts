@@ -38,8 +38,10 @@ describe('AuthService', () => {
       userRole: { create: jest.fn() },
       verificationToken: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
       refreshToken: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+      auditLog: { create: jest.fn().mockResolvedValue({ id: 'audit-1' }), count: jest.fn().mockResolvedValue(1), update: jest.fn().mockResolvedValue({}) },
       $transaction: jest.fn(),
     }
+    delete process.env.BUILTIN_ADMIN_PASSWORD_HASH
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -78,6 +80,17 @@ describe('AuthService', () => {
       const err = await service.register(dto).catch((e) => e)
       expect(err).toBeInstanceOf(ConflictException)
       expect(err.getResponse()).toMatchObject({ reason: 'MOBILE_TAKEN' })
+    })
+
+    it('takes no mobile number (D-037): no mobile lookup, and the account is stored with none', async () => {
+      prisma.user.findUnique.mockResolvedValue(null)
+      prisma.role.findUnique.mockResolvedValue({ id: 'role-member', code: 'MEMBER' })
+      const tx = newTx()
+      prisma.$transaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx))
+      await service.register({ ...dto, mobile: undefined })
+      expect(prisma.user.findUnique).toHaveBeenCalledTimes(1)
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { email: 'ramesh@example.com' } })
+      expect(tx.user.create).toHaveBeenCalledWith({ data: expect.objectContaining({ email: 'ramesh@example.com', mobile: null }) })
     })
 
     it("refuses the hub's built-in administrators' addresses, however they are typed", async () => {
@@ -249,6 +262,24 @@ describe('AuthService', () => {
         where: { id: 'u1' },
         data: { failedAttempts: 0, lockedUntil: null, lastLoginAt: expect.any(Date) },
       })
+    })
+  })
+
+  describe('login as a built-in administrator', () => {
+    it('takes the username to the built-in sign-in, never to the email or mobile lookup', async () => {
+      await expect(service.login({ identifier: ' SMorankar ', password: 'whatever' }, '203.0.113.9')).rejects.toThrow('Invalid credentials.')
+      expect(prisma.user.findFirst).not.toHaveBeenCalled()
+      // The try was counted (before the check), for this address and this name.
+      expect(prisma.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({ entityType: 'builtin_admin', entityId: 'smorankar', ipAddress: '203.0.113.9' }) })
+      expect(prisma.auditLog.count).toHaveBeenCalledWith({ where: expect.objectContaining({ entityType: 'builtin_admin', ipAddress: '203.0.113.9' }) })
+      expect(prisma.auditLog.count).toHaveBeenCalledWith({ where: expect.objectContaining({ entityType: 'builtin_admin', entityId: 'smorankar' }) })
+      expect(prisma.user.create).not.toHaveBeenCalled()
+    })
+
+    it('answers a reserved address like a wrong password, without looking it up', async () => {
+      await expect(service.login({ identifier: 'smorankar@builtin.bkesari.com', password: 'x' })).rejects.toBeInstanceOf(UnauthorizedException)
+      expect(prisma.user.findFirst).not.toHaveBeenCalled()
+      expect(prisma.user.update).not.toHaveBeenCalled()
     })
   })
 

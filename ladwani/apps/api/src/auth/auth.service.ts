@@ -3,6 +3,8 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -17,6 +19,20 @@ import { normalizeMobile } from './dto/fields'
 import { CodeDeliveryService, type CodeChannel } from './code-delivery.service'
 import type { CodePurpose, Lang } from './code-email'
 import { OTP_MAX_TRIES, OTP_SENDS_PER_HOUR, OTP_TTL_MINUTES } from './otp-rules'
+import {
+  BUILTIN_TRIES_PER_IP,
+  BUILTIN_TRIES_PER_NAME,
+  BUILTIN_WINDOW_MINUTES,
+  type BuiltinUsername,
+  builtinEmail,
+  builtinPasswordRefused,
+  configuredBuiltinHash,
+  isBuiltinAccount,
+  isReservedEmail,
+  normalizeBuiltinUsername,
+  refuseReservedEmail,
+  verifyBuiltinPassword,
+} from './builtin-admins'
 
 const ACCESS_TOKEN_TTL = '15m'
 const REFRESH_TOKEN_TTL_DAYS = 30
@@ -82,6 +98,26 @@ const SESSION_USER_INCLUDE = { userRoles: { include: { role: true } }, member: {
 
 const BLOCKED_STATUSES = new Set(['SUSPENDED', 'BLOCKED'])
 
+const INVALID_CREDENTIALS = 'Invalid credentials.'
+export const TOO_MANY_TRIES = 'Too many attempts. Please wait and try again.'
+
+/**
+ * The built-in sign-in's audit_logs rows (D-036). One row per try, written
+ * BEFORE the password is checked, so it is also what the try limits count
+ * (entityType BUILTIN_ENTITY, entityId the username, ipAddress the client):
+ * requests sent together each see the rows of those before them, and no more
+ * than the limit are ever checked. The row then says how the try ended. The
+ * typed password is never stored.
+ */
+export const BUILTIN_ENTITY = 'builtin_admin'
+export const BUILTIN_AUDIT = {
+  attempt: 'auth.builtin.attempt',
+  signedIn: 'auth.builtin.sign_in',
+  failed: 'auth.builtin.sign_in_failed',
+  limited: 'auth.builtin.sign_in_limited',
+} as const
+type BuiltinOutcome = 'signed-in' | 'wrong-password' | 'off' | 'limited'
+
 /** Emails are stored lower-cased and trimmed; null when absent. */
 export function normalizeEmail(email: string | null | undefined): string | null {
   const trimmed = email?.trim()
@@ -101,39 +137,45 @@ export class AuthService {
 
   /**
    * Creates the account and emails it a code, which verifies the email and
-   * signs the person in (loginWithOtp). The mobile number is kept on the
-   * account but not verified while SMS is on hold. `devOtp` only as
-   * CodeDeliveryService allows: dev tier or a local run, with no mail provider.
+   * signs the person in (loginWithOtp). The mobile number is optional (D-037);
+   * when given it is kept on the account, unverified while SMS is on hold.
+   * `devOtp` only as CodeDeliveryService allows: dev tier or a local run, with
+   * no mail provider. 400 for the built-in administrators' domain (D-036).
    */
   async register(dto: RegisterDto, lang: Lang = 'en'): Promise<{ userId: string; devOtp?: string }> {
-    // Before anything is written: where nobody could receive the code, say so.
-    this.delivery.assertAvailable('email')
-
     // Stored and compared lower-cased. PostgreSQL compares exactly, so without
     // this Asha@x.com and asha@x.com would be two accounts and a sign-in with the
     // other capitalisation would fail.
     const email = normalizeEmail(dto.email)
     if (!email) throw new BadRequestException('Enter a valid email address')
+    // The built-in administrators' domain (D-036): their rows have these addresses.
+    refuseReservedEmail(email)
+
+    // Before anything is written: where nobody could receive the code, say so.
+    this.delivery.assertAvailable('email')
+
     // The email first: an unfinished earlier sign-up with it carries on with a
     // sign-in code (web /sign-up), so the web needs to know which one is taken.
     if (await this.prisma.user.findUnique({ where: { email } })) {
       throw taken('EMAIL_TAKEN', 'An account with this email already exists.')
     }
-    if (await this.prisma.user.findUnique({ where: { mobile: dto.mobile } })) {
+    // Optional while SMS is on hold (D-037); still one account per number when given.
+    const mobile = dto.mobile || null
+    if (mobile && (await this.prisma.user.findUnique({ where: { mobile } }))) {
       throw taken('MOBILE_TAKEN', 'An account with this mobile number already exists.')
     }
 
     // No password yet: a random one nobody knows. Email + code signs this
     // account in, and "Forgot password" sets a real one.
     const passwordHash = await hash(dto.password ?? randomBytes(32).toString('hex'), BCRYPT_COST)
-    const memberRole = await this.getOrCreateMemberRole()
+    const memberRole = await this.getOrCreateRole('MEMBER', 'Member')
 
     const otp = this.newOtp()
     const otpHash = await hash(otp, BCRYPT_COST)
 
     const userId = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
-        data: { email, mobile: dto.mobile, passwordHash, status: 'PENDING' },
+        data: { email, mobile, passwordHash, status: 'PENDING' },
       })
 
       await tx.member.create({
@@ -169,11 +211,21 @@ export class AuthService {
     return { verified: true }
   }
 
-  async login(dto: LoginDto): Promise<LoginResult> {
-    const user = await this.findByIdentifier(dto.identifier)
-    if (!user) {
+  /**
+   * Email or mobile number + password; or one of the built-in administrators'
+   * usernames + the built-in password (builtinLogin). `ip` is the client's
+   * address as the rate limits see it (AuthController), for the built-in limits.
+   */
+  async login(dto: LoginDto, ip = 'unknown'): Promise<LoginResult> {
+    const username = normalizeBuiltinUsername(dto.identifier)
+    if (username) return this.builtinLogin(username, dto.password, ip)
+
+    const user = isReservedEmail(dto.identifier) ? null : await this.findByIdentifier(dto.identifier)
+    // A built-in account signs in by its username only: its row has no password
+    // of its own, and nobody may count failures (or a lock) against it here.
+    if (!user || isBuiltinAccount(user)) {
       await this.spendCompareTime(dto.password)
-      throw new UnauthorizedException('Invalid credentials.')
+      throw new UnauthorizedException(INVALID_CREDENTIALS)
     }
 
     if (BLOCKED_STATUSES.has(user.status)) {
@@ -192,7 +244,7 @@ export class AuthService {
         data: { failedAttempts: attempts, lockedUntil },
       })
       if (lockedUntil) throw new ForbiddenException(lockedMessage(lockedUntil))
-      throw new UnauthorizedException('Invalid credentials.')
+      throw new UnauthorizedException(INVALID_CREDENTIALS)
     }
 
     await this.prisma.user.update({
@@ -201,6 +253,101 @@ export class AuthService {
     })
 
     return this.issueSession(user)
+  }
+
+  // ── The built-in administrators (D-036) ─────────────────────────────
+
+  /**
+   * smorankar or sonalimorankar + the password whose scrypt hash is
+   * BUILTIN_ADMIN_PASSWORD_HASH: LadWani's own session for that account's
+   * LadWani row, with the ADMIN role. Each try is counted before the check
+   * (BUILTIN_TRIES_PER_IP per client address, BUILTIN_TRIES_PER_NAME per
+   * username, every BUILTIN_WINDOW_MINUTES), and audited without the password.
+   * A wrong password, or no valid hash on this server (the built-in sign-in is
+   * then off), is answered like any wrong password.
+   */
+  private async builtinLogin(username: BuiltinUsername, password: string, ip: string): Promise<LoginResult> {
+    const attemptId = await this.countBuiltinTry(username, ip)
+    const parsed = configuredBuiltinHash()
+    // No hash: the time a check takes is still spent, so "off" sounds like "wrong".
+    const ok = parsed ? await verifyBuiltinPassword(password, parsed) : (await this.spendCompareTime(password), false)
+    if (!ok) {
+      await this.settleBuiltinTry(attemptId, username, parsed ? 'wrong-password' : 'off')
+      throw new UnauthorizedException(INVALID_CREDENTIALS)
+    }
+    const user = await this.builtinAccount(username)
+    await this.settleBuiltinTry(attemptId, username, 'signed-in', user.id)
+    return this.issueSession(user)
+  }
+
+  /** Records this try (BUILTIN_AUDIT.attempt) and counts it with the others in the window; 429 past either limit. Returns the row's id. */
+  private async countBuiltinTry(username: BuiltinUsername, ip: string): Promise<string> {
+    const attempt = await this.prisma.auditLog.create({
+      data: { actorId: 'anonymous', action: BUILTIN_AUDIT.attempt, entityType: BUILTIN_ENTITY, entityId: username, ipAddress: ip, newValue: { username } },
+    })
+    const recent = { entityType: BUILTIN_ENTITY, createdAt: { gte: new Date(Date.now() - BUILTIN_WINDOW_MINUTES * 60 * 1000) } }
+    const [byIp, byName] = await Promise.all([
+      this.prisma.auditLog.count({ where: { ...recent, ipAddress: ip } }),
+      this.prisma.auditLog.count({ where: { ...recent, entityId: username } }),
+    ])
+    if (byIp > BUILTIN_TRIES_PER_IP || byName > BUILTIN_TRIES_PER_NAME) {
+      await this.settleBuiltinTry(attempt.id, username, 'limited')
+      throw new HttpException(TOO_MANY_TRIES, HttpStatus.TOO_MANY_REQUESTS)
+    }
+    return attempt.id
+  }
+
+  /** How a try ended, on its audit row. Never fails the sign-in it records. */
+  private async settleBuiltinTry(id: string, username: BuiltinUsername, outcome: BuiltinOutcome, userId?: string): Promise<void> {
+    const action = outcome === 'signed-in' ? BUILTIN_AUDIT.signedIn : outcome === 'limited' ? BUILTIN_AUDIT.limited : BUILTIN_AUDIT.failed
+    await this.prisma.auditLog
+      .update({
+        where: { id },
+        data: { action, actorId: userId ?? 'anonymous', actorRole: userId ? 'ADMIN' : null, newValue: { username, outcome } },
+      })
+      .catch(() => undefined)
+  }
+
+  /**
+   * The built-in account's own LadWani row, the same one every time: found by
+   * its address (<username>@builtin.bkesari.com), made on the first sign-in.
+   * Each sign-in also puts back what it must have: ACTIVE, the email verified,
+   * not deleted or locked, a member row, and the ADMIN role.
+   */
+  private async builtinAccount(username: BuiltinUsername) {
+    const email = builtinEmail(username)
+    const admin = await this.getOrCreateRole('ADMIN', 'Administrator')
+    let found = await this.prisma.user.findUnique({ where: { email }, select: { id: true } })
+    if (!found) {
+      try {
+        // A password nobody knows: the row is never signed in with a password of its own.
+        const passwordHash = await hash(randomBytes(32).toString('hex'), BCRYPT_COST)
+        found = await this.prisma.user.create({ data: { email, passwordHash, status: 'ACTIVE', emailVerified: true }, select: { id: true } })
+      } catch (err) {
+        // Two first sign-ins at once: the other one made the row.
+        if (!isUniqueViolation(err)) throw err
+        found = await this.prisma.user.findUnique({ where: { email }, select: { id: true } })
+        if (!found) throw err
+      }
+    }
+    const userId = found.id
+    await this.prisma.$transaction(async (tx) => {
+      // One sign-in at a time puts back the member row and the role, so neither is made twice.
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`
+      if (!(await tx.member.findUnique({ where: { userId } }))) {
+        await tx.member.create({ data: { userId, firstName: username } })
+      }
+      if (!(await tx.userRole.findFirst({ where: { userId, roleId: admin.id } }))) {
+        await tx.userRole.create({ data: { userId, roleId: admin.id } })
+      }
+      await tx.user.update({
+        where: { id: userId },
+        data: { status: 'ACTIVE', emailVerified: true, deletedAt: null, failedAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
+      })
+    })
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, include: SESSION_USER_INCLUDE })
+    if (!user) throw new UnauthorizedException(INVALID_CREDENTIALS)
+    return user
   }
 
   // ── Sign-in with a code (by email; by SMS once it is back) ─────────
@@ -216,7 +363,7 @@ export class AuthService {
     const { channel, where } = codeTarget(target)
     this.delivery.assertAvailable(channel)
     const user = await this.prisma.user.findFirst({ where: { ...where, deletedAt: null } })
-    if (!user || BLOCKED_STATUSES.has(user.status)) return {}
+    if (!user || BLOCKED_STATUSES.has(user.status) || isBuiltinAccount(user)) return {}
     const to = channel === 'email' ? user.email : user.mobile
     if (!to) return {}
     return this.issueOtp(user.id, channel === 'email' ? OTP_TYPES.EMAIL_LOGIN : OTP_TYPES.MOBILE_LOGIN, to, 'sign-in', lang)
@@ -232,7 +379,9 @@ export class AuthService {
   async loginWithOtp(target: CodeTarget, otp: string): Promise<LoginResult> {
     const { channel, where } = codeTarget(target)
     const user = await this.prisma.user.findFirst({ where: { ...where, deletedAt: null }, include: SESSION_USER_INCLUDE })
-    if (!user) {
+    // A built-in account never gets a code (its address receives nothing), so
+    // nothing here may hand it over or end its sessions (D-035, D-036).
+    if (!user || isBuiltinAccount(user)) {
       await this.spendCompareTime(otp)
       throw new UnauthorizedException(otpProblem('wrong'))
     }
@@ -271,14 +420,18 @@ export class AuthService {
   /**
    * Sends a reset code to the account's email (found by its email or mobile).
    * The same answer whether or not the account exists. An account with no
-   * email gets nothing while SMS is on hold, and is answered the same.
+   * email gets nothing while SMS is on hold, and is answered the same. The
+   * built-in administrators' addresses are refused (400), and their accounts,
+   * whose password is set on the server, too (403).
    */
   async requestPasswordReset(identifier: string, lang: Lang = 'en'): Promise<{ devOtp?: string }> {
+    refuseBuiltinPasswordChange(identifier)
     const byEmail = this.delivery.mode('email')
     const bySms = this.delivery.mode('sms')
     if (byEmail === 'off' && bySms === 'off') throw this.delivery.unavailable('email')
     const user = await this.findByIdentifier(identifier)
     if (!user || BLOCKED_STATUSES.has(user.status)) return {}
+    if (isBuiltinAccount(user)) throw builtinPasswordRefused()
     if (user.email && byEmail !== 'off') return this.issueOtp(user.id, OTP_TYPES.EMAIL_PASSWORD_RESET, user.email, 'reset', lang)
     if (user.mobile && bySms !== 'off') return this.issueOtp(user.id, OTP_TYPES.PASSWORD_RESET, user.mobile, 'reset', lang)
     return {}
@@ -286,11 +439,13 @@ export class AuthService {
 
   /** Sets a new password with a reset code, clears any lock and ends every session. */
   async resetPassword(identifier: string, otp: string, password: string): Promise<{ reset: true }> {
+    refuseBuiltinPasswordChange(identifier)
     const user = await this.findByIdentifier(identifier)
     if (!user || BLOCKED_STATUSES.has(user.status)) {
       await this.spendCompareTime(otp)
       throw new BadRequestException(otpProblem('wrong'))
     }
+    if (isBuiltinAccount(user)) throw builtinPasswordRefused()
 
     const { check, type } = await this.spendOtp(user.id, [OTP_TYPES.EMAIL_PASSWORD_RESET, OTP_TYPES.PASSWORD_RESET], otp)
     if (check !== 'ok' || !type) throw new BadRequestException(otpProblem(check === 'ok' ? 'expired' : check))
@@ -450,13 +605,17 @@ export class AuthService {
 
   // ── Helpers ─────────────────────────────────────────────────────────
 
-  /** One code path for "email or mobile": email lower-cased, mobile reduced to its 10 digits. */
-  private findByIdentifier(identifier: string) {
+  /**
+   * One code path for "email or mobile": email lower-cased, mobile reduced to
+   * its 10 digits. Never matches an account by a missing email or mobile
+   * (both may be absent on an account; the mobile is optional, D-037).
+   */
+  private async findByIdentifier(identifier: string) {
+    const email = normalizeEmail(identifier)
     const mobile = normalizeMobile(identifier) as string
-    return this.prisma.user.findFirst({
-      where: { OR: [{ email: normalizeEmail(identifier) }, { mobile }], deletedAt: null },
-      include: SESSION_USER_INCLUDE,
-    })
+    const OR = [...(email ? [{ email }] : []), ...(mobile ? [{ mobile }] : [])]
+    if (!OR.length) return null
+    return this.prisma.user.findFirst({ where: { OR, deletedAt: null }, include: SESSION_USER_INCLUDE })
   }
 
   private async issueSession(user: { id: string; userRoles: { role: { code: string } }[]; member: { id: string } | null }): Promise<LoginResult> {
@@ -482,11 +641,33 @@ export class AuthService {
     return createHash('sha256').update(raw).digest('hex')
   }
 
-  private async getOrCreateMemberRole() {
-    const existing = await this.prisma.role.findUnique({ where: { code: 'MEMBER' } })
+  /** The role row; made (without permissions: the seed gives them) where the seed has not run. */
+  private async getOrCreateRole(code: 'MEMBER' | 'ADMIN', label: string) {
+    const existing = await this.prisma.role.findUnique({ where: { code } })
     if (existing) return existing
-    return this.prisma.role.create({ data: { code: 'MEMBER', label: 'Member', isSystem: true } })
+    try {
+      return await this.prisma.role.create({ data: { code, label, isSystem: true } })
+    } catch (err) {
+      const made = isUniqueViolation(err) ? await this.prisma.role.findUnique({ where: { code } }) : null
+      if (made) return made
+      throw err
+    }
   }
+}
+
+/** Prisma's unique-constraint error (P2002): another request made the row first. */
+function isUniqueViolation(err: unknown): boolean {
+  return (err as { code?: unknown } | null)?.code === 'P2002'
+}
+
+/**
+ * Before a reset code is sent or used: 400 for an address on the built-in
+ * administrators' domain, 403 for their usernames (their password is set on
+ * the server, never here).
+ */
+function refuseBuiltinPasswordChange(identifier: string): void {
+  refuseReservedEmail(identifier)
+  if (normalizeBuiltinUsername(identifier)) throw builtinPasswordRefused()
 }
 
 /** 409 naming which of the two is taken, for the web's sign-up (reason EMAIL_TAKEN or MOBILE_TAKEN). */
@@ -494,9 +675,11 @@ function taken(reason: 'EMAIL_TAKEN' | 'MOBILE_TAKEN', message: string): Conflic
   return new ConflictException({ statusCode: 409, error: 'Conflict', message, reason })
 }
 
-/** Where a code goes, and how to find its account. Never matches "no email" or "no mobile". */
+/** Where a code goes, and how to find its account. Never matches "no email" or "no mobile". 400 for a reserved address. */
 function codeTarget(target: CodeTarget): { channel: CodeChannel; where: { email: string } | { mobile: string } } {
   const email = normalizeEmail(target.email)
+  // The built-in administrators' addresses receive nothing: no code is sent to one or accepted for one.
+  refuseReservedEmail(email)
   if (email) return { channel: 'email', where: { email } }
   const mobile = typeof target.mobile === 'string' ? (normalizeMobile(target.mobile) as string) : ''
   if (mobile) return { channel: 'sms', where: { mobile } }

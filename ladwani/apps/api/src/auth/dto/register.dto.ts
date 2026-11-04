@@ -1,5 +1,5 @@
 import { IsOptional, IsString, MinLength } from 'class-validator'
-import { IsEmailAddress, IsIndianMobile, IsStrongPassword } from './fields'
+import { IsEmailAddress, IsOptionalIndianMobile, IsStrongPassword } from './fields'
 
 export class RegisterDto {
   @IsString()
@@ -17,9 +17,12 @@ export class RegisterDto {
   @IsEmailAddress()
   email!: string
 
-  /** Kept on the account; not verified while SMS is on hold. */
-  @IsIndianMobile()
-  mobile!: string
+  /**
+   * Optional while SMS is on hold (owner's decision D-037): kept on the
+   * account when given, one account per number, and verified once SMS is back.
+   */
+  @IsOptionalIndianMobile()
+  mobile?: string
 
   /**
    * Optional: email + code is the primary sign-in, so an account can start
