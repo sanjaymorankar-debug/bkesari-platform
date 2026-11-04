@@ -281,6 +281,53 @@ class AuditLoggingTest extends TestCase
         $this->assertStringNotContainsString($submitter->email, json_encode($row->metadata));
     }
 
+    /**
+     * `SECURITY_PRIVACY.md` states it plainly: the attribution columns are
+     * outside `$fillable` so that `School::markRecognitionVerified()` and
+     * `RecordsVerificationDecision::recordDecision()` are the only ways to
+     * set them, and "no mass-assigned update can forge a decision".
+     *
+     * Nothing asserted it — putting the four columns back into `$fillable`
+     * left all 445 tests green — so a later edit widening `$fillable` (or a
+     * school-profile edit screen, which does not exist yet) could hand a
+     * school a government verification stamped with a real officer's id.
+     * The same gap was already closed for UDISE by
+     * `UdiseVerificationTest::test_verification_cannot_be_mass_assigned`.
+     */
+    public function test_a_verification_decision_cannot_be_forged_by_mass_assignment(): void
+    {
+        $school = $this->makeSchool();
+        $officer = User::factory()->create();
+
+        $school->update([
+            'recognition_verified_at' => now(),
+            'recognition_verified_by_user_id' => $officer->id,
+        ]);
+        $school->refresh();
+
+        $this->assertNull($school->recognition_verified_at, 'a school must not be able to stamp its own verification');
+        $this->assertNull(
+            $school->recognition_verified_by_user_id,
+            'a school must not be able to name the officer who supposedly verified it'
+        );
+
+        $parent = User::factory()->create();
+        $parent->assignRole('parent');
+        $relationship = ParentSchoolRelationship::create([
+            'user_id' => $parent->id, 'school_id' => $school->id, 'status' => 'pending',
+        ]);
+
+        $relationship->update([
+            'status' => 'verified',
+            'decided_at' => now(),
+            'decided_by_user_id' => $officer->id,
+        ]);
+        $relationship->refresh();
+
+        $this->assertNull($relationship->decided_at, 'only recordDecision() may stamp a decision');
+        $this->assertNull($relationship->decided_by_user_id, 'only recordDecision() may name the decider');
+    }
+
     public function test_the_viewer_labels_an_anonymous_row_as_a_submitter_not_as_system(): void
     {
         [, $complaint] = $this->submittedComplaint();
