@@ -167,7 +167,7 @@ const API = 'api';
 const TZ = 'Asia/Kolkata';
 const STATUSES = ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'];
 const ui = { search: '', status: '' };
-// From /tasks/api/me; under Neon Auth it names the signed-in user.
+// From /tasks/api/me; under Neon Auth, or for a built-in administrator, it names the signed-in user.
 let me = { auth: 'basic' };
 // The Realtime subscription's status: '' until live updates start.
 let liveStatus = '';
@@ -224,7 +224,7 @@ function liveBadge() {
 }
 function topbar(actions) {
   const account = me.email
-    ? `<span class="hint" style="align-self:center" title="Signed in with Neon Auth">${esc(me.email)}</span><button class="btn btn-ghost" id="signOut" type="button">Sign out</button>`
+    ? `<span class="hint" style="align-self:center" title="${me.auth === 'builtin' ? 'Built-in administrator' : 'Signed in with Neon Auth'}">${esc(me.auth === 'builtin' ? me.name : me.email)}</span><button class="btn btn-ghost" id="signOut" type="button">Sign out</button>`
     : '';
   return `<div class="topbar"><div class="topbar-in">
     <div class="title"><a href="/" title="Back to bkesari.com">← bkesari</a><a href="#/" style="color:var(--ink);font-size:18px;font-weight:700">Task Tracker</a>${liveBadge()}</div>
