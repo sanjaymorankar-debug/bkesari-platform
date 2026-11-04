@@ -248,6 +248,8 @@ function mount(app, {
   gates = {},
 } = {}) {
   const { routes, problems } = readRoutes(env);
+  // Shared with the apps behind the proxy; blank means they are not told.
+  const proxySecret = String(env.HUB_PROXY_SECRET || '').trim();
 
   for (const p of problems) {
     log.error(`Not serving ${p.path}: ${p.problem}`);
@@ -256,8 +258,10 @@ function mount(app, {
   for (const route of routes) {
     app.use((req, res, next) => {
       if (!matches(route, req.path)) return next();
-      // Whatever the browser sent under this name is forged: only a gate may set it.
+      // Whatever the browser sent under these names is forged: only a gate,
+      // or the proxy itself below, may set them.
       delete req.headers['x-bkesari-token'];
+      delete req.headers['x-bkesari-proxy'];
       // The hub admin's session is on Path=/ (the owner's ATIP viewer needs it),
       // so the browser sends it here too. It is the hub's alone: no project app
       // gets to see it.
@@ -298,6 +302,14 @@ function mount(app, {
         proxyTimeout: timeoutMs,
         timeout: timeoutMs,
         on: {
+          // The visitor's address as the hub worked it out (Express's
+          // `trust proxy`, D-026), alone: never the chain a client sent. With
+          // HUB_PROXY_SECRET set, the app is told it came from the hub, so it
+          // may believe the address (Education: App\Http\Middleware\TrustHubProxy, D-038).
+          proxyReq: (proxyReq, req) => {
+            if (req.ip) proxyReq.setHeader('x-forwarded-for', req.ip);
+            if (proxySecret) proxyReq.setHeader('x-bkesari-proxy', proxySecret);
+          },
           error: (err, req, res) => {
             // originalUrl: for a stripping tab, req.url has already lost the
             // prefix by now, and the bar would light up no tab at all.

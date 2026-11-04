@@ -9,6 +9,11 @@ return [
     // not through the hub, sets HUB_ASSET_ORIGIN=https://bkesari.com.
     'hub' => [
         'asset_origin' => rtrim((string) env('HUB_ASSET_ORIGIN', ''), '/'),
+        // A request carrying this value in X-Bkesari-Proxy came through the
+        // hub, and only its forwarded headers are believed
+        // (App\Http\Middleware\TrustHubProxy, D-038). The hub reads the same
+        // HUB_PROXY_SECRET. Unset: every proxy is trusted, as before.
+        'proxy_secret' => (string) env('HUB_PROXY_SECRET', ''),
     ],
 
     // Text messages for mobile sign-in (App\Services\MobileSignIn). A POST of

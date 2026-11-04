@@ -627,3 +627,33 @@ test("the hub admin's session cookie never reaches a project app; the project's 
   proxy.dropCookies(req, proxy.HUB_PRIVATE_COOKIES);
   assert.equal(req.headers.cookie, 'a=1=2; hub_admin_sid_x=keep');
 });
+
+test('the app is told one visitor address, the one the hub worked out, and the hub\'s secret only when it is set (D-038)', async () => {
+  const seen = [];
+  const upstream = await listen((req, res) => { seen.push({ xff: req.headers['x-forwarded-for'] || null, secret: req.headers['x-bkesari-proxy'] || null }); res.end('app'); });
+  const run = async (env) => {
+    const saved = proxy.TIER_ORIGINS.dev;
+    proxy.TIER_ORIGINS.dev = { edu: upstream.origin, ladwani: upstream.origin };
+    const app = express();
+    try { proxy.mount(app, { env: { APP_ENV: 'dev', ...env }, log: { error: () => {} } }); } finally { proxy.TIER_ORIGINS.dev = saved; }
+    const hub = await listen(app);
+    try {
+      await new Promise((resolve, reject) => {
+        http.get({ host: '127.0.0.1', port: hub.server.address().port, path: '/edu/login',
+          headers: { 'x-forwarded-for': '198.51.100.7, 203.0.113.9', 'x-bkesari-proxy': 'forged' } }, (res) => { res.resume(); res.on('end', resolve); }).on('error', reject);
+      });
+    } finally { await close(hub.server); }
+  };
+  try {
+    await run({});
+    await run({ HUB_PROXY_SECRET: 'test-only-proxy-secret-0123456789' });
+    // No trust proxy in this bare app, so the hub's view of the visitor is the socket's address;
+    // the chain the client sent never reaches the app, nor its forged secret.
+    assert.deepEqual(seen, [
+      { xff: '127.0.0.1', secret: null },
+      { xff: '127.0.0.1', secret: 'test-only-proxy-secret-0123456789' },
+    ]);
+  } finally {
+    await close(upstream.server);
+  }
+});

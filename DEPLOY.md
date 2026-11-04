@@ -95,6 +95,7 @@ safe to re-run.
 | `DATABASE_URL_UNPOOLED` | the same, with *Connection pooling* **off**. Used only to create the tables |
 | `HUB_AUTH_SECRET` | long random secret (`openssl rand -hex 32`), **different per tier**. Seals the hub's forms and codes; TaskList's and LadWani's secrets are derived from it unless `TASKLIST_AUTH_SECRET` / `LADWANI_JWT_SECRET` are set |
 | `APP_ENV` | **`test` on test.bkesari.com, `prod` on bkesari.com** (`dev` on dev.bkesari.com). The hub can tell the tier from the host name without it, but LadWani reads only `APP_ENV`, and a blank one there counts as a local run. Only `dev` ever shows a sign-in code on screen, and only when no mail is set (D-029) |
+| `HUB_PROXY_SECRET` | **The same random value as `HUB_PROXY_SECRET` in this tier's Education `.env`** (`openssl rand -hex 32`, different per tier). The hub sends it with every request it forwards to Education, together with the visitor's address, so Education believes that address and nobody else's (D-038). Blank: Education trusts every proxy, as before, and a client can choose the address its rate limits count |
 | `HUB_ADMIN_EMAIL`, `HUB_ADMIN_PASSWORD_HASH` | the first hub admin, made at start when there is none (bcrypt hash: `node -e "console.log(require('bcryptjs').hashSync(process.argv[1], 11))" 'the password'`). `HUB_ADMIN_PASSWORD` (plain) also works; remove it after the first start. An address on `HUB_OWNER_EMAILS` (default `agtcipl@gmail.com`) gets the owner role, which also opens `/ATIP/` |
 | `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | **Hostinger email (SMTP), required on test and production.** One-time sign-in codes, password resets and verification links go by email (D-029). `MAIL_HOST=smtp.hostinger.com`, `MAIL_PORT=465`, `MAIL_USERNAME` = the mailbox, **`code@agtci.com`** (the owner's choice, 4 Nov 2026), `MAIL_PASSWORD` = its password (from the owner; never in the repository), `MAIL_FROM_ADDRESS` = the same address (Hostinger sends only as the signed-in mailbox), `MAIL_FROM_NAME` optional (each project sets its own: "TaskList · bkesari", "LadWani · bkesari"). Without them on test or production, code sign-in answers "could not send" and only password sign-in works; **no code is ever shown on screen there** — only the dev tier shows one, and only when no mail is set. Per project: `TASKLIST_MAIL_…`, `LADWANI_MAIL_…`, `HUB_MAIL_…`. **The hub and LadWani also accept `SMTP_USER` and `SMTP_PASSWORD`** (as set on bkesari.com on 4 Nov 2026), plus `SMTP_HOST` / `SMTP_PORT`; a mailbox with no host means `smtp.hostinger.com` on 465. Education (Laravel) reads only the `MAIL_*` names |
 | `SMS_WEBHOOK_URL`, `SMS_WEBHOOK_TOKEN` | **On hold (D-029); leave unset.** When an SMS gateway is chosen: POST `{"to":"+91…","text":"…"}` with `Authorization: Bearer <token>`. While unset, the sign-in screens offer codes by email only |
@@ -201,6 +202,15 @@ MAIL_TIMEOUT=15                   # seconds; a code is sent while the person wai
 
 ```bash
 BUILTIN_ADMIN_PASSWORD_BCRYPT='$2y$12$…'
+```
+
+   **The hub's proxy secret** (D-038): the same value as `HUB_PROXY_SECRET` on this tier's hub
+   (Part 1). Only a request carrying it has its forwarded client address believed, so the
+   "five wrong passwords" lock and the code limits count the real visitor. Blank: every proxy is
+   trusted, as before. Then `php artisan config:cache` again.
+
+```bash
+HUB_PROXY_SECRET=<the hub's value>
 ```
 
    `bk_edu` already exists on Neon with the migrations applied and no data, so `migrate`
