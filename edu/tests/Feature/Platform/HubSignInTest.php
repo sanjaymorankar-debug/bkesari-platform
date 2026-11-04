@@ -2,10 +2,12 @@
 
 namespace Tests\Feature\Platform;
 
+use App\Http\Middleware\HubSignIn;
 use App\Models\User;
 use App\Support\HubToken;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Spatie\Permission\Models\Role;
@@ -76,6 +78,67 @@ class HubSignInTest extends TestCase
     {
         $this->get('/', [HubToken::HEADER => $this->token(['role' => 'admin'] + $this->asha)]);
         $this->assertFalse(User::where('hub_user_id', 'hub-asha')->first()->hasRole('system_admin'));
+    }
+
+    public function test_the_hubs_builtin_administrators_are_system_admin(): void
+    {
+        // portal/builtin-admins.js: smorankar and sonalimorankar are owners on the
+        // hub, which sends them with its top role for Education, 'admin'.
+        foreach (['smorankar', 'sonalimorankar'] as $username) {
+            Auth::logout();
+            $claims = ['sub' => "builtin:$username", 'email' => "$username@builtin.bkesari.com", 'role' => 'admin', 'aud' => 'edu'];
+            $this->get('/', [HubToken::HEADER => $this->token($claims)])->assertOk();
+            $this->assertAuthenticated();
+            $user = User::where('hub_user_id', "builtin:$username")->firstOrFail();
+            $this->assertSame($username, $user->name);
+            $this->assertTrue($user->hasRole('system_admin'), $username);
+        }
+        // Signing in again does not add the role twice.
+        $this->get('/', [HubToken::HEADER => $this->token(['sub' => 'builtin:smorankar', 'email' => 'smorankar@builtin.bkesari.com', 'role' => 'admin', 'aud' => 'edu'])]);
+        $this->assertSame(1, User::where('hub_user_id', 'builtin:smorankar')->firstOrFail()->roles()->count());
+    }
+
+    public function test_only_the_two_builtin_ids_with_the_admin_role_become_system_admin(): void
+    {
+        $cases = [
+            // A built-in id the hub did not send with its top role.
+            ['sub' => 'builtin:smorankar', 'email' => 'smorankar@builtin.bkesari.com', 'role' => 'parent'],
+            // Any other id, including one dressed up as built-in.
+            ['sub' => 'builtin:mallory', 'email' => 'mallory@builtin.bkesari.com', 'role' => 'admin'],
+            ['sub' => 'smorankar', 'email' => 'smorankar@example.com', 'role' => 'admin'],
+            ['sub' => 'hub-ravi', 'email' => 'smorankar@builtin.bkesari.com.example', 'role' => 'admin'],
+        ];
+        foreach ($cases as $claims) {
+            Auth::logout();
+            $this->get('/', [HubToken::HEADER => $this->token($claims + ['aud' => 'edu'])]);
+            $this->assertAuthenticated();
+            $user = User::where('hub_user_id', $claims['sub'])->firstOrFail();
+            $this->assertFalse($user->hasRole('system_admin'), $claims['sub'].' as '.$claims['role']);
+        }
+        $this->assertTrue(User::where('hub_user_id', 'builtin:smorankar')->firstOrFail()->hasRole('parent'));
+        $this->assertSame(['builtin:smorankar', 'builtin:sonalimorankar'], HubSignIn::BUILTIN_ADMINS);
+    }
+
+    public function test_a_builtin_id_never_takes_over_an_account_made_with_its_email(): void
+    {
+        // Education's own sign-up, a profile edit, a school registration or an
+        // invitation can each give an account any address, unverified. Adopted
+        // by email, that account would become system_admin while whoever made it
+        // still knows its password.
+        $squatter = User::factory()->create(['email' => 'smorankar@builtin.bkesari.com', 'password' => 'known-to-the-squatter']);
+        foreach (['parent', 'admin'] as $role) {
+            $claims = ['sub' => 'builtin:smorankar', 'email' => 'smorankar@builtin.bkesari.com', 'role' => $role, 'aud' => 'edu'];
+            $this->get('/', [HubToken::HEADER => $this->token($claims)])->assertOk();
+            $this->assertGuest();
+        }
+        $squatter->refresh();
+        $this->assertNull($squatter->hub_user_id);
+        $this->assertFalse($squatter->hasRole('system_admin'));
+        $this->assertSame(0, User::where('hub_user_id', 'builtin:smorankar')->count());
+
+        // An ordinary bkesari ID still links the account that has its address.
+        $this->get('/', [HubToken::HEADER => $this->token($this->asha)]);
+        $this->assertSame('hub-asha', auth()->user()->hub_user_id);
     }
 
     public function test_another_projects_expired_or_forged_token_signs_nobody_in(): void

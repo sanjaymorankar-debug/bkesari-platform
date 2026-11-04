@@ -89,8 +89,13 @@ async function writeFetchResponse(res, fetchRes) {
     if (lower === 'set-cookie' || lower === 'content-length' || lower === 'content-encoding' || lower === 'transfer-encoding') continue;
     res.setHeader(name, value);
   }
+  // Added to any cookie set before the proxy ran, never replacing it: the
+  // built-in administrators' sign-out clears its own cookie on this same route.
   const cookies = fetchRes.headers.getSetCookie();
-  if (cookies.length) res.setHeader('Set-Cookie', cookies);
+  if (cookies.length) {
+    const earlier = res.getHeader('Set-Cookie');
+    res.setHeader('Set-Cookie', [...(earlier === undefined ? [] : [].concat(earlier)), ...cookies]);
+  }
   res.send(Buffer.from(await fetchRes.arrayBuffer()));
 }
 

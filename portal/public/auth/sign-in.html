@@ -69,8 +69,8 @@
         <label for="name">Name</label>
         <input id="name" autocomplete="name">
       </div>
-      <label for="email">Email</label>
-      <input id="email" type="email" autocomplete="email" required>
+      <label for="email" id="emailLabel">Email or username</label>
+      <input id="email" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
       <label for="password">Password</label>
       <input id="password" type="password" autocomplete="current-password" minlength="8" required>
       <button class="btn" id="credSubmit">Sign in</button>
@@ -103,6 +103,8 @@
 <script>
 // Every call goes to /api/auth on this origin, which the portal proxies to
 // Neon Auth, so the session cookies are first-party (portal/neon-auth.js).
+// A username instead of an email is one of the built-in administrators
+// (smorankar, sonalimorankar), signed in by the hub itself (portal/builtin-admins.js).
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 // Where to go after signing in: a path on this site only, never another origin.
@@ -121,6 +123,15 @@ async function auth(path, body) {
   return data;
 }
 
+async function builtin(path, body) {
+  const res = await fetch(`/auth/builtin/${path}`, body === undefined
+    ? { credentials: 'same-origin' }
+    : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && data.error) || `Request failed (${res.status})`);
+  return data;
+}
+
 function show(panel) {
   for (const id of ['credentials', 'verify', 'denied']) $(id).hidden = id !== panel;
 }
@@ -130,12 +141,18 @@ function setMode(next) {
   $('tabSignIn').setAttribute('aria-pressed', String(mode === 'signin'));
   $('tabSignUp').setAttribute('aria-pressed', String(mode === 'signup'));
   $('nameRow').hidden = mode !== 'signup';
+  // Accounts are created with an email; signing in also takes a built-in username.
+  $('emailLabel').textContent = mode === 'signup' ? 'Email' : 'Email or username';
+  $('email').type = mode === 'signup' ? 'email' : 'text';
+  $('email').autocomplete = mode === 'signup' ? 'email' : 'username';
   $('password').autocomplete = mode === 'signup' ? 'new-password' : 'current-password';
   $('credSubmit').textContent = mode === 'signup' ? 'Create account' : 'Sign in';
   $('credMsg').textContent = '';
 }
 
 async function refresh() {
+  const admin = await builtin('session').catch(() => null);
+  if (admin && admin.user) { location.replace(NEXT); return; }
   const session = await auth('get-session').catch(() => null);
   const user = session && session.user;
   if (!user) { show('credentials'); return; }
@@ -165,6 +182,8 @@ $('credForm').onsubmit = async (e) => {
   try {
     if (mode === 'signup') {
       await auth('sign-up/email', { name: $('name').value.trim() || email, email, password });
+    } else if (!email.includes('@')) {
+      await builtin('sign-in', { username: email, password });
     } else {
       await auth('sign-in/email', { email, password });
     }
