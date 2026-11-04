@@ -10,7 +10,7 @@ const http = require('node:http');
 const { createApp } = require('../portal/server.js');
 const { createHub, verifyToken } = require('../portal/hub.js');
 const {
-  createBuiltinAdmins, hashPassword, parseHash, verifyPassword, isBuiltinUser, USERNAMES, COOKIE,
+  createBuiltinAdmins, hashPassword, parseHash, verifyPassword, isBuiltinUser, USERNAMES, COOKIE, MAX_TRACKED,
 } = require('../portal/builtin-admins.js');
 
 const PASSWORD = 'test-only-builtin-password-1';
@@ -161,6 +161,36 @@ test('ten failures from one client lock it out for fifteen minutes, without lock
     // The first X-Forwarded-For entries are the client's to choose; only the last one counts.
     assert.equal((await signIn('smorankar', PASSWORD, from('198.51.100.1, 203.0.113.9'))).status, 429);
     assert.equal((await signIn('smorankar', PASSWORD, from('198.51.100.7'))).status, 200);
+  });
+});
+
+test('attempts sent in parallel are held to the same ten: none slips past while the first are still hashing', async () => {
+  await withHub(async ({ signIn }) => {
+    const from = { 'x-forwarded-for': '203.0.113.20' };
+    const codes = (await Promise.all(Array.from({ length: 25 }, () => signIn('smorankar', 'nope', from)))).map((r) => r.status);
+    assert.equal(codes.filter((c) => c === 401).length, 10, codes.join(' '));
+    assert.equal(codes.filter((c) => c === 429).length, 15, codes.join(' '));
+  });
+});
+
+test('a full failure table still counts the per-username ceiling of fifty', async () => {
+  await withHub(async ({ signIn }) => {
+    // Fill the table with other clients' failures (an empty password costs no hash),
+    // then fail for one username from addresses never seen before.
+    assert.ok(Number.isInteger(MAX_TRACKED) && MAX_TRACKED > 0, 'builtin-admins.js exports the table size');
+    for (let i = 0; i < MAX_TRACKED; i += 250) {
+      await Promise.all(Array.from({ length: 250 }, (_, j) => signIn('nobody', '', { 'x-forwarded-for': `10.${(i + j) >> 16 & 255}.${(i + j) >> 8 & 255}.${(i + j) & 255}` })));
+    }
+    for (let k = 1; k <= 50; k++) assert.equal((await signIn('sonalimorankar', '', { 'x-forwarded-for': `2001:db8::${k.toString(16)}` })).status, 401, `attempt ${k}`);
+    assert.equal((await signIn('sonalimorankar', PASSWORD, { 'x-forwarded-for': '2001:db8::ff' })).status, 429);
+  });
+});
+
+test('a forged, over-long X-Forwarded-For still leaves an audit row that fits audit_log.detail', async () => {
+  await withHub(async ({ signIn, audit }) => {
+    assert.equal((await signIn('smorankar', 'nope', { 'x-forwarded-for': `192.0.2.7, ${'x'.repeat(600)}` })).status, 401);
+    assert.equal(audit.length, 1);
+    assert.ok(audit[0][3].length <= 500, `detail is ${audit[0][3].length} characters; the column holds 500`);
   });
 });
 

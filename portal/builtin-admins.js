@@ -42,6 +42,7 @@ const WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILS_PER_CLIENT = 10;
 const MAX_FAILS_PER_USERNAME = 50;
 const MAX_TRACKED = 5000;
+const MAX_CLIENT_CHARS = 64;
 
 const b64u = (buf) => Buffer.from(buf).toString('base64url');
 const maxmem = (N, r) => 256 * N * r;
@@ -118,7 +119,10 @@ function cookieHeader(req, value, maxAge) {
  */
 function clientKey(req) {
   const forwarded = String(req.headers['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean);
-  return forwarded.length ? forwarded[forwarded.length - 1] : String((req.socket && req.socket.remoteAddress) || 'unknown');
+  const client = forwarded.length ? forwarded[forwarded.length - 1] : String((req.socket && req.socket.remoteAddress) || 'unknown');
+  // An address is at most 45 characters. Capped, so a forged header can neither
+  // overflow audit_log.detail (500), which loses the row, nor bloat the table below.
+  return client.slice(0, MAX_CLIENT_CHARS);
 }
 
 /**
@@ -167,10 +171,18 @@ function createBuiltinAdmins({ env = process.env, now = () => Date.now(), log = 
 
   function recordFailure(key) {
     if (failures.size >= MAX_TRACKED) for (const [k, f] of failures) if (f.resetAt <= now()) failures.delete(k);
-    if (failures.size >= MAX_TRACKED && !failures.has(key)) return;
+    // A full table stops counting new clients, never the usernames (there are two):
+    // their ceiling is what holds when an attacker has many addresses.
+    if (failures.size >= MAX_TRACKED && !failures.has(key) && !key.startsWith('user:')) return;
     const f = lockedFor(key) || { count: 0, resetAt: now() + WINDOW_MS };
     f.count += 1;
     failures.set(key, f);
+  }
+
+  /** Takes back one attempt counted by recordFailure, for a sign-in that succeeded. */
+  function forgive(key) {
+    const f = lockedFor(key);
+    if (f && f.count > 0) f.count -= 1;
   }
 
   /** Seconds until this client or username may try again, or 0. */
@@ -228,16 +240,20 @@ function createBuiltinAdmins({ env = process.env, now = () => Date.now(), log = 
           res.set('Retry-After', String(wait));
           return res.status(429).json({ error: `Too many attempts. Try again in ${Math.ceil(wait / 60)} minute${wait > 60 ? 's' : ''}.` });
         }
+        // Counted as a failure before the hash is checked, and taken back if it
+        // succeeds: the check takes ~0.1 s, and attempts sent in parallel would
+        // otherwise all pass retryAfter() before the first one was counted.
+        recordFailure(`client:${client}`);
+        if (username) recordFailure(`user:${username}`);
         // The hash is checked even for an unknown username, so both take as long.
         const ok = password.length > 0 && password.length <= 256 && await verifyPassword(password, parsed) && Boolean(username);
         if (!ok) {
-          recordFailure(`client:${client}`);
-          if (username) recordFailure(`user:${username}`);
           // Never the typed text itself: a password typed into the wrong box would land in the log.
           await record(username ? `${username}@${EMAIL_DOMAIN}` : 'unknown username', 'builtin-sign-in-failed', `from ${client}`);
           return res.status(401).json({ error: 'Wrong username or password' });
         }
         failures.delete(`client:${client}`);
+        forgive(`user:${username}`);
         res.append('Set-Cookie', cookieHeader(req, issue(username), SESSION_SECONDS));
         await record(`${username}@${EMAIL_DOMAIN}`, 'builtin-sign-in', `from ${client}`);
         res.json({ ok: true, user: { username, email: `${username}@${EMAIL_DOMAIN}` } });
@@ -250,5 +266,5 @@ function createBuiltinAdmins({ env = process.env, now = () => Date.now(), log = 
 
 module.exports = {
   createBuiltinAdmins, hashPassword, parseHash, verifyPassword, isBuiltinUser, normalizeUsername,
-  USERNAMES, EMAIL_DOMAIN, COOKIE, SESSION_SECONDS,
+  USERNAMES, EMAIL_DOMAIN, COOKIE, SESSION_SECONDS, MAX_TRACKED,
 };

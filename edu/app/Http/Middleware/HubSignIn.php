@@ -65,6 +65,12 @@ class HubSignIn
             if ($user && $user->hub_user_id && $user->hub_user_id !== $claims['sub']) {
                 throw new \RuntimeException('email belongs to another bkesari ID');
             }
+            // Found by email, an account was made by whoever typed that address
+            // (sign-up, profile, school registration): a built-in administrator
+            // never takes it over, or its maker would hold system_admin.
+            if ($user && ! $user->hub_user_id && in_array($claims['sub'], self::BUILTIN_ADMINS, true)) {
+                throw new \RuntimeException('a built-in administrator never takes over an existing account');
+            }
             if (! $user) {
                 $user = new User;
                 $user->name = Str::before($email, '@');
