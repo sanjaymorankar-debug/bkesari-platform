@@ -11,6 +11,7 @@ use Illuminate\Cache\RateLimiter;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter as RateLimiterFacade;
@@ -150,6 +151,43 @@ class EmailSignInTest extends TestCase
             ->assertRedirect(route('dashboard', absolute: false));
 
         $this->assertAuthenticatedAs($asha);
+    }
+
+    /** A stored session of the database session store, as a tier keeps them. */
+    private function storedSessionFor(User $user, string $id): void
+    {
+        DB::table('sessions')->insert([
+            'id' => $id, 'user_id' => $user->id, 'ip_address' => '203.0.113.9',
+            'user_agent' => 'test', 'payload' => base64_encode('x'), 'last_activity' => time(),
+        ]);
+    }
+
+    public function test_an_account_someone_set_up_with_this_email_becomes_the_inbox_owners_at_the_first_code(): void
+    {
+        // Someone signed up with Asha's address and a password of their own; nobody proved the inbox.
+        $account = User::factory()->create(['email' => self::EMAIL, 'email_verified_at' => null, 'password' => Hash::make('Someone-elses-pass-1')]);
+        $this->storedSessionFor($account, 'earlier-session-of-whoever-signed-up');
+
+        $component = $this->askForCode();
+        $component->set('emailCode', $this->emailedCode())->call('verifyEmailCode')->assertHasNoErrors();
+        $this->assertAuthenticatedAs($account);
+
+        $account->refresh();
+        $this->assertNotNull($account->email_verified_at, 'the code proved the inbox');
+        $this->assertFalse(Hash::check('Someone-elses-pass-1', $account->password), 'the old password no longer opens it');
+        $this->assertSame(0, DB::table('sessions')->where('user_id', $account->id)->count(), 'every earlier session has ended');
+    }
+
+    public function test_a_confirmed_account_keeps_its_password_and_sessions_after_a_code(): void
+    {
+        $asha = User::factory()->create(['email' => self::EMAIL, 'password' => Hash::make('Ashas-own-pass-1')]);
+        $this->storedSessionFor($asha, 'ashas-phone');
+
+        $component = $this->askForCode();
+        $component->set('emailCode', $this->emailedCode())->call('verifyEmailCode')->assertHasNoErrors();
+
+        $this->assertTrue(Hash::check('Ashas-own-pass-1', $asha->refresh()->password));
+        $this->assertSame(1, DB::table('sessions')->where('user_id', $asha->id)->count());
     }
 
     public function test_the_email_gives_the_code_and_says_what_it_is_for(): void

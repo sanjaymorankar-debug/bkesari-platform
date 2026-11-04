@@ -4,7 +4,10 @@ namespace App\Services;
 
 use App\Mail\SignInCodeMail;
 use App\Models\User;
+use App\Support\EndSessions;
 use App\Support\SignInCodes;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -152,8 +155,24 @@ class EmailSignIn
 
         // The account must still have the address the code went to.
         $user = User::find($result['userId']);
+        if (! $user || self::normalize((string) $user->email) !== $email) {
+            return ['status' => 'expired'];
+        }
 
-        return $user && self::normalize((string) $user->email) === $email ? ['status' => 'ok', 'user' => $user] : ['status' => 'expired'];
+        if ($user->email_verified_at === null) {
+            // Nobody had proved this inbox: whoever set the account up with
+            // the address (a password sign-up, say) may not be the person who
+            // reads it. The first code makes the account the inbox owner's:
+            // the address is confirmed, the old password is replaced by one
+            // nobody knows ("Forgot password" sets a new one) and every
+            // earlier session ends.
+            DB::transaction(function () use ($user) {
+                $user->forceFill(['email_verified_at' => now(), 'password' => Hash::make(Str::random(64))])->save();
+                EndSessions::forUser($user);
+            });
+        }
+
+        return ['status' => 'ok', 'user' => $user];
     }
 
     private function mailDelivers(): bool

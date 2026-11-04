@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\EndSessions;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
@@ -48,7 +49,11 @@ new #[Layout('layouts.guest')] class extends Component
                 $user->forceFill([
                     'password' => Hash::make($this->password),
                     'remember_token' => Str::random(60),
+                    // The reset link came to this inbox, which proves it.
+                    'email_verified_at' => $user->email_verified_at ?? now(),
                 ])->save();
+                // Whoever was signed in before the reset is signed out.
+                EndSessions::forUser($user);
 
                 event(new PasswordReset($user));
             }

@@ -245,7 +245,8 @@ function createProjectAuth(o) {
     try {
       sent = kind === 'sms' ? Boolean(notify.sms && await notify.sms(to, text)) : Boolean(notify.mail && await notify.mail(to, subject, text));
     } catch (err) {
-      log.error(`${name}: ${kind} to ${kind === 'sms' ? to.slice(0, 2) + '******' + to.slice(-2) : to} failed:`, err.message);
+      const masked = kind === 'sms' ? `${to.slice(0, 2)}******${to.slice(-2)}` : `${to[0]}***${to.slice(to.lastIndexOf('@'))}`;
+      log.error(`${name}: ${kind} to ${masked} failed:`, err.message);
     }
     if (sent) return {};
     // Dev only, and only when no provider is set: a configured one that failed is "could not send" (D-029).

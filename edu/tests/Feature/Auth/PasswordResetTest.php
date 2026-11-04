@@ -81,4 +81,25 @@ class PasswordResetTest extends TestCase
             return true;
         });
     }
+
+    public function test_a_reset_confirms_the_email_and_ends_every_earlier_session(): void
+    {
+        $user = User::factory()->create(['email_verified_at' => null]);
+        \Illuminate\Support\Facades\DB::table('sessions')->insert([
+            'id' => 'signed-in-before-the-reset', 'user_id' => $user->id, 'ip_address' => '203.0.113.9',
+            'user_agent' => 'test', 'payload' => base64_encode('x'), 'last_activity' => time(),
+        ]);
+        $token = \Illuminate\Support\Facades\Password::createToken($user);
+
+        Volt::test('pages.auth.reset-password', ['token' => $token])
+            ->set('email', $user->email)
+            ->set('password', 'A-new-pass-2026')
+            ->set('password_confirmation', 'A-new-pass-2026')
+            ->call('resetPassword')
+            ->assertHasNoErrors()
+            ->assertRedirect('/login');
+
+        $this->assertNotNull($user->refresh()->email_verified_at, 'the link came to this inbox');
+        $this->assertSame(0, \Illuminate\Support\Facades\DB::table('sessions')->where('user_id', $user->id)->count());
+    }
 }
