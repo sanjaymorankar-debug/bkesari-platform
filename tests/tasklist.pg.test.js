@@ -211,7 +211,8 @@ describe('TaskList on PostgreSQL', { skip }, () => {
 
   test('on dev a mail provider that fails is "could not send": the code is shown only when no mail is set (D-029)', async (t) => {
     const failing = () => ({ mail: async () => { throw new Error('535 authentication failed'); } });
-    const made = createApp(db, { notify: failing, log: quiet });
+    const logged = [];
+    const made = createApp(db, { notify: failing, log: { ...quiet, error: (...a) => logged.push(a.join(' ')) } });
     const s2 = await new Promise((r) => { const s = made.app.listen(0, '127.0.0.1', () => r(s)); });
     t.after(() => new Promise((r) => s2.close(r)));
     const b = new Browser(`http://127.0.0.1:${s2.address().port}`);
@@ -220,6 +221,9 @@ describe('TaskList on PostgreSQL', { skip }, () => {
     assert.equal(r.status, 503, r.text);
     assert.equal(r.json.devCode, undefined);
     assert.doesNotMatch(r.text, /\b\d{6}\b/, 'no code anywhere in the answer');
+    // The failure is logged with the address masked, as LadWani's maskEmail does; never in full.
+    assert.ok(logged.some((l) => l.includes('TaskList: mail to f***@example.com failed: 535 authentication failed')), logged.join(' | '));
+    assert.doesNotMatch(logged.join('\n'), /failbox/, 'the full address is never logged');
   });
 
   test('an email nobody has confirmed opens nothing by code: whoever put it on the account keeps no way into what its owner saves', async () => {
