@@ -182,6 +182,25 @@ function stripPrefix(route, url) {
   return (path.slice(route.base.length) || '/') + suffix;
 }
 
+// Cookies only the hub may read: the admin's session and its CSRF pair.
+const HUB_PRIVATE_COOKIES = ['hub_admin_sid', 'hub_admin_sid_csrf'];
+
+/**
+ * Removes the named cookies from the request's Cookie header, keeping every
+ * other pair as the browser sent it (the project's own session, k_lang). The
+ * header goes when nothing is left.
+ */
+function dropCookies(req, names) {
+  const header = req.headers.cookie;
+  if (!header) return;
+  const kept = String(header).split(';').filter((pair) => {
+    const name = pair.split('=')[0].trim();
+    return name && !names.includes(name);
+  }).map((pair) => pair.trim());
+  if (kept.length) req.headers.cookie = kept.join('; ');
+  else delete req.headers.cookie;
+}
+
 /**
  * The page shown when a configured app does not answer.
  *
@@ -229,6 +248,8 @@ function mount(app, {
   gates = {},
 } = {}) {
   const { routes, problems } = readRoutes(env);
+  // Shared with the apps behind the proxy; blank means they are not told.
+  const proxySecret = String(env.HUB_PROXY_SECRET || '').trim();
 
   for (const p of problems) {
     log.error(`Not serving ${p.path}: ${p.problem}`);
@@ -237,8 +258,21 @@ function mount(app, {
   for (const route of routes) {
     app.use((req, res, next) => {
       if (!matches(route, req.path)) return next();
-      // Whatever the browser sent under this name is forged: only a gate may set it.
+      // Whatever the browser sent under these names is forged: only a gate,
+      // or the proxy itself below, may set them.
       delete req.headers['x-bkesari-token'];
+      delete req.headers['x-bkesari-proxy'];
+      // The visitor's address as the hub worked it out (Express's `trust proxy`,
+      // D-026), alone: never the chain a client sent (D-038). Set here, on the
+      // request the proxy copies its headers from, not in a proxyReq handler:
+      // the proxy skips proxyReq for a request with an Expect header (Node has
+      // written that request's headers out already), which forwarded the
+      // client's own chain.
+      if (req.ip) req.headers['x-forwarded-for'] = req.ip;
+      // The hub admin's session is on Path=/ (the owner's ATIP viewer needs it),
+      // so the browser sends it here too. It is the hub's alone: no project app
+      // gets to see it.
+      dropCookies(req, HUB_PRIVATE_COOKIES);
       const gate = gates[route.key];
       return gate ? gate(req, res, next) : next();
     });
@@ -274,6 +308,12 @@ function mount(app, {
         followRedirects: false,
         proxyTimeout: timeoutMs,
         timeout: timeoutMs,
+        // With HUB_PROXY_SECRET set, the app is told the request came from the
+        // hub, so it may believe the address above (Education:
+        // App\Http\Middleware\TrustHubProxy, D-038). Added to every forwarded
+        // request as it is built (an Expect header included), and never put on
+        // the incoming request, so nothing else in the hub sees it.
+        ...(proxySecret ? { headers: { 'x-bkesari-proxy': proxySecret } } : {}),
         on: {
           error: (err, req, res) => {
             // originalUrl: for a stripping tab, req.url has already lost the
@@ -300,4 +340,4 @@ function mount(app, {
   return routes;
 }
 
-module.exports = { PROXIED_TABS, TIER_ORIGINS, parseOrigin, readRoutes, matches, stripPrefix, mount };
+module.exports = { PROXIED_TABS, TIER_ORIGINS, HUB_PRIVATE_COOKIES, parseOrigin, readRoutes, matches, stripPrefix, dropCookies, mount };

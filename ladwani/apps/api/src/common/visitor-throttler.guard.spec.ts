@@ -1,4 +1,4 @@
-import { VisitorThrottlerGuard } from './visitor-throttler.guard'
+import { VisitorThrottlerGuard, clientAddress } from './visitor-throttler.guard'
 
 describe('VisitorThrottlerGuard', () => {
   const saved = { ...process.env }
@@ -23,5 +23,32 @@ describe('VisitorThrottlerGuard', () => {
   it('falls back to the client IP when the header is missing', async () => {
     process.env.LADWANI_VISITOR_HEADER = 'x-bkesari-visitor'
     expect(await tracker({ ip: '10.0.0.2', headers: {} })).toBe('10.0.0.2')
+  })
+})
+
+describe('clientAddress (the built-in sign-in limits)', () => {
+  const saved = { ...process.env }
+  afterEach(() => {
+    process.env = { ...saved }
+  })
+
+  it("is the address the hub names, without its 'ip:' prefix", () => {
+    process.env.LADWANI_VISITOR_HEADER = 'x-bkesari-visitor'
+    expect(clientAddress({ ip: '127.0.0.1', headers: { 'x-bkesari-visitor': 'ip:203.0.113.7' } })).toBe('203.0.113.7')
+  })
+
+  it('is the client IP when the header is not trusted or not sent', () => {
+    delete process.env.LADWANI_VISITOR_HEADER
+    delete process.env.VISITOR_HEADER
+    expect(clientAddress({ ip: '10.0.0.1', headers: { 'x-bkesari-visitor': 'ip:6.6.6.6' } })).toBe('10.0.0.1')
+    process.env.LADWANI_VISITOR_HEADER = 'x-bkesari-visitor'
+    expect(clientAddress({ ip: '10.0.0.2', headers: {} })).toBe('10.0.0.2')
+  })
+
+  it("is 'unknown' with no address at all, and never longer than an IPv6 address", () => {
+    delete process.env.LADWANI_VISITOR_HEADER
+    expect(clientAddress({ headers: {} })).toBe('unknown')
+    process.env.LADWANI_VISITOR_HEADER = 'x-bkesari-visitor'
+    expect(clientAddress({ headers: { 'x-bkesari-visitor': `ip:${'a'.repeat(100)}` } })).toHaveLength(45)
   })
 })

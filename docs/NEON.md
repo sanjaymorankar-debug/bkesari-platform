@@ -14,7 +14,7 @@ each branch the app's one database, owned by the app's own login:
 
 | App | Neon project (id) | Database | Login | Repository |
 |---|---|---|---|---|
-| Hub: Task Tracker, ATIP viewer | `bkesari-hub` (`aged-snow-54676890`) | `neondb` | `bk_portal_app` | bkesari-platform (`portal/`) |
+| Hub: tiles, contact messages, hub admins (and, until migrated, the old Neon Auth users); ATIP viewer | `bkesari-hub` (`aged-snow-54676890`) | `neondb` | `bk_portal_app` | bkesari-platform (`portal/`) |
 | TaskList | `bkesari-tasklist` (`red-pine-00252567`) | `bk_tasklist` | `bk_tasklist_app` | bkesari-platform (`portal/`) |
 | Education | `bkesari-edu` (`falling-unit-35354402`) | `bk_edu` | `bk_edu_app` | bkesari-platform (`edu/`) |
 | LadWani | `bkesari-ladwani` (`shy-water-73883631`) | `bk_ladwani` | `bk_ladwani_app` | Ladwani |
@@ -177,7 +177,7 @@ fixed:
 |---|---|---|
 | LadWani | the old Hostinger database `u879099820_miladwani`, which Neon replaces | export it from hPanel (phpMyAdmin) before it is deleted; `MIGRATION.md` in the Ladwani repo |
 | Education | seeded demo data only | re-seed on dev and test; production loads `database/edu/02` and `04` only (`DEPLOY.md` Part 2) |
-| Hub (Task Tracker) | whatever the tracker holds | export from the old site's `/tasks/` before switching |
+| TaskList (was the Task Tracker) | the old tracker's projects and tasks, now lists and tasks | `tools/migrate_shared_id.mjs --apply` hands them to the owner (DEPLOY.md Part 9) |
 | ATIP | the Mac's SQLite file | stays on SQLite until you switch it; `docs/POSTGRESQL_MIGRATION.md` in ATIP-DEV |
 
 ## Backups and restores

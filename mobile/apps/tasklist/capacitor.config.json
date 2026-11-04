@@ -1,0 +1,28 @@
+{
+  "appId": "com.bkesari.tasklist",
+  "appName": "TaskList",
+  "webDir": "www",
+  "server": {
+    "url": "https://bkesari.com/tasklist/",
+    "cleartext": false,
+    "allowNavigation": [
+      "bkesari.com"
+    ],
+    "errorPath": "index.html"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#FAF8F5"
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "backgroundColor": "#FAF8F5",
+    "limitsNavigationsToAppBoundDomains": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "backgroundColor": "#4338CA",
+      "launchShowDuration": 600
+    }
+  }
+}

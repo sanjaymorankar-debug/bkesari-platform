@@ -40,64 +40,79 @@ new #[Layout('layouts.app')] class extends Component
 
 <div>
     <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">Teacher Dashboard</h2>
+        <h2>{{ __('Teacher Dashboard') }}</h2>
     </x-slot>
 
-    <div class="py-8 max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-6">
-        <div class="bg-white rounded-lg shadow p-6">
+    <div class="max-w-5xl space-y-6">
+        <div class="grid gap-4 sm:grid-cols-2">
+            <div class="k-card">
+                <p class="text-sm text-gray-600 mb-0">{{ __('My Schools') }}</p>
+                <p class="text-3xl font-bold text-gray-900 mb-0">{{ $mySchools->where('status', 'verified')->count() }}</p>
+                <p class="text-sm text-gray-600 mb-0">{{ trans_choice(':count link waiting for approval|:count links waiting for approval', $mySchools->where('status', 'pending')->count()) }}</p>
+            </div>
+            <div class="k-card">
+                <p class="text-sm text-gray-600 mb-0">{{ __('Students with growth tracking on') }}</p>
+                <p class="text-3xl font-bold text-gray-900 mb-0">{{ $myStudents->count() }}</p>
+                <p class="text-sm text-gray-600 mb-0">{{ __('Only where a guardian has agreed.') }}</p>
+            </div>
+        </div>
+
+        <div class="k-card">
             <div class="flex justify-between items-center mb-4">
-                <h3 class="font-semibold text-gray-900">My Schools</h3>
-                <a href="{{ route('schools.index') }}" wire:navigate class="text-sm text-indigo-600 hover:underline">Find School</a>
+                <h3 class="font-semibold text-gray-900">{{ __('My Schools') }}</h3>
+                <a href="{{ route('schools.index') }}" wire:navigate class="k-link text-sm">{{ __('Find School') }}</a>
             </div>
             @forelse ($mySchools as $rel)
-                <div class="flex justify-between py-2 border-b last:border-0 text-sm">
-                    <a href="{{ route('schools.show', $rel->school_id) }}" wire:navigate class="text-indigo-600 hover:underline">{{ $rel->school->name }}</a>
-                    <span class="text-gray-400">{{ ucfirst($rel->status) }}</span>
+                <div class="flex justify-between py-2 border-b border-gray-200 last:border-0 text-sm">
+                    <a href="{{ route('schools.show', $rel->school_id) }}" wire:navigate class="k-link">{{ $rel->school->name }}</a>
+                    <span class="k-chip {{ $rel->status === 'verified' ? 'k-chip--success' : ($rel->status === 'rejected' ? 'k-chip--danger' : 'k-chip--warning') }}">{{ __(ucfirst($rel->status)) }}</span>
                 </div>
             @empty
-                <p class="text-sm text-gray-400">No linked school yet. Use "Find School" to link one.</p>
+                <p class="text-sm text-gray-600">{{ __('No linked school yet. Use "Find School" to link one.') }}</p>
             @endforelse
         </div>
 
-        <div class="bg-white rounded-lg shadow p-6">
-            <h3 class="font-semibold text-gray-900 mb-1">Student Growth</h3>
-            <p class="text-xs text-gray-400 mb-4">
-                Students whose guardian has agreed to growth tracking. A child whose family has not
-                agreed does not appear here, and no record exists for them.
+        <div class="k-card">
+            <h3 class="font-semibold text-gray-900 mb-1">{{ __('Student Growth') }}</h3>
+            <p class="text-sm text-gray-600 mb-4">
+                {{ __('Students whose guardian has agreed to growth tracking. A child whose family has not agreed does not appear here, and no record exists for them.') }}
             </p>
             @forelse ($myStudents as $student)
-                <div class="flex items-center justify-between py-2 border-b last:border-0 text-sm">
-                    <span class="text-gray-800">{{ $student->name }}</span>
-                    <div class="flex gap-3">
-                        <a href="{{ route('growth.show', $student->id) }}" wire:navigate class="text-indigo-600 hover:underline">View</a>
-                        <a href="{{ route('growth.observe', $student->id) }}" wire:navigate class="text-indigo-600 hover:underline">Add observation</a>
+                <div class="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-gray-200 last:border-0">
+                    <span class="flex items-center gap-3 text-gray-800">
+                        <span class="k-avatar" aria-hidden="true">{{ mb_strtoupper(mb_substr($student->name, 0, 1)) }}</span>
+                        {{ $student->name }}
+                    </span>
+                    <div class="flex flex-wrap gap-2">
+                        <a href="{{ route('growth.show', $student->id) }}" wire:navigate class="k-btn k-btn--secondary" aria-label="{{ __('View growth record of :name', ['name' => $student->name]) }}">{{ __('View') }}</a>
+                        <a href="{{ route('growth.observe', $student->id) }}" wire:navigate class="k-btn" aria-label="{{ __('Add an observation for :name', ['name' => $student->name]) }}">{{ __('Add observation') }}</a>
                     </div>
                 </div>
             @empty
-                <p class="text-sm text-gray-400">No students with growth tracking enabled yet.</p>
+                <p class="text-sm text-gray-600">{{ __('No students with growth tracking enabled yet.') }}</p>
             @endforelse
         </div>
 
-        <div class="bg-white rounded-lg shadow p-6">
-            <h3 class="font-semibold text-gray-900 mb-2">My Teacher Effectiveness Index</h3>
-            <p class="text-xs text-gray-400 mb-4">Private to you — never shown publicly, to the school, or to parents/students. See spec section AI.</p>
+        <div class="k-card">
+            <h3 class="font-semibold text-gray-900 mb-2">{{ __('My Teacher Effectiveness Index') }}</h3>
+            <p class="text-sm text-gray-600 mb-4">{{ __('Private to you — never shown publicly, to the school, or to parents/students. See spec section AI.') }}</p>
             @if ($myEffectivenessScore)
-                <div class="flex items-center gap-6">
+                <div class="flex flex-wrap items-center gap-6">
                     <div>
-                        <div class="text-3xl font-bold text-indigo-600">{{ $myEffectivenessScore->score }}</div>
-                        <div class="text-xs text-gray-400">{{ str_replace('_', ' ', $myEffectivenessScore->confidence) }} confidence &middot; {{ $myEffectivenessScore->response_count }} responses</div>
+                        <div class="text-3xl font-bold text-indigo-700">{{ $myEffectivenessScore->score }}</div>
+                        <div class="text-sm text-gray-600">{{ str_replace('_', ' ', $myEffectivenessScore->confidence) }} {{ __('confidence') }} &middot; {{ trans_choice(':count response|:count responses', $myEffectivenessScore->response_count) }}</div>
                     </div>
-                    <div class="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                    <div class="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
                         @foreach (($myEffectivenessScore->component_breakdown ?? []) as $key => $dimension)
-                            <div class="bg-gray-50 rounded p-2">
-                                <div class="text-gray-500">{{ $dimension['label'] }}</div>
+                            <div class="bg-gray-100 rounded-md p-2">
+                                <div class="text-gray-600">{{ $dimension['label'] }}</div>
                                 <div class="font-semibold text-gray-800">{{ $dimension['average'] ?? '—' }} / 5</div>
                             </div>
                         @endforeach
                     </div>
                 </div>
             @else
-                <p class="text-sm text-gray-400">Not enough feedback yet to calculate a score.</p>
+                <p class="text-sm text-gray-600">{{ __('Not enough feedback yet to calculate a score.') }}</p>
             @endif
         </div>
     </div>

@@ -2,33 +2,27 @@
 
 namespace App\Rules;
 
+use App\Support\BuiltinAdmins;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 
 /**
- * The hub's built-in administrators sign in here as <name>@builtin.bkesari.com
- * (App\Http\Middleware\HubSignIn::BUILTIN_ADMINS). HubSignIn never links one of
- * them to an account someone else made with that address, so such an account
- * would only lock the administrator out. Nobody may give an account, a staff
- * member, a child or an invitation an address in that domain.
+ * Refuses an address on the built-in administrators' domain (anything ending
+ * in "@builtin.bkesari.com"), however it is typed (D-036): those addresses
+ * belong to smorankar and sonalimorankar, who sign in only with their username.
  */
 class NotReservedEmail implements ValidationRule
 {
-    public const DOMAIN = 'builtin.bkesari.com';
+    public const DOMAIN = BuiltinAdmins::EMAIL_DOMAIN;
 
-    /**
-     * Lowercased the way PostgreSQL's citext compares (lower(): the simple Unicode
-     * mapping), not mb_strtolower's full one: under the simple mapping İ (U+0130)
-     * is a plain i, so "bu\u{0130}ltin.bkesari.com" is the reserved domain there.
-     */
     public static function isReserved(?string $email): bool
     {
-        return $email !== null && str_ends_with(mb_convert_case(trim($email), MB_CASE_LOWER_SIMPLE), '@'.self::DOMAIN);
+        return BuiltinAdmins::isReservedEmail($email);
     }
 
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
-        if (is_string($value) && self::isReserved($value)) {
+        if (is_string($value) && BuiltinAdmins::isReservedEmail($value)) {
             $fail(__('This email address is reserved.'));
         }
     }

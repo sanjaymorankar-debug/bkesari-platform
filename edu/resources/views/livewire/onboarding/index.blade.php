@@ -120,7 +120,7 @@ new #[Layout('layouts.app')] class extends Component
     private function resolveChild(School $school): ?int
     {
         if ($this->childMode === 'existing') {
-            $this->validate(['childEmail' => ['required', 'email', 'exists:users,email']]);
+            $this->validate(['childEmail' => ['required', 'email', new NotReservedEmail, 'exists:users,email']]);
 
             $child = User::where('email', $this->childEmail)->firstOrFail();
             abort_unless($child->hasRole('student'), 422, 'That account is not registered as a student.');
@@ -138,7 +138,7 @@ new #[Layout('layouts.app')] class extends Component
 
         $this->validate([
             'childName' => ['required', 'string', 'max:255'],
-            'childEmail' => ['required', 'email', 'max:255', 'unique:users,email', new NotReservedEmail],
+            'childEmail' => ['required', 'email', 'max:255', new NotReservedEmail, 'unique:users,email'],
             'childDateOfBirth' => ['required', 'date', 'before:today'],
             'childGender' => ['required', 'in:male,female,other'],
             'childClassGrade' => ['required', 'string', 'max:20'],

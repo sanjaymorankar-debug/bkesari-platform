@@ -120,9 +120,11 @@ fi
 group "The hub"
 status / "the welcome page is served" 200
 contains / '/shared/menu.js' "the welcome page includes the shared menu"
-# The bar is script-injected on static pages, so the <noscript> list is what
-# proves every project is reachable without JavaScript.
-contains / 'Driving Simulator' "the no-JavaScript fallback lists the projects"
+contains / '/kesari-ui/1.0.0/kesari.css' "the welcome page uses the pinned Kesari design system"
+status /kesari-ui/1.0.0/kesari.css "the Kesari stylesheet is served" 200
+# The home page is rendered on the server, tiles included, so every project is
+# reachable without JavaScript.
+contains / 'Driving Simulator' "the home page lists the projects without JavaScript"
 status /shared/menu.js "the shared menu script is served" 200
 status /shared/page.css "the shared stylesheet is served" 200
 
@@ -137,39 +139,57 @@ case "$CT" in
 esac
 
 # --- Access control --------------------------------------------------------
-# The most important checks here. /tasks/ fails OPEN by design when its
-# credentials are unset (portal/server.js basicAuth, failClosed=false), which
-# is right for a laptop and catastrophic on a public hostname: a 200 means
-# anyone on the internet can read and edit the task tracker.
+# Since 3 Nov 2026 every project signs its own people in. TaskList's pages send
+# a visitor to TaskList's own sign-in page, and its API answers 401; a 200 from
+# the API without a session would mean anyone can read and edit its tasks.
 group "Access control"
-# Under Neon Auth (NEON_AUTH_BASE_URL set) /tasks/ redirects to the sign-in
-# page instead, and fetch follows redirects -- so a 200 that IS that page is
-# the login working, not the tracker being open.
-fetch /tasks/
+fetch /tasklist/
 case "$STATUS" in
-  401) ok "the task tracker requires a login (401)" ;;
   200)
-    if grep -q 'id="credForm"' "$BODY"; then
-      ok "the task tracker requires a sign-in (Neon Auth sign-in page)"
+    if grep -q 'id="otp-send"' "$BODY"; then
+      ok "TaskList sends a visitor to its own sign-in page"
     else
-      bad "THE TASK TRACKER IS OPEN TO THE INTERNET" \
-          "/tasks/ answered 200. Set TRACKER_USER and TRACKER_PASSWORD (or Neon Auth) on the server and redeploy."
+      bad "TASKLIST IS OPEN TO THE INTERNET" "/tasklist/ answered 200 with the app, not its sign-in page."
     fi ;;
-  *)   caution "/tasks/ answered $STATUS" "expected 401; check the site is fully deployed" ;;
+  *) caution "/tasklist/ answered $STATUS" "expected its sign-in page; check the site is fully deployed" ;;
 esac
-
-# The API under it, which both logins answer with 401 rather than a page.
+fetch /tasklist/api/tasks
+case "$STATUS" in
+  401) ok "the TaskList API refuses an anonymous request (401)" ;;
+  200) bad "THE TASKLIST API IS OPEN TO THE INTERNET" "/tasklist/api/tasks answered 200 with no session." ;;
+  *)   caution "/tasklist/api/tasks answered $STATUS" "expected 401" ;;
+esac
+fetch /admin/api/state
+case "$STATUS" in
+  401) ok "the hub admin API refuses an anonymous request (401)" ;;
+  200) bad "THE HUB ADMIN API IS OPEN TO THE INTERNET" "/admin/api/state answered 200 with no session." ;;
+  *)   caution "/admin/api/state answered $STATUS" "expected 401" ;;
+esac
+# The old shared sign-in is retired: its address is the project chooser.
+contains /auth/sign-in 'Choose a project' "the old shared sign-in address shows the project chooser"
 fetch /tasks/api/overview
 case "$STATUS" in
-  401) ok "the task tracker API refuses an anonymous request (401)" ;;
-  200) bad "THE TASK TRACKER API IS OPEN TO THE INTERNET" "/tasks/api/overview answered 200 with no login." ;;
-  *)   caution "/tasks/api/overview answered $STATUS" "expected 401" ;;
+  410) ok "the old Task Tracker API is gone (410)" ;;
+  200) bad "THE OLD TASK TRACKER API STILL ANSWERS" "/tasks/api/overview answered 200." ;;
+  *)   caution "/tasks/api/overview answered $STATUS" "expected 410" ;;
+esac
+
+# Security headers on the hub's own pages.
+fetch /
+CSP=$(header content-security-policy)
+case "$CSP" in
+  *"script-src 'self'"*) ok "the hub sends a Content-Security-Policy ($CSP)" ;;
+  *) bad "the hub's Content-Security-Policy is missing or weak" "got '${CSP:-none}'" ;;
+esac
+case "$(header x-content-type-options)" in
+  nosniff) ok "X-Content-Type-Options: nosniff" ;;
+  *) bad "X-Content-Type-Options is missing" "expected nosniff" ;;
 esac
 
 # /atip/ fails CLOSED (failClosed=true): 503 when unconfigured, never open.
-# Under Neon Auth ATIP is the owner's alone, and everyone else, visitors
-# included, gets a 404 rather than a login prompt (portal/server.js atipOwner),
-# so a 404 here is the viewer correctly hidden.
+# ATIP is the owner's alone (the hub admin with the owner role, or
+# ATIP_USER/ATIP_PASSWORD); without those everyone gets a 404 rather than a
+# login prompt (portal/server.js atipOwner), so a 404 is the viewer hidden.
 fetch /atip/
 case "$STATUS" in
   401) ok "the ATIP viewer requires a login (401)" ;;
@@ -177,7 +197,7 @@ case "$STATUS" in
   503) caution "the ATIP viewer is not configured yet (503)" \
                 "set ATIP_USER and ATIP_PASSWORD on the server. It is refusing everyone, so this is safe." ;;
   200) bad "THE ATIP VIEWER IS OPEN TO THE INTERNET" "/atip/ answered 200 with no login." ;;
-  *)   caution "/atip/ answered $STATUS" "expected 401, 404 (owner only, under Neon Auth), or 503 if not configured yet" ;;
+  *)   caution "/atip/ answered $STATUS" "expected 401 or 404 (owner only)" ;;
 esac
 
 # The snapshot upload endpoint must never accept an unauthenticated POST.
@@ -223,18 +243,18 @@ fi
 for probe in /edu/ /ladwani/; do
   fetch "$probe"
   [ "$STATUS" = 404 ] || continue
-  grep -qF 'not on this tier yet' "$BODY" || continue
+  grep -qF 'is not on this server yet' "$BODY" || continue
   if [ "$EXPECT_ENV" = prod ]; then
-    if grep -qF 'class="bk-env"' "$BODY"; then
+    if grep -qF 'class="ks-env"' "$BODY"; then
       bad "the menu is wearing a tier badge on production" \
           "seen on $probe. APP_ENV or the hostname is making production look like a lower tier."
     else
       ok "the menu shows no tier badge on production"
     fi
-  elif grep -qF "class=\"bk-env\">$EXPECT_ENV<" "$BODY"; then
+  elif grep -qF "class=\"ks-env\">$EXPECT_ENV<" "$BODY"; then
     ok "the menu's tier badge agrees ('$EXPECT_ENV', seen on $probe)"
   else
-    GOT=$(grep -o 'class="bk-env">[a-z]*<' "$BODY" | head -1 | sed 's/.*>\(.*\)</\1/')
+    GOT=$(grep -o 'class="ks-env">[a-z]*<' "$BODY" | head -1 | sed 's/.*>\(.*\)</\1/')
     bad "the menu's tier badge reads '${GOT:-none}', not '$EXPECT_ENV'" \
         "seen on $probe. The header and the badge disagree, so one of them is wrong."
   fi
@@ -285,7 +305,7 @@ for tab in /ladwani/ /edu/; do
   # fetch follows redirects, so a protected project answers 200 from the sign-in page.
   if [ "$STATUS" = 200 ]; then
     ok "$tab is deployed and answering"
-  elif [ "$STATUS" = 404 ] && grep -qF 'not on this tier yet' "$BODY"; then
+  elif [ "$STATUS" = 404 ] && grep -qF 'is not on this server yet' "$BODY"; then
     caution "$tab is not deployed on this tier yet" "the menu still works; it shows the placeholder."
   elif [ "$STATUS" = 404 ]; then
     # Neither the hub's placeholder nor the app: so an origin IS configured
@@ -306,13 +326,7 @@ done
 # and posts there, so getting it wrong means nobody can sign in while the page
 # itself looks completely healthy. A status code cannot see any of this.
 fetch /edu/
-if [ "$STATUS" = 200 ] && grep -qF 'id="credForm"' "$BODY"; then
-  # Behind the hub's access layer an anonymous visitor lands on the bkesari
-  # sign-in page, so there is no Education markup to inspect. Pass
-  # SMOKE_COOKIE (a signed-in hub session with Education access) to check it.
-  ok "/edu/ is behind the hub's sign-in"
-  caution "/edu/ Livewire checks skipped" "set SMOKE_COOKIE to a signed-in session with Education access to run them."
-elif [ "$STATUS" = 200 ]; then
+if [ "$STATUS" = 200 ]; then
   if grep -qF 'data-update-uri="/edu/livewire/update"' "$BODY"; then
     ok "/edu/ points Livewire at its own endpoint, so the sign-in form can post"
   elif grep -qF 'data-update-uri="/livewire/update"' "$BODY"; then

@@ -4,7 +4,10 @@ One repository for everything behind **bkesari.com**. Each part keeps its own la
 
 | Folder | What | Language | Where it runs |
 |---|---|---|---|
-| `portal/` | Welcome page, **Task Tracker** (`/tasks/`) and the **ATIP viewer** (`/ATIP/`) | Node.js (Express) | Hostinger Node.js Web App: `dev.`/`test.`/`bkesari.com` |
+| `portal/` | The hub (home with project tiles, about, contact, privacy, terms, `/admin`), **TaskList** (`/tasklist/`, its own accounts), the **ATIP viewer** (`/ATIP/`), LadWani served at `/ladwani/` | Node.js (Express) | Hostinger Node.js Web App: `dev.`/`test.`/`bkesari.com` |
+| `packages/kesari-ui/` | **Kesari**, the design system every project uses (tokens, components, runtime; built to `portal/public/kesari-ui/1.0.0/`) | CSS, JS | served by the hub |
+| `ladwani/` | LadWani: NestJS API + Next.js static export, its own accounts | TypeScript | built into and served by the hub |
+| `mobile/` | Capacitor shells for the LadWani, Education and TaskList apps | JSON, HTML | Android / iOS (built on the Mac) |
 | `edu/` | School & Student Governance platform | PHP (Laravel) | Hostinger PHP site: `devedu.`/`testedu.`/`edu.bkesari.com` |
 | `atip/` | A pointer only — ATIP lives in the `ATIP-DEV` repo, and on the Mac at `/Users/agtci/Documents/Project_Documents/Projects/ATIP` | Python | Mac, pushing a view-only snapshot to `/ATIP/`; or a VPS for the full app |
 
@@ -16,7 +19,10 @@ One repository for everything behind **bkesari.com**. Each part keeps its own la
 | `staging` | https://test.bkesari.com |
 | `main` | https://bkesari.com |
 
-The menu (`portal/public/shared/menu.js`) is the same on every tier. Its tabs are
+Each project has **its own accounts** (no shared sign-in since 3 Nov 2026): see DEPLOY.md Part 9.
+Design decisions and the design-thinking work are in `docs/design/`; the before-audit is `docs/ux-audit.md`.
+
+The app shell (`portal/public/shared/menu.js`) is the same on every tier. Its tabs are
 paths on the site you are on (`/ladwani/`, `/edu/`, `/tasks/`, `/ATIP/`, ...),
 and the hub forwards each app's path to the app behind it (DEPLOY.md Part 7). The
 tier badge comes from the address: `dev.` and `localhost` are dev, `test.` is test,
@@ -63,7 +69,8 @@ web hosting has none; see DEPLOY.md, *Databases*.
 
 ```
 npm run check      # parse the server and the shared menu
-npm test           # 80 tests + 32 deploy-guard cases; the 15 database tests need TEST_DATABASE_URL
+npm test           # 159 tests + 32 deploy-guard cases; the five PostgreSQL suites need TEST_DATABASE_URL
+npm run build      # rebuild the committed Kesari files and TaskList's live-update client
 npm run test:pg    # the same, reading TEST_DATABASE_URL from .env.test (copy .env.test.example)
 ```
 
@@ -71,14 +78,15 @@ The database tests run against a throwaway PostgreSQL named in `TEST_DATABASE_UR
 (never a `DB_*` or `DATABASE_URL` setting: they delete every row in the tracker
 tables). `TEST_SPEC.md` has the full list of what to run.
 
-## Task Tracker
+## TaskList
 
-- **Projects** and **tasks**. A task can belong to a project or be independent. Deleting a project keeps its tasks as independent tasks.
-- Both have owner, status, description, **planned start/end**, **actual start/end**, **current step** and **next step**.
-- **Status updates:** the server stamps the date and time when an update is posted. The latest updates show above the text box, and **View all updates** lists every one, newest first.
-- The dashboard has counts, an overdue flag, search and a status filter.
+`/tasklist/`, with its own accounts (mobile + OTP or email + password).
+- **Views:** Today (overdue and due today, IST), Upcoming (agenda or calendar), Board (drag and drop, or Alt + arrows), Lists, Tags, Search, Completed, Settings.
+- **Quick add:** one line, "Call vendor tomorrow 5pm #gokesari", with the date, time, tags, @list, !priority and repeat picked out (`portal/public/tasklist/quickadd.js`, also Marathi and Hindi day words).
+- **A task:** notes, due date and time, priority, tags, sub-tasks, link attachments, repeat, a reminder, and the old tracker's status updates.
+- **Offline:** installs as an app and works offline. Changes queue on the device and are sent when back online, never twice.
+- **Your data (DPDP):** download it, or delete your account.
 
-Deployment steps: **[DEPLOY.md](DEPLOY.md)**. Running the portal on Neon (Postgres, sign-in,
-live updates, the report function and the snapshot archive, all declared in `neon.ts`): DEPLOY.md Part 8.
+Deployment steps: **[DEPLOY.md](DEPLOY.md)**. Running the portal on Neon (Postgres, live updates, the report function and the snapshot archive, all declared in `neon.ts`): DEPLOY.md Part 8.
 Running all three repos (ATIP-DEV, bkesari, this one) on a Mac, and their feature / merge status: **[docs/MAC_DEPLOYMENT.md](docs/MAC_DEPLOYMENT.md)**.
 Education docs: `edu/README.md`, `edu/ROADMAP.md`. ATIP docs: `atip/README.md`.

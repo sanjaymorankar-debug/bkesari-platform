@@ -1,0 +1,41 @@
+/* The hub's own pages, on top of kesari.css. Only what is specific to them. */
+.hub-ico{width:26px;height:26px}
+.hub-hero{padding:var(--k-6) 0 var(--k-4);max-width:780px}
+.hub-hero h1{font-size:clamp(2rem,6.4vw,3.2rem);line-height:1.15;margin-bottom:var(--k-4);color:var(--k-ink)}
+.hub-kicker{display:inline-block;margin:0 0 var(--k-3);padding:2px 12px;border-radius:var(--k-radius-pill);background:var(--k-brand-tint);
+  color:var(--k-ink);font-weight:700;font-size:var(--k-text-sm);letter-spacing:.02em}
+.hub-hero .k-lead{color:var(--k-ink);font-weight:600;margin-bottom:var(--k-2)}
+.hub-lead2{color:var(--k-muted)}
+.hub-other{display:flex;flex-direction:column;gap:2px;font-size:var(--k-text-sm);margin-bottom:var(--k-6);color:var(--k-muted)}
+.hub-other strong{color:var(--k-ink)}
+.hub-tiles{list-style:none;margin:var(--k-4) 0 0;padding:0}
+.hub-tiles>li{display:block}
+.hub-tile .k-tile__text{min-height:3.2em}
+.hub-open{min-width:96px}
+.hub-values ul,.hub-choose{list-style:none;margin:0;padding:0}
+.hub-values .k-card h3{color:var(--k-ink)}
+.hub-accounts{border-left:4px solid var(--k-brand)}
+.hub-accounts h2{margin-top:0}
+.hub-announce{margin-top:var(--k-2)}
+.hub-prose h2{margin-top:var(--k-8)}
+.hub-prose ul{padding-left:1.25em;max-width:70ch}
+.hub-prose li{margin-bottom:var(--k-2)}
+.hub-two{display:grid;grid-template-columns:1fr 1fr;gap:0 var(--k-4)}
+@media (max-width:560px){.hub-two{grid-template-columns:1fr}}
+/* Spam trap: off-screen, never shown, never focused. */
+.hub-hp{position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden}
+.hub-form{padding:var(--k-6)}
+.hub-choose{display:grid;gap:var(--k-4);margin:var(--k-6) 0}
+.hub-choice{display:flex;gap:var(--k-4);align-items:flex-start;border-top:4px solid var(--k-accent)}
+.hub-choice h2{font-size:var(--k-text-lg);margin:0 0 var(--k-1);color:var(--k-accent)}
+.hub-choice .k-tile__icon{background:var(--k-accent-tint);color:var(--k-accent)}
+.hub-error{min-height:50vh;justify-content:center}
+.hub-error h1{color:var(--k-ink)}
+/* Pages whose header the browser script inserts reserve its height, so
+   nothing below it jumps when it arrives (the audit's CLS 0.13). */
+[data-bkesari-menu]{display:block;min-height:64px}
+/* Admin */
+.hub-admin table input,.hub-admin table select{min-height:44px}
+.hub-admin .k-table td{vertical-align:middle}
+.hub-admin textarea{min-height:60px}
+.hub-admin-grid{display:grid;gap:var(--k-6)}

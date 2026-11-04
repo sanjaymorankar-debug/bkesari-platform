@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kesari style guide — bkesari</title>
+<meta name="robots" content="noindex">
+<meta name="description" content="The Kesari design system: tokens, type, components and their states. Dev and test only.">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="stylesheet" href="/kesari-ui/1.0.0/kesari.css">
+<link rel="stylesheet" href="/shared/hub.css">
+<link rel="stylesheet" href="/styleguide/styleguide.css">
+<script src="/kesari-ui/1.0.0/kesari.js"></script>
+</head>
+<body>
+<div data-bkesari-menu></div>
+<main id="main" class="k-main">
+  <h1>Kesari <span class="k-chip k-chip--plain">1.0.0</span></h1>
+  <p class="k-lead">The one design system behind bkesari.com, LadWani, Education and TaskList. Every component below is shown in its states: default, hover, focus, disabled, loading, error and empty. This page exists on dev and test only.</p>
+  <p class="k-small">Load it with <code>&lt;link rel="stylesheet" href="/kesari-ui/1.0.0/kesari.css"&gt;</code> and <code>&lt;script src="/kesari-ui/1.0.0/kesari.js"&gt;&lt;/script&gt;</code> in <code>&lt;head&gt;</code>; set <code>data-project</code> on <code>&lt;html&gt;</code> for the accent. Source: <code>packages/kesari-ui</code>. Spec: <code>docs/design/design-system.md</code>.</p>
+
+  <nav class="k-tabs sg-toc" aria-label="Sections">
+    <a href="#colour">Colour</a><a href="#type">Type</a><a href="#buttons">Buttons</a><a href="#forms">Forms</a><a href="#cards">Cards and tiles</a>
+    <a href="#feedback">Feedback</a><a href="#data">Data</a><a href="#nav">Navigation</a><a href="#tree">Tree node</a><a href="#format">Formatting</a>
+  </nav>
+
+  <section id="colour" class="k-section">
+    <h2>Colour</h2>
+    <p>Saffron is the brand everywhere. Each project adds an accent so people always know where they are. Every text pair is AA (4.5:1) or better; ratios are re-checked by <code>tests/kesari-ui.test.js</code>.</p>
+    <ul class="sg-swatches" role="list">
+      <li><span class="sg-sw" style="background:var(--k-brand)"></span><b>Brand</b> #C2560A<small>White text 4.54:1</small></li>
+      <li><span class="sg-sw" style="background:var(--k-brand-hover)"></span><b>Brand hover / text</b> #A64808<small>5.6:1 on the page</small></li>
+      <li><span class="sg-sw" style="background:var(--k-brand-tint)"></span><b>Tint</b> #FDF1E8</li>
+      <li><span class="sg-sw" style="background:#7C2D12"></span><b>LadWani</b> maroon #7C2D12</li>
+      <li><span class="sg-sw" style="background:#0F766E"></span><b>Education</b> teal #0F766E</li>
+      <li><span class="sg-sw" style="background:#4338CA"></span><b>TaskList</b> indigo #4338CA</li>
+      <li><span class="sg-sw" style="background:var(--k-ink)"></span><b>Ink</b> #1C1917</li>
+      <li><span class="sg-sw" style="background:var(--k-muted)"></span><b>Muted</b> #57534E</li>
+      <li><span class="sg-sw" style="background:var(--k-success)"></span><b>Success</b> #15803D</li>
+      <li><span class="sg-sw" style="background:var(--k-warning)"></span><b>Warning</b> #B45309</li>
+      <li><span class="sg-sw" style="background:var(--k-danger)"></span><b>Danger</b> #B91C1C</li>
+      <li><span class="sg-sw" style="background:var(--k-info)"></span><b>Info</b> #1D4ED8</li>
+    </ul>
+    <div class="sg-accents">
+      <div class="k-card" data-project="ladwani"><a class="k-btn" href="#colour">LadWani</a> <span class="k-chip k-chip--accent">Accent chip</span></div>
+      <div class="k-card" data-project="education"><a class="k-btn" href="#colour">Education</a> <span class="k-chip k-chip--accent">Accent chip</span></div>
+      <div class="k-card" data-project="tasklist"><a class="k-btn" href="#colour">TaskList</a> <span class="k-chip k-chip--accent">Accent chip</span></div>
+    </div>
+  </section>
+
+  <section id="type" class="k-section">
+    <h2>Type</h2>
+    <p class="k-display sg-display">Tiro Devanagari Marathi — hub headings · आपल्या समाजाच्या प्रकल्पांसाठी</p>
+    <h1>Heading 1 — Mukta 700</h1><h2>Heading 2</h2><h3>Heading 3</h3>
+    <p>Body: Mukta 16px (17px on Marathi and Hindi pages), line-height 1.6, scale 1.25. मराठी: लाडवाणीमध्ये आपला वंशवृक्ष तयार करा. हिंदी: अपना वंशवृक्ष बनाइए।</p>
+    <p class="k-muted">Muted text for secondary information.</p>
+  </section>
+
+  <section id="buttons" class="k-section">
+    <h2>Buttons</h2>
+    <div class="k-row">
+      <button class="k-btn k-btn--brand" type="button">Brand</button>
+      <button class="k-btn" type="button">Accent</button>
+      <button class="k-btn k-btn--secondary" type="button">Secondary</button>
+      <button class="k-btn k-btn--ghost" type="button">Ghost</button>
+      <button class="k-btn k-btn--danger" type="button">Danger</button>
+      <button class="k-btn" type="button" disabled>Disabled</button>
+      <button class="k-btn k-btn--brand" type="button" aria-busy="true">Loading</button>
+      <button class="k-btn k-btn--secondary k-btn--sm" type="button">Small</button>
+    </div>
+    <p class="k-hint">Every target is at least 48×48px. Focus is a 3px saffron ring (press Tab).</p>
+  </section>
+
+  <section id="forms" class="k-section">
+    <h2>Forms</h2>
+    <form class="k-card sg-form" novalidate>
+      <div class="k-field"><label class="k-label" for="sg-name">Name</label><input class="k-input" id="sg-name" value="Ramesh Patil"></div>
+      <div class="k-field"><label class="k-label" for="sg-mob">Mobile number</label><span class="k-hint" id="sg-mob-h">10 digits, India (+91)</span>
+        <input class="k-input" id="sg-mob" value="98765" aria-invalid="true" aria-describedby="sg-mob-h sg-mob-e"><span class="k-error" id="sg-mob-e">Enter a valid 10-digit mobile number.</span></div>
+      <div class="k-field"><label class="k-label" for="sg-dis">Disabled</label><input class="k-input" id="sg-dis" value="Not editable" disabled></div>
+      <div class="k-field"><label class="k-label" for="sg-sel">District</label><select class="k-select" id="sg-sel"><option>Pune</option><option>Satara</option><option>Kolhapur</option></select></div>
+      <div class="k-field"><label class="k-label" for="sg-q">Search</label><div class="k-search"><input class="k-input" id="sg-q" type="search" placeholder="Search by name, gotra, village"></div></div>
+      <div class="k-field"><span class="k-label" id="sg-otp-l">One-time code</span><div class="k-otp" data-k-otp="6" data-name="otp" role="group" aria-labelledby="sg-otp-l"></div></div>
+      <label class="k-check"><input type="checkbox" checked><span>I agree to the privacy notice (DPDP Act 2023)</span></label>
+      <div class="k-field"><span class="k-label">ID proof</span><label class="k-upload"><input type="file" accept="image/*" aria-label="Upload ID proof"><b>Tap to upload a photo</b><span class="k-hint">JPEG or PNG, up to 5 MB</span></label></div>
+      <div class="k-field"><label class="k-label" for="sg-ta">Notes</label><textarea class="k-textarea" id="sg-ta">Text area</textarea></div>
+    </form>
+  </section>
+
+  <section id="cards" class="k-section">
+    <h2>Cards, tiles, chips</h2>
+    <ul class="k-grid hub-tiles" role="list">
+      <li><article class="k-tile" data-project="ladwani"><div class="k-tile__head"><span class="k-tile__icon">◆</span><h3 class="k-tile__name">Tile</h3></div><p class="k-tile__text">One-line benefit of the project.</p><div class="k-tile__foot"><span class="k-chip k-chip--live">Live</span><a class="k-btn" href="#cards">Open</a></div></article></li>
+      <li><div class="k-card"><h3>Card</h3><p class="k-muted">A plain surface for grouped content.</p></div></li>
+      <li><a class="k-card k-card--link" href="#cards"><h3>Linked card</h3><p class="k-muted">The whole card is one link.</p></a></li>
+    </ul>
+    <p class="k-row"><span class="k-chip k-chip--live">Live</span><span class="k-chip k-chip--beta">Beta</span><span class="k-chip k-chip--soon">Coming soon</span><span class="k-chip k-chip--danger">Rejected</span><span class="k-chip">Under review</span><span class="k-chip k-chip--accent k-chip--plain">#tag</span><span class="k-badge">3</span>
+      <span class="k-avatar">RP</span><span class="k-avatar k-avatar--lg">AP</span></p>
+  </section>
+
+  <section id="feedback" class="k-section">
+    <h2>Feedback</h2>
+    <div class="k-banner"><p><b>Info.</b> Your request is under review. We usually answer within 2 working days.</p></div>
+    <div class="k-banner k-banner--success"><p><b>Saved.</b> Your profile is up to date.</p></div>
+    <div class="k-banner k-banner--warning"><p><b>Offline.</b> Changes will sync when you are back online.</p></div>
+    <div class="k-banner k-banner--danger" role="alert"><p><b>Error.</b> We could not save. Try again.</p></div>
+    <div class="k-row"><button class="k-btn k-btn--secondary" type="button" data-sg-toast>Show a toast</button><button class="k-btn k-btn--secondary" type="button" data-sg-dialog>Open dialog / bottom sheet</button></div>
+    <ol class="k-stepper" aria-label="Sign-up progress"><li data-done>Mobile</li><li aria-current="step">Profile</li><li>Location</li><li>ID proof</li></ol>
+    <div class="k-card"><div class="k-skel k-skel--line" style="width:50%"></div><div class="k-skel k-skel--line"></div><div class="k-skel k-skel--card"></div></div>
+    <div class="k-empty"><svg viewBox="0 0 120 96" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><rect x="22" y="14" width="76" height="62" rx="10"/><path d="m44 46 12 12 22-24"/></svg><h3>Nothing here yet</h3><p>An empty state has an illustration and one action.</p><button class="k-btn" type="button">Add the first one</button></div>
+    <div class="k-row"><div class="k-ring" style="--p:62"><span>62%</span></div><div class="k-ring" style="--p:100"><span>Done</span></div></div>
+  </section>
+
+  <section id="data" class="k-section">
+    <h2>Tables become cards on phones</h2>
+    <table class="k-table k-table--stack"><thead><tr><th>Applicant</th><th>Village</th><th>Submitted</th><th>Status</th></tr></thead>
+      <tbody><tr><td data-label="Applicant">Ramesh Patil</td><td data-label="Village">Wai</td><td data-label="Submitted">3 Nov 2026, 08:42 AM IST</td><td data-label="Status"><span class="k-chip">Under review</span></td></tr>
+      <tr><td data-label="Applicant">Sunita Jadhav</td><td data-label="Village">Karad</td><td data-label="Submitted">2 Nov 2026, 05:10 PM IST</td><td data-label="Status"><span class="k-chip k-chip--live">Approved</span></td></tr></tbody></table>
+    <nav class="k-pager" aria-label="Pages"><a href="#data">‹</a><a href="#data" aria-current="page">1</a><a href="#data">2</a><a href="#data">3</a><a href="#data">›</a></nav>
+  </section>
+
+  <section id="nav" class="k-section">
+    <h2>Navigation</h2>
+    <p>The shell header (above) and footer (below) come from <code>/shared/menu.js</code>. Inside a project: a side nav on desktop and a bottom nav of at most 4 items on phones.</p>
+    <div class="k-tabs" role="tablist"><button role="tab" aria-selected="true" type="button">Family</button><button role="tab" aria-selected="false" type="button">Community</button><button role="tab" aria-selected="false" type="button">Requests</button></div>
+  </section>
+
+  <section id="tree" class="k-section">
+    <h2>Family-tree node (LadWani)</h2>
+    <div class="k-row" data-project="ladwani">
+      <button class="k-node" type="button" aria-expanded="false"><span><span class="k-node__name">Ramesh Patil</span><span class="k-node__meta">Karta · b. 1967</span></span></button>
+      <button class="k-node k-node--spouse" type="button"><span><span class="k-node__name">Sunanda Patil</span><span class="k-node__meta">Spouse · from Jadhav family</span></span></button>
+      <button class="k-node k-node--expired" type="button"><span><span class="k-node__name">Govind Patil</span><span class="k-node__meta">1931–2009</span></span></button>
+    </div>
+  </section>
+
+  <section id="format" class="k-section">
+    <h2>Dates, times and numbers</h2>
+    <p>Always Indian conventions and always IST: <b>3 Nov 2026</b>, <b>08:42 AM IST</b>, <b>1,30,000</b>, <b>₹1,30,000.00</b>. From script: <code>Kesari.formatDate</code>, <code>formatTime</code>, <code>formatNumber</code>, <code>formatRupees</code>.</p>
+  </section>
+
+  <dialog id="sg-dialog" class="k-dialog" aria-labelledby="sg-dh">
+    <div class="k-dialog__head"><h2 id="sg-dh">Dialog</h2><button class="k-btn k-btn--ghost k-btn--icon" type="button" data-k-close aria-label="Close">✕</button></div>
+    <div class="k-dialog__body"><p>A modal on wide screens and a bottom sheet on phones. Escape closes it and focus returns to the button that opened it.</p></div>
+    <div class="k-dialog__foot"><button class="k-btn k-btn--secondary" type="button" data-k-close>Cancel</button><button class="k-btn" type="button" data-k-close>OK</button></div>
+  </dialog>
+</main>
+<script src="/shared/menu.js" defer></script>
+<script src="/styleguide/styleguide.js" defer></script>
+</body>
+</html>

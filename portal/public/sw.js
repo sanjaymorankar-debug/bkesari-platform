@@ -3,9 +3,9 @@
    (/hub/api, /api/auth, /tasks, /ATIP, /ladwani, /edu) always goes to the
    network and is never stored, so a shared phone cannot replay someone else's
    page from the cache. */
-const CACHE = 'bkesari-shell-v1';
-const SHELL = ['/offline.html', '/shared/menu.js', '/shared/page.css', '/manifest.webmanifest', '/icons/icon-192.png'];
-const PRIVATE = /^\/(hub|api|tasks|atip|ladwani|edu|admin|access|auth)(\/|$)/i;
+const CACHE = 'bkesari-shell-v2';
+const SHELL = ['/offline.html', '/shared/menu.js', '/shared/page.css', '/shared/hub.css', '/kesari-ui/1.0.0/kesari.css', '/kesari-ui/1.0.0/kesari.js', '/manifest.webmanifest', '/icons/icon-192.png'];
+const PRIVATE = /^\/(hub|api|tasks|tasklist|atip|ladwani|edu|admin|access|auth|contact)(\/|$)/i;
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

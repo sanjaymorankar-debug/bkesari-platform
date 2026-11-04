@@ -5,6 +5,7 @@ use App\Models\StudentProfile;
 use App\Models\TeacherProfile;
 use App\Models\User;
 use App\Rules\NotReservedEmail;
+use App\Support\IndianMobile;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -16,6 +17,7 @@ new #[Layout('layouts.guest')] class extends Component
 {
     public string $name = '';
     public string $email = '';
+    public string $mobile = '';
     public string $password = '';
     public string $password_confirmation = '';
     public string $role = 'parent';
@@ -29,7 +31,15 @@ new #[Layout('layouts.guest')] class extends Component
     {
         $validated = $this->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class, new NotReservedEmail],
+            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', new NotReservedEmail, 'unique:'.User::class],
+            'mobile' => ['nullable', 'string', 'max:20', function (string $attribute, mixed $value, Closure $fail): void {
+                $normalized = IndianMobile::normalize($value);
+                if ($normalized === null) {
+                    $fail(__('Enter a 10-digit Indian mobile number, like 98765 43210.'));
+                } elseif (User::where('mobile', $normalized)->exists()) {
+                    $fail(__('This mobile number is already used by another account.'));
+                }
+            }],
             'password' => ['required', 'string', 'confirmed', Rules\Password::defaults()],
             'role' => ['required', 'in:parent,student,teacher'],
         ]);
@@ -37,6 +47,8 @@ new #[Layout('layouts.guest')] class extends Component
         $user = User::create([
             'name' => $validated['name'],
             'email' => $validated['email'],
+            // Optional: lets the account sign in by a code sent to the phone.
+            'mobile' => filled($validated['mobile'] ?? null) ? IndianMobile::normalize($validated['mobile']) : null,
             'password' => Hash::make($validated['password']),
         ]);
 
@@ -56,71 +68,69 @@ new #[Layout('layouts.guest')] class extends Component
         // linked to a school — send them straight into that flow.
         $this->redirect(route('onboarding', absolute: false), navigate: true);
     }
+
+    public function rendering($view): void
+    {
+        $view->title(__('Create an account'));
+    }
 }; ?>
 
 <div>
-    <form wire:submit="register">
-        <!-- Role -->
-        <div>
+    <h1>{{ __('Create your Education account') }}</h1>
+    <p class="k-muted">{{ __('For parents, students and teachers. It takes a minute, and you can then link your account to your school.') }}</p>
+
+    <form wire:submit="register" class="mt-4" novalidate>
+        <div class="k-field">
             <x-input-label for="role" :value="__('I am registering as a')" />
-            <select wire:model="role" id="role" class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm block mt-1 w-full">
-                <option value="parent">Parent</option>
-                <option value="student">Student</option>
-                <option value="teacher">Teacher</option>
+            <select wire:model="role" id="role" class="k-select">
+                <option value="parent">{{ __('Parent') }}</option>
+                <option value="student">{{ __('Student') }}</option>
+                <option value="teacher">{{ __('Teacher') }}</option>
             </select>
-            <x-input-error :messages="$errors->get('role')" class="mt-2" />
-            <p class="text-xs text-gray-500 mt-1">
-                Registering a school instead?
-                <a href="{{ route('schools.register') }}" wire:navigate class="underline">Register your school here</a>
-                — School Admin and government accounts aren't created through this form.
+            <x-input-error :messages="$errors->get('role')" />
+            <p class="k-hint">
+                {{ __('Registering a school instead?') }}
+                <a href="{{ route('schools.register') }}" wire:navigate>{{ __('Register your school here') }}</a>
+                — {{ __('School Admin and government accounts are not created through this form.') }}
             </p>
         </div>
 
-        <!-- Name -->
-        <div class="mt-4">
+        <div class="k-field">
             <x-input-label for="name" :value="__('Name')" />
-            <x-text-input wire:model="name" id="name" class="block mt-1 w-full" type="text" name="name" required autofocus autocomplete="name" />
-            <x-input-error :messages="$errors->get('name')" class="mt-2" />
+            <x-text-input wire:model="name" id="name" type="text" name="name" required autofocus autocomplete="name" />
+            <x-input-error :messages="$errors->get('name')" />
         </div>
 
-        <!-- Email Address -->
-        <div class="mt-4">
+        <div class="k-field">
             <x-input-label for="email" :value="__('Email')" />
-            <x-text-input wire:model="email" id="email" class="block mt-1 w-full" type="email" name="email" required autocomplete="username" />
-            <x-input-error :messages="$errors->get('email')" class="mt-2" />
+            <x-text-input wire:model="email" id="email" type="email" name="email" required autocomplete="username" />
+            <x-input-error :messages="$errors->get('email')" />
         </div>
 
-        <!-- Password -->
-        <div class="mt-4">
+        <div class="k-field">
+            <x-input-label for="mobile" :value="__('Mobile number (optional)')" />
+            <x-text-input wire:model="mobile" id="mobile" type="tel" name="mobile" inputmode="tel" autocomplete="tel-national" placeholder="98765 43210" aria-describedby="mobile-hint" />
+            <p id="mobile-hint" class="k-hint">{{ __('Optional. Sign-in codes go by email for now; a code by text message will come later.') }}</p>
+            <x-input-error :messages="$errors->get('mobile')" />
+        </div>
+
+        <div class="k-field">
             <x-input-label for="password" :value="__('Password')" />
-
-            <x-text-input wire:model="password" id="password" class="block mt-1 w-full"
-                            type="password"
-                            name="password"
-                            required autocomplete="new-password" />
-
-            <x-input-error :messages="$errors->get('password')" class="mt-2" />
+            <x-text-input wire:model="password" id="password" type="password" name="password" required autocomplete="new-password" />
+            <x-input-error :messages="$errors->get('password')" />
         </div>
 
-        <!-- Confirm Password -->
-        <div class="mt-4">
+        <div class="k-field">
             <x-input-label for="password_confirmation" :value="__('Confirm Password')" />
-
-            <x-text-input wire:model="password_confirmation" id="password_confirmation" class="block mt-1 w-full"
-                            type="password"
-                            name="password_confirmation" required autocomplete="new-password" />
-
-            <x-input-error :messages="$errors->get('password_confirmation')" class="mt-2" />
+            <x-text-input wire:model="password_confirmation" id="password_confirmation" type="password" name="password_confirmation" required autocomplete="new-password" />
+            <x-input-error :messages="$errors->get('password_confirmation')" />
         </div>
 
-        <div class="flex items-center justify-end mt-4">
-            <a class="underline text-sm text-gray-600 hover:text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500" href="{{ route('login') }}" wire:navigate>
-                {{ __('Already registered?') }}
-            </a>
-
-            <x-primary-button class="ms-4">
-                {{ __('Register') }}
-            </x-primary-button>
-        </div>
+        <button type="submit" class="k-btn k-btn--block" wire:loading.attr="aria-busy" wire:target="register">{{ __('Create account') }}</button>
     </form>
+
+    <p class="mt-6 mb-0">
+        {{ __('Already have an Education account?') }}
+        <a href="{{ route('sign-in') }}" wire:navigate class="k-link font-semibold">{{ __('Sign in') }}</a>
+    </p>
 </div>

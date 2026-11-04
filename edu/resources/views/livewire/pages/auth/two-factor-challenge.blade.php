@@ -2,7 +2,9 @@
 
 use App\Models\TwoFactorAuthentication;
 use App\Models\User;
+use App\Support\Attempts;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
@@ -37,34 +39,65 @@ new #[Layout('layouts.guest')] class extends Component
         // Keyed on the account rather than the address, so moving to another
         // address does not buy more guesses.
         $throttleKey = 'two-factor|'.$userId;
-
-        if (RateLimiter::tooManyAttempts($throttleKey, self::MAX_ATTEMPTS)) {
+        $throttled = function () use ($throttleKey): never {
             $seconds = RateLimiter::availableIn($throttleKey);
 
             throw ValidationException::withMessages([
                 'code' => trans('auth.throttle', ['seconds' => $seconds, 'minutes' => ceil($seconds / 60)]),
             ]);
+        };
+
+        if (RateLimiter::tooManyAttempts($throttleKey, self::MAX_ATTEMPTS)) {
+            $throttled();
         }
 
         $user = User::findOrFail($userId);
+
+        // The first step was passed against the account as it was then. If
+        // its password has changed since (the first emailed code made it the
+        // inbox owner's, or it was reset), this challenge was opened by
+        // whoever was signing in before, and it ends here.
+        $passedWith = session('2fa_password');
+        if ($passedWith !== null && ! hash_equals((string) $passedWith, Auth::guard()->hashPasswordForCookie($user->getAuthPassword()))) {
+            session()->forget(['2fa_user_id', '2fa_remember', '2fa_password']);
+            $this->redirect(route('login', absolute: false), navigate: true);
+
+            return;
+        }
+
         $twoFactor = TwoFactorAuthentication::where('user_id', $user->id)->firstOrFail();
 
         $this->validate(['code' => ['required', 'string']]);
 
+        // Counted before the code is checked, and decided on this request's
+        // own count (Attempts::hit): requests that arrive together all pass
+        // the check above before any of them is counted, so counting only
+        // after a miss let each of them check a code.
+        if (Attempts::hit($throttleKey, 60) > self::MAX_ATTEMPTS) {
+            $throttled();
+        }
+
         $verified = false;
 
         if ($this->useRecoveryCode) {
-            $codes = $twoFactor->recovery_codes ?? [];
-            if (in_array($this->code, $codes, true)) {
-                $verified = true;
-                $twoFactor->update(['recovery_codes' => array_values(array_diff($codes, [$this->code]))]);
-            }
+            // Spent inside a row lock, on the codes as they are under it: two
+            // requests carrying the same code at once could otherwise both
+            // find it unspent and both sign in.
+            $verified = DB::transaction(function () use ($twoFactor) {
+                $locked = TwoFactorAuthentication::whereKey($twoFactor->getKey())->lockForUpdate()->firstOrFail();
+                $codes = $locked->recovery_codes ?? [];
+                if (! in_array($this->code, $codes, true)) {
+                    return false;
+                }
+                $locked->update(['recovery_codes' => array_values(array_diff($codes, [$this->code]))]);
+
+                return true;
+            });
         } else {
             $verified = (new Google2FA())->verifyKey($twoFactor->secret, $this->code);
         }
 
         if (! $verified) {
-            RateLimiter::hit($throttleKey);
             $this->addError('code', 'That code is not valid.');
 
             return;
@@ -72,31 +105,33 @@ new #[Layout('layouts.guest')] class extends Component
 
         RateLimiter::clear($throttleKey);
         Auth::login($user, session('2fa_remember', false));
-        session()->forget(['2fa_user_id', '2fa_remember']);
+        session()->forget(['2fa_user_id', '2fa_remember', '2fa_password']);
         Session::regenerate();
 
         $this->redirectIntended(default: route('dashboard', absolute: false), navigate: true);
     }
+
+    public function rendering($view): void
+    {
+        $view->title(__('Two-factor sign-in'));
+    }
 }; ?>
 
 <div>
-    <p class="text-sm text-gray-600 mb-4">
-        Enter the 6-digit code from your authenticator app.
-    </p>
+    <h1>{{ __('One more step') }}</h1>
+    <p class="k-muted">{{ $useRecoveryCode ? __('Enter one of your recovery codes. Each code works once.') : __('Enter the 6-digit code from your authenticator app.') }}</p>
 
-    <form wire:submit="verify">
-        <div>
-            <x-input-label for="code" :value="$useRecoveryCode ? 'Recovery code' : 'Authentication code'" />
-            <x-text-input wire:model="code" id="code" class="block mt-1 w-full" inputmode="{{ $useRecoveryCode ? 'text' : 'numeric' }}" autocomplete="one-time-code" autofocus />
-            <x-input-error :messages="$errors->get('code')" class="mt-2" />
+    <form wire:submit="verify" class="mt-4" novalidate>
+        <div class="k-field">
+            <x-input-label for="code" :value="$useRecoveryCode ? __('Recovery code') : __('Authentication code')" />
+            <x-text-input wire:model="code" id="code" inputmode="{{ $useRecoveryCode ? 'text' : 'numeric' }}" autocomplete="one-time-code" autofocus />
+            <x-input-error :messages="$errors->get('code')" />
         </div>
 
-        <button type="button" wire:click="$toggle('useRecoveryCode')" class="text-sm text-indigo-600 hover:underline mt-3">
-            {{ $useRecoveryCode ? 'Use authenticator app instead' : "Use a recovery code instead" }}
+        <button type="submit" class="k-btn k-btn--block" wire:loading.attr="aria-busy" wire:target="verify">{{ __('Verify') }}</button>
+
+        <button type="button" wire:click="$toggle('useRecoveryCode')" class="k-btn k-btn--ghost mt-3">
+            {{ $useRecoveryCode ? __('Use authenticator app instead') : __('Use a recovery code instead') }}
         </button>
-
-        <div class="flex justify-end mt-4">
-            <x-primary-button>Verify</x-primary-button>
-        </div>
     </form>
 </div>

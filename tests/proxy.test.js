@@ -471,8 +471,8 @@ test('an app that is down gives a 502 that still carries the menu', async () => 
     assert.equal(res.status, 502);
     const html = await res.text();
     assert.match(html, /not responding/);
-    // The bar, so the rest of the estate stays reachable from the error page.
-    assert.match(html, /bk-tabs/);
+    // The shell, so the rest of the estate stays reachable from the error page.
+    assert.match(html, /class="ks-bar/);
     assert.match(html, /Driving Simulator/);
     assert.equal(res.headers.get('x-robots-tag'), 'noindex');
   } finally {
@@ -490,7 +490,8 @@ test("a stripping tab's 502 page still marks that tab as current", async () => {
     assert.equal(res.status, 502);
     const html = await res.text();
     assert.match(html, /not responding/);
-    assert.match(html, /<a href="\/edu\/" aria-current="page">Education<\/a>/);
+    assert.match(html, /<header class="ks-bar bk-menu" data-project="education">/);
+    assert.match(html, /<a class="ks-item" href="\/edu\/" aria-current="page">/);
   } finally {
     await close(hub.server);
   }
@@ -592,4 +593,114 @@ test('a tier default meets its gate like any other origin, and a forged token ne
     await close(hub.server);
     await close(upstream.server);
   }
+});
+
+test("the hub admin's session cookie never reaches a project app; the project's own cookies do", async () => {
+  const seen = [];
+  const upstream = await listen((req, res) => { seen.push(req.headers.cookie === undefined ? null : req.headers.cookie); res.end('app'); });
+  const saved = proxy.TIER_ORIGINS.dev;
+  proxy.TIER_ORIGINS.dev = { edu: upstream.origin, ladwani: upstream.origin };
+  const app = express();
+  try {
+    proxy.mount(app, { env: { APP_ENV: 'dev' }, log: { error: () => {} } });
+  } finally {
+    proxy.TIER_ORIGINS.dev = saved;
+  }
+  const hub = await listen(app);
+  const get = (path, cookie) => new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port: hub.server.address().port, path, headers: cookie ? { cookie } : {} }, (res) => {
+      res.resume(); res.on('end', () => resolve(res.statusCode));
+    }).on('error', reject);
+  });
+  try {
+    assert.equal(await get('/edu/', 'hub_admin_sid=secret; edu_sid=mine; k_lang=mr; hub_admin_sid_csrf=pair; k_admin=1'), 200);
+    assert.equal(await get('/edu/', 'hub_admin_sid=secret;hub_admin_sid_csrf=pair'), 200);
+    assert.equal(await get('/edu/', 'edu_sid=mine'), 200);
+    assert.equal(await get('/edu/'), 200);
+    assert.deepEqual(seen, ['edu_sid=mine; k_lang=mr; k_admin=1', null, 'edu_sid=mine', null]);
+  } finally {
+    await close(hub.server);
+    await close(upstream.server);
+  }
+  // The helper on its own: a value holding "=" is kept whole, a name only matches exactly.
+  const req = { headers: { cookie: 'a=1=2; hub_admin_sid_x=keep; hub_admin_sid=go' } };
+  proxy.dropCookies(req, proxy.HUB_PRIVATE_COOKIES);
+  assert.equal(req.headers.cookie, 'a=1=2; hub_admin_sid_x=keep');
+});
+
+test('the app is told one visitor address, the one the hub worked out, and the hub\'s secret only when it is set (D-038)', async () => {
+  const seen = [];
+  const upstream = await listen((req, res) => { seen.push({ xff: req.headers['x-forwarded-for'] || null, secret: req.headers['x-bkesari-proxy'] || null }); res.end('app'); });
+  const run = async (env) => {
+    const saved = proxy.TIER_ORIGINS.dev;
+    proxy.TIER_ORIGINS.dev = { edu: upstream.origin, ladwani: upstream.origin };
+    const app = express();
+    try { proxy.mount(app, { env: { APP_ENV: 'dev', ...env }, log: { error: () => {} } }); } finally { proxy.TIER_ORIGINS.dev = saved; }
+    const hub = await listen(app);
+    try {
+      await new Promise((resolve, reject) => {
+        http.get({ host: '127.0.0.1', port: hub.server.address().port, path: '/edu/login',
+          headers: { 'x-forwarded-for': '198.51.100.7, 203.0.113.9', 'x-bkesari-proxy': 'forged' } }, (res) => { res.resume(); res.on('end', resolve); }).on('error', reject);
+      });
+    } finally { await close(hub.server); }
+  };
+  try {
+    await run({});
+    await run({ HUB_PROXY_SECRET: 'test-only-proxy-secret-0123456789' });
+    // No trust proxy in this bare app, so the hub's view of the visitor is the socket's address;
+    // the chain the client sent never reaches the app, nor its forged secret.
+    assert.deepEqual(seen, [
+      { xff: '127.0.0.1', secret: null },
+      { xff: '127.0.0.1', secret: 'test-only-proxy-secret-0123456789' },
+    ]);
+  } finally {
+    await close(upstream.server);
+  }
+});
+
+test('a request with an Expect header is told the same as any other: the address the hub worked out, and the hub\'s secret (D-038)', async () => {
+  // The proxy builds no proxyReq event for such a request (Node writes its
+  // headers out at once), so a header set there would not reach the app and
+  // the client's own chain would. curl sends Expect: 100-continue on its own
+  // for a large body.
+  const seen = [];
+  const upstream = await listen((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; }).on('end', () => {
+      seen.push({ xff: req.headers['x-forwarded-for'] || null, secret: req.headers['x-bkesari-proxy'] || null, body });
+      res.end('app');
+    });
+  });
+  const saved = proxy.TIER_ORIGINS.dev;
+  proxy.TIER_ORIGINS.dev = { edu: upstream.origin };
+  const app = express();
+  app.set('trust proxy', 'loopback'); // what portal/server.js sets when TRUST_PROXY is unset
+  try {
+    proxy.mount(app, { env: { APP_ENV: 'dev', HUB_PROXY_SECRET: 'test-only-proxy-secret-0123456789' }, log: { error: () => {} } });
+  } finally {
+    proxy.TIER_ORIGINS.dev = saved;
+  }
+  const hub = await listen(app);
+  const send = (extra, body) => new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1', port: hub.server.address().port, method: 'POST', path: '/edu/api/orders',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.7, 203.0.113.9', 'x-bkesari-proxy': 'forged', ...extra },
+    }, (res) => { res.resume(); res.on('end', resolve); });
+    req.on('error', reject);
+    if (extra.expect) req.on('continue', () => req.end(body));
+    else req.end(body);
+  });
+  try {
+    await send({}, '{"qty":1}');
+    await send({ expect: '100-continue' }, '{"qty":2}');
+  } finally {
+    await close(hub.server);
+    await close(upstream.server);
+  }
+  // A loopback caller is a trusted proxy here, so the hub's view of the visitor
+  // is the chain's last hop; the rest of the chain and the forged secret stay out.
+  assert.deepEqual(seen, [
+    { xff: '203.0.113.9', secret: 'test-only-proxy-secret-0123456789', body: '{"qty":1}' },
+    { xff: '203.0.113.9', secret: 'test-only-proxy-secret-0123456789', body: '{"qty":2}' },
+  ]);
 });

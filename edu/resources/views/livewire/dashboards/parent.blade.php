@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\AnonymousIdentity;
+use App\Models\GrowthGoal;
+use App\Models\GrowthPlan;
 use App\Models\HealthFollowup;
 use App\Models\ParentSchoolRelationship;
 use App\Models\User;
@@ -35,7 +37,23 @@ new #[Layout('layouts.app')] class extends Component
             ->map(fn (User $child): array => [
                 'id' => $child->id,
                 'name' => $child->name,
-                'growth_consent' => $consent->hasConsent($child->id, 'capability_growth'),
+                'growth_consent' => $growth = $consent->hasConsent($child->id, 'capability_growth'),
+                // This term's goals and where each one stands: what the
+                // growth record itself shows a guardian, from the latest plan
+                // shared with them. Statuses only, never a figure: the
+                // framework forbids adding a child's record up into a score.
+                'goals' => $growth
+                    ? (GrowthPlan::where('student_user_id', $child->id)
+                        ->whereNotNull('shared_with_parent_at')
+                        ->with('goals')
+                        ->latest('academic_term')
+                        ->first()?->goals ?? collect())
+                        ->map(fn (GrowthGoal $goal): array => [
+                            'statement' => $goal->goal_statement,
+                            'status' => $goal->status,
+                            'label' => __($goal->statusLabel()),
+                        ])->all()
+                    : [],
                 'health_consent' => $consent->hasConsent($child->id, 'physical_health'),
                 // Open follow-ups are surfaced on the dashboard rather than
                 // only inside the record: a screening finding nobody acted on
@@ -50,81 +68,98 @@ new #[Layout('layouts.app')] class extends Component
 
 <div>
     <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">Parent Dashboard</h2>
+        <h2>{{ __('Parent Dashboard') }}</h2>
     </x-slot>
 
-    <div class="py-8 max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-6">
-        <div class="bg-white rounded-lg shadow p-6">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="font-semibold text-gray-900">My Schools</h3>
-                <a href="{{ route('schools.index') }}" wire:navigate class="text-sm text-indigo-600 hover:underline">Find School</a>
-            </div>
-            @forelse ($mySchools as $rel)
-                <div class="flex justify-between py-2 border-b last:border-0 text-sm">
-                    <a href="{{ route('schools.show', $rel->school_id) }}" wire:navigate class="text-indigo-600 hover:underline">{{ $rel->school->name }}</a>
-                    <span class="text-gray-400">{{ ucfirst($rel->status) }}</span>
-                </div>
-            @empty
-                <p class="text-sm text-gray-400">No linked schools yet. Use "Find School" to link one.</p>
-            @endforelse
-        </div>
-
-        <div class="bg-white rounded-lg shadow p-6">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="font-semibold text-gray-900">My Children</h3>
-                <a href="{{ route('consent.manage') }}" wire:navigate class="text-sm text-indigo-600 hover:underline">Consent settings</a>
+    <div class="max-w-5xl space-y-6">
+        <section class="k-card" aria-labelledby="children-title">
+            <div class="flex flex-wrap justify-between items-center gap-2 mb-2">
+                <h3 id="children-title" class="text-lg font-bold text-gray-900">{{ __('My Children') }}</h3>
+                <a href="{{ route('consent.manage') }}" wire:navigate class="k-link text-sm">{{ __('Consent settings') }}</a>
             </div>
             @forelse ($myChildren as $child)
-                <div class="flex flex-wrap items-center justify-between gap-2 py-3 border-b last:border-0">
-                    <div>
-                        <div class="text-sm font-medium text-gray-900">{{ $child['name'] }}</div>
-                        @if (! $child['growth_consent'])
-                            <div class="text-xs text-amber-700">
-                                Growth tracking is off — nothing is being collected.
+                <div class="py-4 border-b border-gray-200 last:border-0">
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div class="flex items-center gap-3">
+                            <span class="k-avatar" aria-hidden="true">{{ mb_strtoupper(mb_substr($child['name'], 0, 1)) }}</span>
+                            <div>
+                                <div class="font-semibold text-gray-900">{{ $child['name'] }}</div>
+                                @if (! $child['growth_consent'])
+                                    <div class="text-sm text-amber-700">
+                                        {{ __('Growth tracking is off — nothing is being collected.') }}
+                                    </div>
+                                @endif
+                                @if ($child['health_consent'] && $child['open_followups'] > 0)
+                                    <div class="text-sm text-amber-700">
+                                        {{ trans_choice(':count health follow-up still open.|:count health follow-ups still open.', $child['open_followups']) }}
+                                    </div>
+                                @endif
                             </div>
-                        @endif
-                        @if ($child['health_consent'] && $child['open_followups'] > 0)
-                            <div class="text-xs text-amber-700">
-                                {{ $child['open_followups'] }} health
-                                {{ Str::plural('follow-up', $child['open_followups']) }} still open.
-                            </div>
-                        @endif
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            @if ($child['health_consent'])
+                                <a href="{{ route('health.show', $child['id']) }}" wire:navigate class="k-btn k-btn--secondary">{{ __('Health record') }}</a>
+                            @endif
+                            @if ($child['growth_consent'])
+                                <a href="{{ route('growth.show', $child['id']) }}" wire:navigate class="k-btn">{{ __('View growth') }}</a>
+                            @else
+                                <a href="{{ route('consent.manage') }}" wire:navigate class="k-btn k-btn--secondary">{{ __('Review consent') }}</a>
+                            @endif
+                        </div>
                     </div>
-                    <div class="flex gap-2">
-                        @if ($child['health_consent'])
-                            <a href="{{ route('health.show', $child['id']) }}" wire:navigate
-                                class="px-3 py-1.5 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50">Health record</a>
-                        @endif
-                        @if ($child['growth_consent'])
-                            <a href="{{ route('growth.show', $child['id']) }}" wire:navigate
-                                class="px-3 py-1.5 text-sm rounded bg-indigo-600 text-white hover:bg-indigo-700">View growth</a>
+
+                    @if ($child['growth_consent'])
+                        @if (count($child['goals']))
+                            <h4 class="mt-4 text-sm font-semibold text-gray-700">{{ __('This term’s goals') }}</h4>
+                            <ul class="mt-2 space-y-2">
+                                @foreach ($child['goals'] as $goal)
+                                    <li class="flex flex-wrap items-start justify-between gap-2 rounded-md bg-gray-100 px-3 py-2">
+                                        <span class="text-sm text-gray-800">{{ $goal['statement'] }}</span>
+                                        <span class="k-chip {{ match ($goal['status']) { 'achieved' => 'k-chip--success', 'in_progress' => 'k-chip--info', 'continuing' => 'k-chip--warning', default => '' } }}">{{ $goal['label'] }}</span>
+                                    </li>
+                                @endforeach
+                            </ul>
                         @else
-                            <a href="{{ route('consent.manage') }}" wire:navigate
-                                class="px-3 py-1.5 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50">Review consent</a>
+                            <p class="mt-3 text-sm text-gray-600">{{ __('No growth plan has been shared with you yet this term.') }}</p>
                         @endif
-                    </div>
+                    @endif
                 </div>
             @empty
-                <p class="text-sm text-gray-400">
-                    No child linked to your account yet. Once a school verifies your link to your child,
-                    their growth record appears here.
+                <p class="text-sm text-gray-600">
+                    {{ __('No child linked to your account yet. Once a school verifies your link to your child, their growth record appears here.') }}
                 </p>
+            @endforelse
+        </section>
+
+        <div class="k-card">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-semibold text-gray-900">{{ __('My Schools') }}</h3>
+                <a href="{{ route('schools.index') }}" wire:navigate class="k-link text-sm">{{ __('Find School') }}</a>
+            </div>
+            @forelse ($mySchools as $rel)
+                <div class="flex justify-between py-2 border-b border-gray-200 last:border-0 text-sm">
+                    <a href="{{ route('schools.show', $rel->school_id) }}" wire:navigate class="k-link">{{ $rel->school->name }}</a>
+                    <span class="k-chip {{ $rel->status === 'verified' ? 'k-chip--success' : ($rel->status === 'rejected' ? 'k-chip--danger' : 'k-chip--warning') }}">{{ __(ucfirst($rel->status)) }}</span>
+                </div>
+            @empty
+                <p class="text-sm text-gray-600">{{ __('No linked schools yet. Use "Find School" to link one.') }}</p>
             @endforelse
         </div>
 
-        <div class="bg-white rounded-lg shadow p-6">
-            <a href="{{ route('retaliation.create') }}" wire:navigate class="inline-flex items-center px-3 py-1.5 bg-gray-800 text-white text-sm rounded-md hover:bg-gray-700">Report Retaliation</a>
+        <div class="k-card flex flex-wrap items-center justify-between gap-3">
+            <p class="text-sm text-gray-700 mb-0">{{ __('Facing pressure or unfair treatment after raising a concern? Report it separately; it is reviewed first.') }}</p>
+            <a href="{{ route('retaliation.create') }}" wire:navigate class="k-btn k-btn--secondary">{{ __('Report Retaliation') }}</a>
         </div>
 
-        <div class="bg-white rounded-lg shadow p-6">
-            <h3 class="font-semibold text-gray-900 mb-4">My Complaints</h3>
+        <div class="k-card">
+            <h3 class="font-semibold text-gray-900 mb-4">{{ __('My Complaints') }}</h3>
             @forelse ($myComplaints as $complaint)
-                <a href="{{ route('complaints.show', $complaint) }}" wire:navigate class="flex justify-between py-2 border-b last:border-0 text-sm hover:bg-gray-50 -mx-2 px-2 rounded">
+                <a href="{{ route('complaints.show', $complaint) }}" wire:navigate class="flex flex-wrap justify-between gap-2 min-h-12 items-center py-2 border-b border-gray-200 last:border-0 text-sm hover:bg-gray-100 -mx-2 px-2 rounded-md">
                     <span>{{ $complaint->complaint_number }} — {{ $complaint->subject }}</span>
-                    <span class="text-gray-400">{{ str_replace('_', ' ', $complaint->status) }}</span>
+                    <span class="text-gray-600">{{ str_replace('_', ' ', $complaint->status) }}</span>
                 </a>
             @empty
-                <p class="text-sm text-gray-400">You haven't submitted any complaints.</p>
+                <p class="text-sm text-gray-600">{{ __("You haven't submitted any complaints.") }}</p>
             @endforelse
         </div>
     </div>
