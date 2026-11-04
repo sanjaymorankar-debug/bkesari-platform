@@ -80,6 +80,14 @@ describe('AuthService', () => {
       expect(err.getResponse()).toMatchObject({ reason: 'MOBILE_TAKEN' })
     })
 
+    it("refuses the hub's built-in administrators' addresses, however they are typed", async () => {
+      prisma.user.findUnique.mockResolvedValue(null)
+      for (const email of ['smorankar@builtin.bkesari.com', ' SonaliMorankar@Builtin.Bkesari.com ', 'anyone@builtin.bkesari.com']) {
+        await expect(service.register({ ...dto, email })).rejects.toThrow('This email address is reserved.')
+      }
+      expect(prisma.user.create).not.toHaveBeenCalled()
+    })
+
     it('checks for a duplicate email lower-cased, since PostgreSQL compares emails exactly', async () => {
       prisma.user.findUnique.mockResolvedValueOnce({ id: 'existing' })
       await expect(service.register({ ...dto, email: '  Taken@Example.COM ' })).rejects.toBeInstanceOf(ConflictException)
