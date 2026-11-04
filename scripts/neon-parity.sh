@@ -10,7 +10,8 @@
 # Needs: a PostgreSQL with TLS (the DIRECT URL) and a PgBouncer in transaction
 # mode in front of it that requires TLS (the POOLED URL), both reaching the
 # same throwaway database, owned by ROLE, which must not be a superuser.
-# THE DATABASE IS WIPED: the four tracker tables are dropped first. If the
+# THE DATABASE IS WIPED: TaskList's and ATIP's four tables (projects, tasks,
+# comments, atip_snapshots) are dropped first. If the
 # server certificate comes from a local CA, point NODE_EXTRA_CA_CERTS at it;
 # nothing here turns certificate checks off. Also needs node, psql and curl.
 #
@@ -35,6 +36,10 @@ IDLE="${PARITY_IDLE_SECONDS:-3}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASE="http://127.0.0.1:$PORT"
 U=parity; PW=parity-local-only; TOKEN=parity-local-token
+# The reads and writes go through TaskList with an account of its own (mobile +
+# OTP; APP_ENV=dev shows the code). Its session lives in the database, so it
+# outlives the hub's restart below.
+MOBILE=9876500998
 
 if [ -z "$POOLED" ] || [ -z "$DIRECT" ]; then
   echo "Neon parity SKIPPED: set PARITY_POOLED_URL and PARITY_DIRECT_URL (TEST_SPEC.md, Neon parity)."
@@ -53,17 +58,36 @@ bad() { fail=$((fail+1)); printf '  FAIL  %s\n' "$1"; [ $# -gt 1 ] && printf '  
 sql() { PGOPTIONS='-c client_min_messages=warning' psql "$DIRECT" -XAtq -v ON_ERROR_STOP=1 -c "$1"; }
 code() { curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$@"; }
 
-LOG=$(mktemp); HUB=""
+LOG=$(mktemp); JAR=$(mktemp); CSRF=""; HUB=""
 stop_hub() { [ -n "$HUB" ] && kill "$HUB" 2>/dev/null; wait "$HUB" 2>/dev/null; HUB=""; }
-trap 'stop_hub; rm -f "$LOG"' EXIT
+# /edu/ goes to a local stand-in, never to the live Education dev site (D-031).
+EDU_PORT=${EDU_STANDIN_PORT:-3111}
+node "$ROOT/scripts/edu-standin.js" "$EDU_PORT" >/dev/null 2>&1 & EDU=$!
+trap 'stop_hub; kill "$EDU" 2>/dev/null; rm -f "$LOG" "$JAR"' EXIT
+
+# json <key>: that key of the JSON object on stdin, or nothing.
+json() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const v=JSON.parse(s)[process.argv[1]];if(v!==undefined&&v!==null)console.log(v)}catch{}})' "$1"; }
+# TaskList's own sign-in, as a person does it: the session's CSRF token, a code
+# by SMS (shown on the dev tier), the code back. Leaves the cookie in $JAR.
+tl_sign_in() {
+  local j='content-type: application/json' c otp
+  c=$(curl -s -c "$JAR" --max-time 20 "$BASE/tasklist/api/auth/session" | json csrf)
+  otp=$(curl -s -b "$JAR" -c "$JAR" --max-time 20 -H "$j" -H "x-csrf-token: $c" \
+    -d "{\"mobile\":\"$MOBILE\",\"purpose\":\"sign-up\"}" "$BASE/tasklist/api/auth/otp/send" | json devCode)
+  CSRF=$(curl -s -b "$JAR" -c "$JAR" --max-time 20 -H "$j" -H "x-csrf-token: $c" \
+    -d "{\"mobile\":\"$MOBILE\",\"code\":\"$otp\",\"name\":\"Parity\"}" "$BASE/tasklist/api/auth/otp/verify" | json csrf)
+  [ -n "$CSRF" ]
+}
+tl_read()  { code -b "$JAR" "$BASE/tasklist/api/tasks"; }
+tl_write() { code -b "$JAR" -X POST -H 'content-type: application/json' -H "x-csrf-token: $CSRF" -d "{\"name\":\"$1\"}" "$BASE/tasklist/api/lists"; }
 
 # start_hub <DATABASE_URL> [DATABASE_URL_UNPOOLED]
 start_hub() {
   if curl -s -o /dev/null --max-time 2 "$BASE/"; then echo "        something is already listening on $PORT" >"$LOG"; return 1; fi
   : > "$LOG"
   ( cd "$ROOT" && exec env -u DB_HOST -u DB_PORT -u DB_NAME -u DB_USER -u DB_PASSWORD -u DB_SSL \
-      DATABASE_URL="$1" DATABASE_URL_UNPOOLED="${2:-}" PORT="$PORT" APP_ENV=dev \
-      TRACKER_USER=$U TRACKER_PASSWORD=$PW ATIP_USER=$U ATIP_PASSWORD=$PW ATIP_PUBLISH_TOKEN=$TOKEN \
+      DATABASE_URL="$1" DATABASE_URL_UNPOOLED="${2:-}" PORT="$PORT" APP_ENV=dev EDU_ORIGIN="http://127.0.0.1:$EDU_PORT" \
+      ATIP_USER=$U ATIP_PASSWORD=$PW ATIP_PUBLISH_TOKEN=$TOKEN \
       node portal/server.js ) >"$LOG" 2>&1 &
   HUB=$!
   for _ in $(seq 1 60); do
@@ -87,7 +111,7 @@ drop_connections() {
 
 # survives <label>: idle, drop, then the hub must still be up and answer a read and a write.
 survives() {
-  curl -s -o /dev/null -u "$U:$PW" "$BASE/tasks/api/overview"   # make sure it holds a connection
+  tl_read >/dev/null   # make sure it holds a connection
   sleep "$IDLE"
   drop_connections
   if [ "${DROPPED:-0}" -gt 0 ]; then ok "$1: the server dropped $DROPPED idle connection(s) of $role"
@@ -99,8 +123,8 @@ survives() {
   fi
   ok "$1: the hub is still running after its connections were dropped"
   local r w
-  r=$(code -u "$U:$PW" "$BASE/tasks/api/overview")
-  w=$(code -u "$U:$PW" -X POST -H 'content-type: application/json' -d '{"name":"after the drop"}' "$BASE/tasks/api/projects")
+  r=$(tl_read)
+  w=$(tl_write "after the drop")
   if [ "$r" = 200 ] && [ "$w" = 201 ]; then ok "$1: the next read and write work ($r, $w)"
   else bad "$1: the next read and write work" "read answered $r, write $w"; fi
 }
@@ -150,8 +174,14 @@ if out=$(bash "$ROOT/scripts/smoke-dev.sh" "$BASE" --env dev 2>&1); then
 else
   bad "scripts/smoke-dev.sh passes" "$(printf '%s\n' "$out" | grep -E 'FAIL' | sed 's/\x1b\[[0-9;]*m//g' | head -3 | tr '\n' ' ')"
 fi
-c=$(code -u "$U:$PW" -X POST -H 'content-type: application/json' -d '{"name":"parity"}' "$BASE/tasks/api/projects")
-[ "$c" = 201 ] && ok "a project is saved through the pooler (201)" || bad "a project is saved through the pooler" "answered $c"
+# This database is wiped anyway, and every run signs up the same mobile from 127.0.0.1. TaskList
+# allows 5 codes per mobile an hour (tests/tasklist.pg.test.js checks that), so without a fresh
+# count the sixth run inside an hour would be refused with a 429.
+sql "DELETE FROM tl_rate_limits" >/dev/null || bad "TaskList's rate-limit counters are reset for this run"
+tl_sign_in && ok "a TaskList account signs in through the pooler (mobile + OTP)" \
+  || bad "a TaskList account signs in through the pooler" "no session; is APP_ENV=dev showing the code? $(tail -3 "$LOG" | tr '\n' ' ')"
+c=$(tl_write "parity")
+[ "$c" = 201 ] && ok "a TaskList list is saved through the pooler (201)" || bad "a TaskList list is saved through the pooler" "answered $c"
 c=$(code -X POST -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
   -d '{"html":"<html><body>parity</body></html>"}' "$BASE/ATIP/api/snapshot")
 [ "$c" = 200 ] && ok "an ATIP snapshot is stored through the pooler (200)" || bad "an ATIP snapshot is stored through the pooler" "answered $c"
@@ -160,7 +190,7 @@ echo; echo "Connections dropped while idle"
 survives "pooled"
 stop_hub
 if start_hub "$DIRECT"; then
-  curl -s -o /dev/null -u "$U:$PW" "$BASE/tasks/api/overview"
+  tl_read >/dev/null
   tls=$(sql "SELECT count(*) FILTER (WHERE s.ssl), count(*) FROM pg_stat_ssl s JOIN pg_stat_activity a USING (pid)
              WHERE a.usename = current_user AND a.pid <> pg_backend_pid()")
   IFS='|' read -r enc total <<<"$tls"

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../lib/api-client'
 import { errorMessage } from '../../lib/auth-context'
 import Link from 'next/link'
-import { RequireAuth, TopBar, Shell, ErrorBanner, StatusPill } from '../../components/ui'
+import { RequireAuth, TopBar, Shell, ErrorBanner, StatusPill, ListSkeleton, EmptyList } from '../../components/ui'
 
 interface ApprovalRow {
   id: string
@@ -52,8 +52,8 @@ export default function ApprovalsPage() {
         </div>
         <ErrorBanner message={error} />
 
-        {approvals === null && !error && <p className="muted">Loading…</p>}
-        {approvals?.length === 0 && <p className="muted">Nothing pending review.</p>}
+        {approvals === null && !error && <ListSkeleton />}
+        {approvals?.length === 0 && <EmptyList message="empty.approvals" />}
 
         <div className="stack" style={{ marginTop: 16 }}>
           {approvals?.map((a) => (

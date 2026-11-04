@@ -1,6 +1,16 @@
 <?php
 
-use Illuminate\Support\Str;
+/*
+ * Education keeps its own accounts, end to end, so its session cookie is its
+ * own too: `edu_sid`, sent only to the path the app is published under (the
+ * path of APP_URL: `/edu` behind bkesari.com, `/` on a domain of its own),
+ * never readable from JavaScript, SameSite=Lax, and Secure whenever APP_URL is
+ * https. Every cookie Laravel sets (XSRF-TOKEN, remember-me) takes the same
+ * path, domain and Secure flag from here. Each can still be overridden with
+ * its SESSION_* variable.
+ */
+$appUrl = (string) env('APP_URL', '');
+$publishedPath = rtrim((string) parse_url($appUrl, PHP_URL_PATH), '/');
 
 return [
 
@@ -127,10 +137,7 @@ return [
     |
     */
 
-    'cookie' => env(
-        'SESSION_COOKIE',
-        Str::slug((string) env('APP_NAME', 'laravel')).'-session'
-    ),
+    'cookie' => env('SESSION_COOKIE', 'edu_sid'),
 
     /*
     |--------------------------------------------------------------------------
@@ -143,7 +150,7 @@ return [
     |
     */
 
-    'path' => env('SESSION_PATH', '/'),
+    'path' => env('SESSION_PATH', $publishedPath === '' ? '/' : $publishedPath),
 
     /*
     |--------------------------------------------------------------------------
@@ -169,7 +176,7 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    'secure' => env('SESSION_SECURE_COOKIE', str_starts_with(strtolower($appUrl), 'https://')),
 
     /*
     |--------------------------------------------------------------------------
@@ -182,7 +189,7 @@ return [
     |
     */
 
-    'http_only' => env('SESSION_HTTP_ONLY', true),
+    'http_only' => true,
 
     /*
     |--------------------------------------------------------------------------

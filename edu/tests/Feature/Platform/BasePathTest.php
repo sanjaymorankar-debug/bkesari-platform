@@ -198,6 +198,32 @@ class BasePathTest extends TestCase
             ->assertJsonStructure(['paths']);
     }
 
+    public function test_the_session_cookie_is_sent_only_under_the_prefix_and_only_over_https(): void
+    {
+        // Education's own cookie, edu_sid: the path of APP_URL, so the other
+        // projects on bkesari.com never receive it, and Secure because
+        // APP_URL is https even though the hub forwards over plain HTTP.
+        $cookie = collect($this->get('http://dev.bkesari.com/login')->headers->getCookies())
+            ->firstWhere(fn ($c) => $c->getName() === 'edu_sid');
+
+        $this->assertNotNull($cookie);
+        $this->assertSame('/edu', $cookie->getPath());
+        $this->assertTrue($cookie->isSecure());
+        $this->assertTrue($cookie->isHttpOnly());
+        $this->assertSame('lax', $cookie->getSameSite());
+    }
+
+    public function test_the_shell_is_pointed_at_the_prefixed_me_endpoint(): void
+    {
+        $this->get('http://dev.bkesari.com/login')
+            ->assertOk()
+            ->assertSee('data-me-url="'.self::APP_URL.'/shell/me"', false);
+
+        $this->getJson('http://dev.bkesari.com/shell/me')
+            ->assertStatus(401)
+            ->assertJsonPath('signInUrl', self::APP_URL.'/sign-in');
+    }
+
     public function test_no_view_hardcodes_a_root_relative_link(): void
     {
         // A literal href="/..." or redirect('/') leaves the tab for the hub,

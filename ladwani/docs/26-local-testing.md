@@ -30,12 +30,17 @@ npm test
 
 ### Integration tier
 
-One spec, `apps/api/src/bookings/booking-concurrency.integration.spec.ts`,
-exists specifically to exercise behaviour that cannot be mocked: the
+Two specs exercise behaviour that cannot be mocked.
+`apps/api/src/bookings/booking-concurrency.integration.spec.ts` covers the
 `SELECT ... FOR UPDATE` row lock that stops two members booking the same
 asset slot (docs/11-booking-architecture.md §2). It fires 10 concurrent
 booking attempts at one slot and asserts exactly one wins. Mocking the
 database would mock away the only thing under test.
+`apps/api/src/auth/otp-concurrency.integration.spec.ts` does the same for
+one-time codes: 10 sends at once still email at most 3 codes an hour (the row
+lock on the account), 15 parallel guesses get no more than 5 comparisons, and
+a right code sent twice at once signs in once. Its mail goes to an in-memory
+transport; nothing is sent.
 
 It is self-seeding and self-cleaning: `beforeAll` creates its own category,
 asset and users with a random suffix, and `afterAll` deletes them. You do

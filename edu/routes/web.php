@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ComplaintEvidenceController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ShellController;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 
@@ -16,6 +17,10 @@ Volt::route('schools/{school}/improvement', 'improvement.show')->name('improveme
 
 // Spec section 3 - public, and deliberately reachable without an account.
 Volt::route('how-india-compares', 'benchmarks.index')->name('benchmarks.index');
+
+// Who is signed in to Education, for the bkesari shell's account menu. Open
+// to guests on purpose: a guest gets a 401 that says where to sign in.
+Route::get('shell/me', [ShellController::class, 'me'])->name('shell.me');
 
 // Accessible to guests and authenticated users alike — an invitation link
 // is often the recipient's very first visit to the site.

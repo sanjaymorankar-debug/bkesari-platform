@@ -5,9 +5,12 @@
 - **Library**: `@nestjs/passport` + `passport-jwt` (access tokens) + a custom `LocalStrategy`-style credential check for login (identifier can be mobile or email, resolved server-side — the exact bug fixed in the previous build's `authorize()` mismatch is avoided here by having exactly one code path that accepts a single `identifier` field, never separate `email`/`mobile` fields the frontend has to choose between).
 - **Password hashing**: bcrypt, cost factor 12 — proven, no reason to introduce argon2 complexity at this scale.
 - **Access token**: JWT, 15-minute expiry, payload = `{ sub: userId, roles, memberId }` — deliberately minimal, since a role change shouldn't require reasoning about what else might be stale in the token.
-- **Refresh token**: opaque random token, stored **hashed** in `refresh_tokens` (never the raw token), delivered to the web client as an httpOnly/Secure/SameSite=Strict cookie. Rotated on every use (old one invalidated, new one issued) — a reused, already-rotated refresh token is treated as a compromise signal and revokes the whole session family.
-- **OTP verification**: 6-digit, hashed at rest (bcrypt, same as passwords — never stored or logged in plaintext), 10-minute expiry, rate-limited to 3 requests per identifier per hour.
-- **Login rate limiting**: `@nestjs/throttler`, 5 attempts per identifier per 15 minutes, escalating lockout beyond that (mirrors the `failed_attempts`/`locked_until` fields already in the Phase 1 schema catalog).
+- **Refresh token**: opaque random token, stored **hashed** in `refresh_tokens` (never the raw token), delivered to the web client as the `lw_sid` cookie: HttpOnly, SameSite=Lax, Path=/ladwani (`LADWANI_COOKIE_PATH`), Secure except on plain http to localhost (`auth/session-cookie.ts`). Rotated on every use (old one invalidated, new one issued); a reused, already-rotated token is refused.
+- **OTP**: 6-digit, hashed at rest (bcrypt, same as passwords — never stored or logged in plaintext), 10-minute expiry, at most 3 sent per account per hour (counted under a row lock on the account, so requests sent together cannot exceed it), at most 5 tries per code (each try recorded before it is checked, so parallel guesses cannot exceed it), single use. **Codes go by email** (owner's decision, 4 Nov 2026: SMS is on hold), over SMTP (Hostinger email; `MAIL_*` settings, `apps/api/src/mail/mail-settings.ts`). Sign-up requires an email and the code verifies it (`email_verified`); the mobile number is kept on the account but not verified while SMS is on hold. Email + code is the primary sign-in (`/auth/otp/send` and `/auth/otp/login` with `{ email }`); a reset code goes to the account's email (`/auth/password/forgot`, `/auth/password/reset`). Sending answers the same whether or not the address or account exists, and sends nothing to an address without an account. The `{ mobile }` paths stay in the API for when SMS is back (`auth/code-delivery.service.ts`); the web screens offer them only when `GET /auth/session` reports `smsLive: true`.
+- **A code on screen (`devOtp`)**: only on the dev tier (`APP_ENV=dev`) or a local run (`APP_ENV` unset and `NODE_ENV` not `production`), and only when no mail provider is configured. Never on the test or production tiers (`APP_ENV=test`/`prod`, or no `APP_ENV` with `NODE_ENV=production`): there, without a provider, sending answers 503 "We could not send the email right now. Try again later or sign in with your password." (`apps/api/src/common/tier.ts`).
+- **Login rate limiting**: `@nestjs/throttler` per visitor on every auth route, plus 5 wrong passwords per account → password sign-in locked for 15 minutes (`failed_attempts`/`locked_until`). A code still signs in during a lock, and a reset clears it.
+- **Cross-site requests**: every `/auth` route refuses them (`auth/same-origin.guard.ts`): an `Origin` must name the host, and `Sec-Fetch-Site: cross-site` is refused.
+- **Own accounts only**: LadWani never trusts another bkesari project's sign-in; the hub's app shell only reads `GET /auth/session` to show who is signed in.
 
 ## 2. Authorization
 
@@ -56,7 +59,7 @@ Some actions are permission-gated *and* approval-gated simultaneously (e.g. `mem
 
 - Access token: in-memory (a React context/store), never `localStorage` — eliminates a whole class of XSS-driven token theft.
 - Refresh token: httpOnly cookie, inaccessible to JavaScript entirely.
-- On app load, silently attempt `/auth/refresh` using the cookie to re-establish an access token; a 401 there means genuinely logged out.
+- On app load, silently attempt `/auth/refresh` using the cookie to re-establish an access token; a 401 there means genuinely logged out. With an access token already held, `GET /auth/session` checks the cookie still holds a session (the app shell may have signed out) without rotating it.
 
 ## 4. What Explicitly Never Changes Based on Role
 

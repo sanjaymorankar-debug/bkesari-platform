@@ -88,9 +88,10 @@ function loadWorker() {
 
 // Pages and APIs whose answer depends on who is signed in, or that belong to a project tab.
 const PER_USER = [
-  '/hub/api/me', '/api/auth/get-session', '/tasks/', '/tasks/api/overview', '/tasks/live.js',
-  '/ATIP/', '/atip/api/archive', '/ladwani/orders', '/edu/livewire/update', '/edu/',
-  '/admin/access', '/access/request?project=edu', '/auth/sign-in',
+  '/hub/api/me', '/api/auth/get-session', '/tasks/', '/tasks/api/overview',
+  '/tasklist/', '/tasklist/api/tasks', '/tasklist/api/auth/me', '/tasklist/app.js',
+  '/ATIP/', '/atip/api/archive', '/ladwani/orders', '/ladwani/api/v1/auth/session', '/edu/livewire/update', '/edu/',
+  '/admin/', '/admin/api/state', '/access/request?project=edu', '/auth/sign-in', '/contact/',
 ];
 
 test('the worker caches only the static shell, and every shell file is a real static file', async () => {

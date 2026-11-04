@@ -27,11 +27,11 @@ probe() {
   ok "$url -> $code${needle:+ ('$needle')}"
 }
 
-# redirect URL LOCATION: a 302 to a location starting with LOCATION.
+# redirect URL LOCATION [STATUS]: a 302 (or STATUS) to a location starting with LOCATION.
 redirect() {
-  local url=$1 want=$2 code loc
+  local url=$1 want=$2 status=${3:-302} code loc
   read -r code loc < <(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 30 "$url")
-  if [[ "$code" == 302 && "$loc" == "$want"* ]]; then ok "$url -> 302 $loc"; else bad "$url -> $code $loc (want 302 $want...)"; fi
+  if [[ "$code" == "$status" && "$loc" == "$want"* ]]; then ok "$url -> $code $loc"; else bad "$url -> $code $loc (want $status $want...)"; fi
 }
 
 echo "-- the app on its own port"
@@ -49,9 +49,31 @@ probe "$HUB/edu/login" 200 'data-update-uri="/edu/livewire/update"'
 probe "$HUB/edu/schools" 200 'School Search'
 probe "$HUB/edu/schools/1" 200 'What it costs'
 probe "$HUB/edu/how-india-compares" 200 'There is no Indian PISA score on this page'
+probe "$HUB/edu/sign-in" 200 'This is a separate account for Education.'
+probe "$HUB/edu/sign-up" 200 'This is a separate account for Education.'
+probe "$HUB/edu/forgot-password" 200 'This is a separate account for Education.'
+
+# Education's own accounts: the shell asks /edu/shell/me (401 for a guest,
+# pointing at Education's own sign-in), and the session cookie is edu_sid,
+# HttpOnly, SameSite=Lax, sent only to /edu.
+code=$(curl -s -o "$TMP/me" -w '%{http_code}' --max-time 30 -H 'Accept: application/json' "$HUB/edu/shell/me")
+if [[ "$code" == 401 ]] && python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); sys.exit(0 if d.get("user") is None and d.get("signInUrl") == sys.argv[2] else 1)' "$TMP/me" "$HUB/edu/sign-in"; then
+  ok "$HUB/edu/shell/me -> 401, sign in at /edu/sign-in"
+else
+  bad "$HUB/edu/shell/me -> $code $(head -c 200 "$TMP/me")"
+fi
+cookie=$(curl -s -o /dev/null -D - --max-time 30 "$HUB/edu/login" | grep -i '^set-cookie: edu_sid=' | tr -d '\r')
+if [[ -n "$cookie" ]] && grep -qi 'path=/edu;' <<<"$cookie" && grep -qi 'httponly' <<<"$cookie" && grep -qi 'samesite=lax' <<<"$cookie"; then
+  ok "edu_sid is set on /edu, HttpOnly, SameSite=Lax"
+else
+  bad "edu_sid cookie wrong or missing: ${cookie:-none}"
+fi
+redirect "$HUB/education/sign-in" "$HUB/edu/sign-in" 301
 
 # Every URL these pages write must stay under /edu: a bare /login or /build/...
-# would take the visitor out of the tab and onto the hub.
+# would take the visitor out of the tab and onto the hub. The one exception is
+# what the hub itself serves to every project: the Kesari design system
+# (/kesari-ui/) and the app shell (/shared/menu.js).
 for page in /edu/ /edu/login /edu/schools /edu/schools/1; do
   curl -s --max-time 30 "$HUB$page" > "$TMP/page"
   if python3 -I - "$TMP/page" "$HUB" <<'PY'
@@ -60,7 +82,7 @@ html = open(sys.argv[1]).read(); hub = sys.argv[2]
 urls = re.findall(r'(?:href|src|action|data-update-uri)="([^"]*)"', html)
 def ours(u):
     return (u.startswith('/edu/') or u == '/edu' or u.startswith(hub + '/edu')
-            or u.startswith(('#', 'mailto:', 'tel:'))
+            or u.startswith(('#', 'mailto:', 'tel:', '/kesari-ui/', '/shared/'))
             or re.match(r'https?://', u) and not u.startswith(hub))
 escaping = [u for u in urls if not ours(u)]
 for u in escaping:
@@ -70,9 +92,10 @@ PY
   then ok "every URL on $page carries /edu"; else bad "URLs on $page escape /edu (listed above)"; fi
 done
 
-# The stylesheet, script and Livewire's own script, fetched as the browser would.
+# The stylesheet, script and Livewire's own script, and the hub's Kesari files
+# and shell, fetched as the browser would.
 curl -s --max-time 30 "$HUB/edu/login" > "$TMP/login"
-assets=$(grep -oE '(src|href)="[^"]*(/build/assets/[^"]+|/livewire/livewire(\.min)?\.js[^"]*)"' "$TMP/login" \
+assets=$(grep -oE '(src|href)="[^"]*(/build/assets/[^"]+|/livewire/livewire(\.min)?\.js[^"]*|/kesari-ui/[^"]+|/shared/menu\.js)"' "$TMP/login" \
   | sed -E 's/^(src|href)="//; s/"$//; s/&amp;/\&/g' | sort -u)
 [[ -n "$assets" ]] || bad "no build assets or Livewire script found on /edu/login"
 for asset in $assets; do
@@ -82,7 +105,7 @@ done
 
 echo "-- protected pages send a guest to the prefixed sign-in page"
 for p in /dashboard /admin/rating-weights /admin/audit-log /privacy/queue /privacy/requests \
-         /notifications /growth/1 /safeguarding /schools/1/safeguarding/report /complaints/create /profile; do
+         /notifications /growth/1 /safeguarding /schools/1/safeguarding/report /complaints/create /profile /verify; do
   redirect "$HUB/edu$p" "$HUB/edu/login"
 done
 

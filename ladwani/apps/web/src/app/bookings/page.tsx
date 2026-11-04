@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { api, ApiError } from '../../lib/api-client'
 import { errorMessage } from '../../lib/auth-context'
-import { RequireAuth, TopBar, Shell, ErrorBanner, StatusPill } from '../../components/ui'
+import { RequireAuth, TopBar, Shell, ErrorBanner, StatusPill, ListSkeleton, EmptyList } from '../../components/ui'
 
 interface BookingRow {
   id: string
@@ -61,7 +61,8 @@ export default function BookingsPage() {
         <ErrorBanner message={error} />
 
         <div className="stack">
-          {rows?.length === 0 && <p className="muted">Nothing here yet.</p>}
+          {rows === null && !error && <ListSkeleton />}
+          {rows?.length === 0 && <EmptyList message="empty.bookings" />}
           {rows?.map((b) => (
             <Link key={b.id} href={`/bookings/${b.id}`} className="card row" style={{ justifyContent: 'space-between', textDecoration: 'none', color: 'inherit' }}>
               <div>

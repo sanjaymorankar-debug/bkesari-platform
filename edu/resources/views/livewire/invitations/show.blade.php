@@ -7,6 +7,7 @@ use App\Models\StudentSchoolRelationship;
 use App\Models\TeacherSchoolRelationship;
 use App\Models\User;
 use App\Notifications\InvitationAccepted;
+use App\Support\BuiltinAdmins;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -27,7 +28,9 @@ new #[Layout('layouts.guest')] class extends Component
     {
         $invitation = Invitation::where('token', $token)->first();
 
-        if (! $invitation || $invitation->status !== 'pending') {
+        // No invitation makes or joins an account on the built-in
+        // administrators' reserved domain (D-036).
+        if (! $invitation || $invitation->status !== 'pending' || BuiltinAdmins::isReservedEmail($invitation->email)) {
             $this->invalid = true;
 
             return;

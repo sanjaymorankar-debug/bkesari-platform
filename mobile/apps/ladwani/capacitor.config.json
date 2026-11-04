@@ -1,0 +1,28 @@
+{
+  "appId": "com.bkesari.ladwani",
+  "appName": "LadWani",
+  "webDir": "www",
+  "server": {
+    "url": "https://bkesari.com/ladwani/",
+    "cleartext": false,
+    "allowNavigation": [
+      "bkesari.com"
+    ],
+    "errorPath": "index.html"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#FAF8F5"
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "backgroundColor": "#FAF8F5",
+    "limitsNavigationsToAppBoundDomains": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "backgroundColor": "#7C2D12",
+      "launchShowDuration": 600
+    }
+  }
+}

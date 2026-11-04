@@ -58,7 +58,7 @@ nothing half-applied); `ON_ERROR_STOP` stops at the first error instead of carry
 
 ---
 
-## Part 1: Portal, Task Tracker and ATIP viewer (Node.js)
+## Part 1: The hub, TaskList and the ATIP viewer (Node.js)
 
 ### 1. Point the site at this repo
 
@@ -93,7 +93,14 @@ safe to re-run.
 |---|---|
 | `DATABASE_URL` | Neon console → this tier's branch → **Connect** → database `neondb`, role `bk_portal_app`, *Connection pooling* **on**. Paste it whole: the `?sslmode=require&channel_binding=require` on the end is what turns TLS on |
 | `DATABASE_URL_UNPOOLED` | the same, with *Connection pooling* **off**. Used only to create the tables |
-| `TRACKER_USER`, `TRACKER_PASSWORD` | login for `/tasks/` |
+| `HUB_AUTH_SECRET` | long random secret (`openssl rand -hex 32`), **different per tier**. Seals the hub's forms and codes; TaskList's and LadWani's secrets are derived from it unless `TASKLIST_AUTH_SECRET` / `LADWANI_JWT_SECRET` are set |
+| `APP_ENV` | **`test` on test.bkesari.com, `prod` on bkesari.com** (`dev` on dev.bkesari.com). The hub can tell the tier from the host name without it, but LadWani reads only `APP_ENV`, and a blank one there counts as a local run. Only `dev` ever shows a sign-in code on screen, and only when no mail is set (D-029) |
+| `HUB_PROXY_SECRET` | **The same random value as `HUB_PROXY_SECRET` in this tier's Education `.env`** (`openssl rand -hex 32`, different per tier). The hub sends it with every request it forwards to Education, together with the visitor's address, so Education believes that address and nobody else's (D-038). Blank: Education trusts every proxy, as before, and a client can choose the address its rate limits count |
+| `HUB_ADMIN_EMAIL`, `HUB_ADMIN_PASSWORD_HASH` | the first hub admin, made at start when there is none (bcrypt hash: `node -e "console.log(require('bcryptjs').hashSync(process.argv[1], 11))" 'the password'`). `HUB_ADMIN_PASSWORD` (plain) also works; remove it after the first start. An address on `HUB_OWNER_EMAILS` (default `agtcipl@gmail.com`) gets the owner role, which also opens `/ATIP/` |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | **Hostinger email (SMTP), required on test and production.** One-time sign-in codes, password resets and verification links go by email (D-029). `MAIL_HOST=smtp.hostinger.com`, `MAIL_PORT=465`, `MAIL_USERNAME` = the mailbox, **`code@agtci.com`** (the owner's choice, 4 Nov 2026), `MAIL_PASSWORD` = its password (from the owner; never in the repository), `MAIL_FROM_ADDRESS` = the same address (Hostinger sends only as the signed-in mailbox), `MAIL_FROM_NAME` optional (each project sets its own: "TaskList · bkesari", "LadWani · bkesari"). Without them on test or production, code sign-in answers "could not send" and only password sign-in works; **no code is ever shown on screen there** — only the dev tier shows one, and only when no mail is set. Per project: `TASKLIST_MAIL_…`, `LADWANI_MAIL_…`, `HUB_MAIL_…`. **The hub and LadWani also accept `SMTP_USER` and `SMTP_PASSWORD`** (as set on bkesari.com on 4 Nov 2026), plus `SMTP_HOST` / `SMTP_PORT`; a mailbox with no host means `smtp.hostinger.com` on 465. Education (Laravel) reads only the `MAIL_*` names |
+| `SMS_WEBHOOK_URL`, `SMS_WEBHOOK_TOKEN` | **On hold (D-029); leave unset.** When an SMS gateway is chosen: POST `{"to":"+91…","text":"…"}` with `Authorization: Bearer <token>`. While unset, the sign-in screens offer codes by email only |
+| `RESEND_API_KEY` + `MAIL_FROM`, or `MAIL_WEBHOOK_URL` | alternatives to SMTP for the hub and TaskList, used only when `MAIL_HOST` is not set |
+| `TRUST_PROXY` | Express `trust proxy`. Default `loopback` (Hostinger's front end); set it to the front end's address if the visitor's IP shows as one address for everyone |
 | `ATIP_USER`, `ATIP_PASSWORD` | login for `/ATIP/` |
 | `ATIP_PUBLISH_TOKEN` | long random secret. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Use a **different one per tier** (dev/test/production). |
 
@@ -103,7 +110,7 @@ in place of `DATABASE_URL` for a database that is not on Neon; `.env.example` li
 Redeploy. Check (same checks for dev.bkesari.com and test.bkesari.com — add a **DEV** badge
 alongside the existing **TEST** one in `portal/` if you want the two visually distinguishable):
 - the site shows the menu
-- `/tasks/` asks for a login
+- `/tasklist/` sends you to TaskList's own sign-in, and `/admin` shows the hub admin's sign-in
 - `/ATIP/` asks for a login, then says *No dashboard snapshot has been published yet*
   (`/atip/` still resolves, for old bookmarks)
 
@@ -152,6 +159,66 @@ php artisan migrate --force
    `https://bkesari.com/edu`. Its path is what makes every link, asset and sign-in post come
    back under `/edu/`. Only a site that is used directly, not through the hub, takes its own
    hostname here.
+
+   `APP_ENV` names the tier: **`dev`** on devedu.bkesari.com, **`test`** on testedu.bkesari.com,
+   **`production`** on edu.bkesari.com (`.env.example` says `production`; change it on dev and
+   test). In the app it decides one thing: a one-time sign-in code may be shown on the page only
+   on `dev` (and `local`), and only when no mailer is set up. On `test` and `production` it never
+   is.
+
+   **Mail, through Hostinger's SMTP** (since 4 Nov 2026). SMS delivery is on hold, so sign-in
+   codes go to the person's email, next to the password; password resets and invitations use
+   the same mailer. Every tier's `.env` takes the mailbox settings the other bkesari apps use, under
+   Laravel's names (the password is the mailbox's, from hPanel → Emails; `MAIL_FROM_ADDRESS`
+   should be the same mailbox as `MAIL_USERNAME`):
+
+```bash
+MAIL_MAILER=smtp
+MAIL_SCHEME=smtps                 # port 465 is implicit TLS
+MAIL_HOST=smtp.hostinger.com
+MAIL_PORT=465
+MAIL_USERNAME=code@agtci.com
+MAIL_PASSWORD=<the mailbox password>
+MAIL_FROM_ADDRESS="code@agtci.com"
+MAIL_FROM_NAME="Education · bkesari"
+MAIL_TIMEOUT=15                   # seconds; a code is sent while the person waits
+```
+
+   Leave `SMS_WEBHOOK_URL` and `SMS_WEBHOOK_TOKEN` unset: the sign-in screen offers a code by
+   text message only when `SMS_WEBHOOK_URL` is set. Without a working mailer, test and
+   production refuse to make a code and say to use the password instead. On dev only,
+   `MAIL_MAILER=log` puts the code on the page instead of in an email; the demo accounts'
+   `@test.agtci.com` addresses receive no mail, so on dev they sign in with the password unless
+   that is set. To check the mailbox settings, ask for a code for an account whose address you
+   read (or `php artisan tinker` →
+   `Mail::raw('test', fn ($m) => $m->to('you@example.com')->subject('Education mail test'))`).
+   After changing any of these, run `php artisan config:cache` again (step 3).
+
+   **Built-in administrators** (D-036, Part 9): `smorankar` and `sonalimorankar` sign in on the
+   *Password* tab with the username in "Email", as system admin. Their password is only in this
+   tier's `.env`, as the second line `node scripts/hash-builtin-admin-password.js` prints, in its
+   single quotes so the `$` signs stay as they are; unset, or anything but a `$2y$` bcrypt hash,
+   their sign-in is off. Then `php artisan config:cache` again.
+
+```bash
+BUILTIN_ADMIN_PASSWORD_BCRYPT='$2y$12$…'
+```
+
+   **The hub's proxy secret** (D-038): the same value as `HUB_PROXY_SECRET` on this tier's hub
+   (Part 1). Only a request carrying it has its forwarded client address believed, so the
+   "five wrong passwords" lock and the code limits count the real visitor. Blank: every proxy is
+   trusted, as before, and `storage/logs/laravel.log` says so once a day. Then
+   `php artisan config:cache` again. **Never leave a value here that the hub does not send**
+   (unset on the hub, a different value, or the hub not yet restarted): every visitor through
+   the hub then counts as the hub's one address, so one person's five wrong passwords lock that
+   account for everyone, and everyone shares the 10 sign-in codes an hour. So set it on the hub
+   first and restart it, then here; to change it, blank it here (`config:cache`), change the
+   hub, then set the new value here. To check: five wrong passwords for a test account from one
+   device, and it must still sign in from a phone on mobile data.
+
+```bash
+HUB_PROXY_SECRET=<the hub's value>
+```
 
    `bk_edu` already exists on Neon with the migrations applied and no data, so `migrate`
    reports nothing to do there; the starting data is still needed. It differs by tier:
@@ -322,9 +389,9 @@ and server-rendering keeps that page's policy untouched.
 
 | Path | Served by |
 |---|---|
-| `/`, `/tasks/`, `/ATIP/` (owner only) | this repo (`portal/`) |
+| `/`, `/about`, `/contact`, `/privacy`, `/terms`, `/auth/sign-in` (project chooser), `/admin`, `/tasklist/`, `/ATIP/` (owner only), `/kesari-ui/1.0.0/`, `/styleguide/` (dev and test only) | this repo (`portal/`) |
 | `/environment/` (`/global-warming/` redirects to it), `/driving-simulator/` | this repo, static |
-| `/access/request`, `/admin/access`, `/hub/api/*`, `/.well-known/jwks.json` | this repo: sign-in permissions (Part 8) |
+| `/tasks/*`, `/education/*`, `/access/*`, `/admin/access` | redirects (to `/tasklist/`, `/edu/`, the chooser, `/admin`); the old `/hub/api/*`, `/tasks/api/*` and `/.well-known/jwks.json` answer 410 |
 | `/edu/`, `/ladwani/` | their own apps, reached through the hub |
 
 A tab whose destination is not deployed on a tier yet answers with a short
@@ -625,7 +692,7 @@ Settings on the hub site (hPanel → the site → Node.js → Environment variab
 | Variable | Value |
 |---|---|
 | `LADWANI_DATABASE_URL` | Neon project **bkesari-ladwani**, the tier's branch (`production` / `test`), database **`bk_ladwani`**, role `bk_ladwani_app`, **pooled** connection string. Without it the pages load and the API answers 503. |
-| `LADWANI_JWT_SECRET` | Optional. Unset, LadWani's session secret is derived from `HUB_TOKEN_PRIVATE_KEY`. |
+| `LADWANI_JWT_SECRET` | Optional. Unset, LadWani's session secret is derived from `HUB_AUTH_SECRET` (or the older `HUB_TOKEN_PRIVATE_KEY`). LadWani's session cookie is `lw_sid` on `/ladwani` (`LADWANI_COOKIE_PATH`, set by the hub). |
 | `LADWANI_TRUST_PROXY` | Not needed here. LadWani rate-limits per visitor (20 API calls a minute, 5 sign-ins per 15 minutes). Inside the hub every API call has passed the hub's sign-in, so the hub names the signed-in person in `X-Bkesari-Visitor` (dropping any value the browser sent) and LadWani counts per person (`VisitorThrottlerGuard`), whatever proxies are in front. Check after a deploy: two people signed in at once each keep their own budget. It still decides the address LadWani's audit log records (admin → audit log): unset, every entry shows Hostinger's front end rather than the visitor. Set it to the hops in front of the hub (`ladwani/docs/27-dev-deploy.md`) only if that column should be useful. |
 | `NODE_ENV` | `production`. LadWani's API reads it from the hub's process: otherwise its sign-up answer carries the one-time code (`devOtp`) and its session cookie is not `Secure`. The hub's own code does not read it. |
 | `TOKIO_WORKER_THREADS` | Leave unset. The hub sets it to 2 (`ENGINE_THREADS` in `portal/ladwani.js`) before LadWani's database engine (Prisma) starts. Uncapped, the engine starts a thread per CPU the server shows, which on shared hosting is every core of the machine, and Hostinger counts each thread against the account's process limit: on 2026-10-26 that left Education's PHP with no room to start (503 on every PHP page) until the hub was restarted. The startup log shows the value in effect next to the CPU count (`LadWani API: ready (database engine: 2 worker threads; the server shows N CPUs)`). A value set here must be a whole number above 0: the engine aborts the whole process on anything else, so the hub refuses it and only LadWani's API stays off (503, and the startup log says why). The same limit is why LadWani's connection pool is 5 (`connection_limit` in `ladwani/apps/api/src/prisma/prisma.service.ts`; Prisma's default is two per CPU core plus one): each new connection resolves Neon's host name on a thread of its own. A `connection_limit` in `LADWANI_DATABASE_URL` wins. |
@@ -875,68 +942,71 @@ read (no mailbox access); the test account was marked verified directly.
 
 ---
 
-## Part 8: The access layer (one bkesari ID, a permission per project)
+## Part 9: Accounts, one per project (since 3 Nov 2026)
 
-Sign-in is **Neon Auth** on the hub (`NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`).
-What a signed-in person may open is decided by the hub's own tables
-(`portal/sql/hub_schema.sql`): `hub_projects`, `project_access`, `access_requests`
-and `audit_log`.
+There is **no shared bkesari ID**. Each project signs its own people in, in its own database,
+with its own cookie; signing in to one grants nothing in another.
 
-| Setting | Meaning |
-|---|---|
-| `HUB_OWNER_EMAILS` | comma-separated owner emails (default `agtcipl@gmail.com`). The owner reaches ATIP, may decide every request, and needs a **verified** email |
-| `HUB_TOKEN_PRIVATE_KEY` | RSA private key (PEM, `\n` escapes allowed) that signs the project token. Set it on every tier; without it a key is made at start-up and tokens die on restart |
-| `BUILTIN_ADMIN_PASSWORD_HASH` | the password of the two built-in administrators, `smorankar` and `sonalimorankar`, as a scrypt hash (`node scripts/hash-builtin-admin-password.js`). Unset: they cannot sign in. See *Built-in administrators* below |
-| `TASKLIST_DATABASE_URL` / `ATIP_DATABASE_URL` | the `bk_tasklist` and `bk_atip` databases. `DATABASE_URL` is then the hub's own, holding only sign-in permissions. Unset, one database carries everything (local use) |
+| Project | Accounts (its own database) | Sign-in | Session cookie |
+|---|---|---|---|
+| TaskList | `tl_users`, `tl_sessions`, `tl_password_resets`, `tl_otp_codes`, `tl_rate_limits`, `tl_audit_log` (`bk_tasklist`) | `/tasklist/sign-in`: mobile + OTP, or email + password | `tl_sid`, Path=/tasklist |
+| LadWani | its `users` and refresh tokens (`bk_ladwani`) | `/ladwani/sign-in/`: mobile + OTP, or password | `lw_sid`, Path=/ladwani |
+| Education | its `users` (`bk_edu`) | `/edu/sign-in`: mobile + OTP, or email + password | `edu_sid`, Path = APP_URL's path |
+| Hub admin | `hub_admin_*` (`neondb`, the hub's) | `/admin`: email + password, no sign-up | `hub_admin_sid`, Path=/ (it also opens `/ATIP/` for the owner) |
 
-* `/ladwani/` and `/edu/`: not signed in -> `/auth/sign-in?next=...`; signed in without
-  permission -> `/access/request?project=...`; permitted -> the request is forwarded
-  with `X-Bkesari-Token`, an RS256 JWT valid 60 seconds with `sub` (user id), `email`,
-  `role`, `aud` (the project). Apps verify it against `/.well-known/jwks.json` and map
-  `sub` to a `hub_user_id` column on their own `users` table. A token for one project
-  is refused by another (`aud`). A client-sent `X-Bkesari-Token` is always discarded.
-* `/ATIP/`: owner only. Everyone else, signed in or not, gets a plain 404.
-* `/tasks/`: the existing `TRACKER_ALLOWED_EMAILS` list, plus anyone with a
-  `tasklist` row in `project_access`.
-* `/admin/access`: the owner (all projects) and each project's admin approve or
-  decline requests and revoke access. Every decision lands in `audit_log`.
+All cookies: HttpOnly, SameSite=Lax, Secure. Five wrong passwords lock an account for 15
+minutes; sign-in, codes and resets are rate-limited; every form carries a CSRF token.
+`/auth/sign-in` (the old shared sign-in's address) is now "Choose a project to sign in".
 
-### Built-in administrators: `smorankar` and `sonalimorankar`
+**Moving the old users over, once per tier** (after this release is deployed there):
 
-Two accounts that live in the hub itself (`portal/builtin-admins.js`), not in Neon Auth.
-They type their **username** (no `@`) into the "Email or username" box on `/auth/sign-in`.
-On every tier where the hash below is set, each one is an **owner**:
+```bash
+# 1. See the plan (changes nothing):
+HUB_DATABASE_URL="<hub, direct>" TASKLIST_DATABASE_URL="<tasklist, direct>" \
+  LADWANI_DATABASE_URL="<ladwani>" EDU_DATABASE_URL="<edu>" \
+  node tools/migrate_shared_id.mjs --csv ~/migration-plan.csv
+# 2. Apply: TaskList accounts for everyone who could open the old tracker; its
+#    lists and tasks go to the owner. LadWani and Education already have accounts.
+node tools/migrate_shared_id.mjs --apply
+# 3. Tell people, once (needs the MAIL_* settings of Part 1, Hostinger email):
+node tools/migrate_shared_id.mjs --apply --notify
+```
 
-| Project | What they get |
-|---|---|
-| LadWani | the hub's top role, `admin`, which LadWani maps to `ADMIN`. LadWani refuses their addresses at registration and never links them to an account someone else made (`ladwani/apps/api/src/auth/auth.service.ts`) |
-| Education | `system_admin` (every permission). Education grants it to these two bkesari IDs only (`edu/app/Http/Middleware/HubSignIn.php`, `BUILTIN_ADMINS`), and never links them to an account someone else made |
-| TaskList | `owner` |
-| ATIP | the viewer (owner only) |
-| Driving Simulator, Environmental Activities | open to everyone anyway |
-| `/admin/access` | decide every project's requests, revoke anyone's access |
+Then, and only then, remove Neon Auth: set `auth: false` in `neon.ts` and `neon deploy`
+(its tables hold the names the migration reads). `HUB_TOKEN_PRIVATE_KEY`,
+`TRACKER_*`, `NEON_AUTH_*` and LadWani's/Education's `HUB_JWKS*` settings can then be
+deleted from every tier's environment.
 
-Their bkesari IDs are `builtin:smorankar` and `builtin:sonalimorankar`. The apps see their
-emails as `smorankar@builtin.bkesari.com` and `sonalimorankar@builtin.bkesari.com`. Those
-addresses have no mailbox, and nothing is sent to them. Sign-ins and failed attempts
-are written to `audit_log`.
+### Built-in administrators: `smorankar` and `sonalimorankar` (D-036)
 
-**The password is never in this repository.** The repository is public. Make the hash once,
-on any machine with this repository and Node.js:
+Two owner accounts that exist in every project, each one an account of that project's
+own, so each project still signs them in and out by itself:
+
+| Where | Sign-in page | Role there |
+|---|---|---|
+| Hub admin | `/admin` (type the username in "Email or username") | owner: tiles, banner, inbox, and ATIP |
+| TaskList | `/tasklist/sign-in`, *Email + password* tab | owner |
+| LadWani | `/ladwani/sign-in/` | admin |
+| Education | `/edu/sign-in` | system admin |
+
+Their addresses, `smorankar@builtin.bkesari.com` and `sonalimorankar@builtin.bkesari.com`,
+are reserved: nobody can sign up with one, ask for a code for one, reset one or add one to
+an account. The accounts have no password of their own in any project; they cannot set one.
+
+**The password is never in this repository** (it is public). Make the two values once:
 
 ```bash
 node scripts/hash-builtin-admin-password.js
 ```
 
-It asks for the password twice (nothing is shown) and prints one line,
-`BUILTIN_ADMIN_PASSWORD_HASH=scrypt:...`. Add that variable to the hub's environment on
-**each tier** (Hostinger → the Node.js app → Environment variables; on a Mac, the hub's
-`.env`) and restart the app. Its start-up log then says
-`Built-in administrators (smorankar, sonalimorankar): sign-in on`.
+It asks for the password twice and prints two lines:
 
-* Both accounts share one password. A new hash changes the password and signs both
-  accounts out everywhere. Removing the variable turns both accounts off.
-* A session lasts 12 hours (`HttpOnly`, `SameSite=Lax`, and `Secure` over HTTPS).
-* Ten wrong passwords from one address lock that address out for 15 minutes. Fifty
-  wrong passwords for one username, from any address, lock that username for 15 minutes.
-* Sign-out (on the home page, the Task Tracker or the sign-in page) also ends the built-in session.
+- `BUILTIN_ADMIN_PASSWORD_HASH=scrypt:…`: set it on every tier's hub (hPanel → the
+  Node.js app's environment variables). It covers the hub admin, TaskList and LadWani,
+  which run in the hub's process.
+- `BUILTIN_ADMIN_PASSWORD_BCRYPT='$2y$…'`: put it in Education's `.env` on the same tier,
+  in single quotes, then `php artisan config:cache`. PHP has no scrypt.
+
+Unset or malformed, the built-in sign-in is off in that project. A wrong password counts
+like any other; tries are limited to 10 per address and 50 per name every 15 minutes in
+the hub process, and Education counts them with its own sign-in limits.

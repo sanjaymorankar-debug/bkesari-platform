@@ -180,7 +180,7 @@ jobs:
           REMOTE
 
       # The real checklist, not just "did it answer". scripts/smoke-dev.sh
-      # checks the shared bar is served, that /tasks/ and /atip/ are NOT open
+      # checks the shell is served, that TaskList, the hub admin and /atip/ are NOT open
       # to the internet, that the site reports the tier it is meant to be, and
       # that no .env or .git is reachable. Its failures are reasons not to
       # promote a tier; see TESTING.md.

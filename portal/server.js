@@ -2,33 +2,41 @@ const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
+const compression = require('compression');
 const createDb = require('./db');
-// The one definition of the top menu, shared with every browser page.
+// The Kesari app shell (header + footer), shared with every browser page.
 const menu = require('./public/shared/menu.js');
 // Serves the projects that live in their own apps under their own tab paths.
 const proxy = require('./proxy');
 const ladwani = require('./ladwani');
 // Neon services, each on only when `neon deploy` has supplied its variables.
-const neonAuth = require('./neon-auth');
 const storage = require('./storage');
 const realtime = require('./realtime');
-// Who may open which project: permissions, request/approve screens, signed tokens.
+// The hub's own pages and its admin; TaskList with its own accounts.
 const { createHub } = require('./hub');
-// smorankar and sonalimorankar: username sign-in, owners in every project.
-const { createBuiltinAdmins, USERNAMES } = require('./builtin-admins');
+const { createTaskList } = require('./tasklist');
+const { createNotifier } = require('./notify');
+const pages = require('./hub-pages');
 
 /* ============================================================
    bkesari.com
-     /            -> welcome portal (public/index.html)
-     /tasks/      -> Task Tracker UI (public/tasks/index.html)
-     /tasks/api/  -> Task Tracker REST API
-     /ATIP/       -> read-only ATIP snapshot, owner only, menu rendered server-side
-     /environment/ -> Environmental Activities (/global-warming/ redirects here)
-     other tabs   -> served here when static, else a "not on this tier" page
-   ============================================================ */
+     /                 home: the project tiles (portal/hub.js)
+     /about /contact /privacy /terms /auth/sign-in   hub pages
+     /admin            the hub's own admin login and editor
+     /tasklist/        TaskList, with its OWN accounts (portal/tasklist.js);
+                       /tasks/ redirects there
+     /ladwani/         LadWani, in this process, with its OWN accounts
+     /edu/             Education, proxied, with its OWN accounts;
+                       /education/ redirects there
+     /ATIP/            read-only ATIP snapshot, the owner's only
+     /environment/ /driving-simulator/   static pages
+     /styleguide/      the Kesari style guide, dev and test only
 
-const STATUSES = ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'];
-const TYPES = { projects: 'project', tasks: 'task' };
+   Since 3 Nov 2026 there is no shared sign-in: each project signs its own
+   people in, in its own database, with its own cookie (tl_sid on /tasklist,
+   lw_sid on /ladwani, edu_sid on /edu). The hub forwards nothing about who
+   anyone is to any project.
+   ============================================================ */
 
 // UTC "YYYY-MM-DD HH:MM:SS", stored in PostgreSQL TIMESTAMP columns and read back as
 // the same text (see the type parsers in db.js).
@@ -36,68 +44,12 @@ function nowUtc() {
   return new Date().toISOString().slice(0, 19).replace('T', ' ');
 }
 
-class HttpError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
-}
-
 function cleanText(v, max) {
   if (v === undefined || v === null) return null;
   const s = String(v).trim();
   if (!s) return null;
-  if (max && s.length > max) throw new HttpError(400, `Text is too long (max ${max} characters)`);
-  return s;
+  return max ? s.slice(0, max) : s;
 }
-
-function cleanDate(v, label) {
-  const s = cleanText(v);
-  if (!s) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || isNaN(Date.parse(s + 'T00:00:00Z'))) {
-    throw new HttpError(400, `${label} must be a valid date`);
-  }
-  return s;
-}
-
-// Shared fields for projects and tasks; `nameField` is "name" or "title".
-function readItem(body, nameField) {
-  body = body || {};
-  const item = {
-    // The column limits: projects.name is VARCHAR(200), tasks.title VARCHAR(250).
-    [nameField]: cleanText(body[nameField], nameField === 'name' ? 200 : 250),
-    description: cleanText(body.description, 5000),
-    owner: cleanText(body.owner, 120),
-    status: cleanText(body.status) || 'Not Started',
-    planned_start: cleanDate(body.planned_start, 'Planned start date'),
-    planned_end: cleanDate(body.planned_end, 'Planned end date'),
-    actual_start: cleanDate(body.actual_start, 'Actual start date'),
-    actual_end: cleanDate(body.actual_end, 'Actual end date'),
-    current_step: cleanText(body.current_step, 5000),
-    next_step: cleanText(body.next_step, 5000),
-  };
-  if (!item[nameField]) throw new HttpError(400, nameField === 'name' ? 'Project name is required' : 'Task title is required');
-  if (!STATUSES.includes(item.status)) throw new HttpError(400, 'Invalid status');
-  if (item.planned_start && item.planned_end && item.planned_end < item.planned_start) {
-    throw new HttpError(400, 'Planned end date cannot be before planned start date');
-  }
-  if (item.actual_start && item.actual_end && item.actual_end < item.actual_start) {
-    throw new HttpError(400, 'Actual end date cannot be before actual start date');
-  }
-  return item;
-}
-
-// Route ids are INTEGER columns. Anything else cannot match a row, and handing
-// it to PostgreSQL would be a type error rather than "not found".
-const MAX_ID = 2147483647;
-function toId(value) {
-  const s = String(value ?? '');
-  if (!/^\d{1,10}$/.test(s)) return null;
-  const n = Number(s);
-  return n >= 1 && n <= MAX_ID ? n : null;
-}
-
-const LATEST_COMMENT = (type, alias) => `
-  (SELECT c.body FROM comments c WHERE c.id = (SELECT MAX(id) FROM comments WHERE entity_type='${type}' AND entity_id=${alias}.id)) AS latest_comment,
-  (SELECT c.created_at FROM comments c WHERE c.id = (SELECT MAX(id) FROM comments WHERE entity_type='${type}' AND entity_id=${alias}.id)) AS latest_comment_at,
-  (SELECT COUNT(*) FROM comments WHERE entity_type='${type}' AND entity_id=${alias}.id) AS comment_count`;
 
 function same(a, b) {
   const ha = crypto.createHash('sha256').update(String(a)).digest();
@@ -167,57 +119,111 @@ function escapeHtml(s) {
 const wrap = fn => (req, res, next) => fn(req, res, next).catch(next);
 
 /**
- * True when express.static would serve this request from public/tasks/.
- *
- * The router matches the RAW path, but the file server percent-decodes it and
- * folds dot segments and repeated slashes before it looks for the file. So
- * /%74asks/, //tasks/ and /shared/../tasks/ never matched app.use('/tasks')
- * and its login, yet still reached public/tasks/index.html. This answers for
- * the path the file server will actually open (lower-cased, because on a
- * case-insensitive disk /TASKS/ is the same folder).
+ * Express's `trust proxy`, from TRUST_PROXY. Default "loopback": Hostinger's
+ * front end reaches the app over loopback and appends the visitor's address
+ * to X-Forwarded-For, which is what the rate limits must count. A direct
+ * caller is not loopback, so it cannot forge the header.
  */
-function servesTrackerFile(rawPath) {
-  let p;
-  try { p = path.posix.normalize(decodeURIComponent(rawPath)).toLowerCase(); } catch { return false; }
-  return p === '/tasks' || p.startsWith('/tasks/');
+function trustProxySetting(value) {
+  const v = String(value ?? '').trim();
+  if (!v) return 'loopback';
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  if (/^\d+$/.test(v)) return Number(v);
+  return v;
+}
+
+/**
+ * Security headers. The hub's own pages and TaskList get a strict CSP (no
+ * inline scripts, nothing from other origins). LadWani's static export and
+ * Education carry inline scripts of their own, and the ATIP viewer sets its own
+ * policy, so those get the rest of the set but not this CSP.
+ */
+function securityHeaders() {
+  const realtimeOrigin = (() => { try { return new URL(process.env.NEON_REALTIME_URL).origin.replace(/^http/, 'ws'); } catch { return ''; } })();
+  const csp = ["default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:",
+    "font-src 'self'", `connect-src 'self'${realtimeOrigin ? ` ${realtimeOrigin}` : ''}`, "manifest-src 'self'", "worker-src 'self'",
+    "frame-ancestors 'none'", "base-uri 'self'", "form-action 'self'", "object-src 'none'"].join('; ');
+  return (req, res, next) => {
+    const https = req.secure || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https';
+    res.set({
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+    });
+    // No includeSubDomains: dev.bkesari.com has no working certificate yet.
+    if (https) res.set('Strict-Transport-Security', 'max-age=31536000');
+    if (/^\/(ladwani|edu|atip)(\/|$)/i.test(req.path)) res.set('X-Frame-Options', 'SAMEORIGIN');
+    else res.set({ 'Content-Security-Policy': csp, 'X-Frame-Options': 'DENY' });
+    next();
+  };
+}
+
+/**
+ * The Neon Function `report`, as a call the server makes: null when it is not
+ * configured. Unreachable, too slow or failing is a 502 with a plain message.
+ */
+function reportFunction(env) {
+  if (!env.NEON_FUNCTION_REPORT_BASE_URL || !env.ORIGIN_SECRET) return null;
+  return async () => {
+    const r = await fetch(env.NEON_FUNCTION_REPORT_BASE_URL, { headers: { 'x-secret': env.ORIGIN_SECRET }, redirect: 'manual', signal: AbortSignal.timeout(15000) })
+      .catch((err) => { console.error('report function did not answer:', err.message); throw Object.assign(new Error('The report function did not answer'), { status: 502 }); });
+    const body = await r.json().catch(() => null);
+    if (!r.ok || !body) throw Object.assign(new Error((body && body.error) || `The report function answered ${r.status}`), { status: 502 });
+    return body;
+  };
+}
+
+/** A per-project secret: <PREFIX>_AUTH_SECRET, else derived from the hub's key material, else random. */
+function projectSecret(prefix) {
+  const own = process.env[`${prefix}_AUTH_SECRET`];
+  if (own && own.length >= 32) return own;
+  const base = process.env.HUB_AUTH_SECRET || process.env.HUB_TOKEN_PRIVATE_KEY;
+  return base ? crypto.createHash('sha256').update(`${prefix.toLowerCase()}|${base}`).digest('hex') : undefined;
 }
 
 // The whole site as an Express app, given an open database (db.js). Split
 // from main() so tests can drive it against a database of their own.
 //
-// `extra.hubDb` holds sign-in permissions and `extra.atipDb` the ATIP snapshots;
-// each defaults to `db`, so one database still runs the whole site (tests, local).
+// `extra.hubDb` holds the hub's own tables and `extra.atipDb` the ATIP
+// snapshots; each defaults to `db` (TaskList's), so one database still runs the
+// whole site (tests, local).
 function createApp(db, extra = {}) {
   const hubDb = extra.hubDb || db;
   const atipDb = extra.atipDb || db;
+  const env = extra.env || process.env;
   const app = express();
   app.disable('x-powered-by');
+  app.set('trust proxy', trustProxySetting(env.TRUST_PROXY));
 
   // Keep every tier but production out of search indexes. dev.bkesari.com and
   // test.bkesari.com carry the same real-looking content as production, so
   // without this they compete with it in search results and expose work in
   // progress. Driven by the tier rather than hard-coded, so one build still
-  // serves all three and production is left untouched. A static robots.txt
-  // could not do this: it would have to differ per tier.
+  // serves all three and production is left untouched.
   //
-  // First, so it also covers the proxied projects below.
-  //
-  // The tier is also stated outright in a header. It decides which database
-  // every project opens, so being able to ask a running site which tier it
-  // thinks it is — `curl -I https://dev.bkesari.com` — is worth one header.
-  // scripts/smoke-dev.sh checks it: before this existed it had to infer the
-  // tier from the badge on an undeployed tab's placeholder, which quietly
-  // stopped being possible as soon as the tabs were deployed.
+  // First, so it also covers the proxied projects below. The tier is also
+  // stated outright in a header (`curl -I https://dev.bkesari.com`), which
+  // scripts/smoke-dev.sh checks.
   app.use((req, res, next) => {
-    const env = currentEnv(req);
-    res.set('X-Bkesari-Env', env);
-    if (env !== 'prod') res.set('X-Robots-Tag', 'noindex, nofollow');
+    const tier = currentEnv(req);
+    res.set('X-Bkesari-Env', tier);
+    if (tier !== 'prod') res.set('X-Robots-Tag', 'noindex, nofollow');
     next();
   });
+  app.use(securityHeaders());
+  // gzip for everything the hub sends, LadWani's export and API included. A
+  // response that is already encoded (a proxied app's) is left as it is.
+  app.use(compression());
 
-  // The projects that live in their own apps, each served under its own tab
-  // path. Off until its origin is set, in which case its tab keeps falling
-  // through to the "not on this tier yet" page further down.
+  // LadWani runs in this process (portal/ladwani.js) when its build is here:
+  // main() asks for it, tests pass their own options. It signs its own people
+  // in; the hub adds nothing. BEFORE THE BODY PARSERS: its API reads the body.
+  const ladwaniTab = extra.ladwani ? ladwani.mount(app, { ...extra.ladwani }) : null;
+
+  // The projects that live in their own apps, each under its own tab path.
+  // Off until its origin is set, in which case its tab keeps falling through
+  // to the "not on this tier yet" page further down.
   //
   // BEFORE THE BODY PARSERS, and that is not a style choice: express.json()
   // consumes the request stream, and the forwarded request still carries the
@@ -226,291 +232,73 @@ function createApp(db, extra = {}) {
   // into a proxied project would do it. tests/proxy.test.js shows both
   // orders on a copy; tests/server.test.js fails if this one moves.
   //
-  // Who is signed in: a built-in administrator's cookie first (portal/builtin-admins.js),
-  // then Neon Auth (or the tests' stand-in).
-  const builtin = createBuiltinAdmins(extra.builtinAdmins || {});
-  const signedIn = extra.getUser || neonAuth.currentUser;
-  const getUser = async (req, res) => builtin.currentUser(req) || signedIn(req, res);
-  const hub = createHub({ db: hubDb, getUser, envName: currentEnv });
-
-  // LadWani runs in this process (portal/ladwani.js) when its build is here:
-  // main() asks for it, tests pass their own options. Same gate, same place
-  // before the body parsers, and it takes /ladwani/ from the proxy below.
-  const ladwaniTab = extra.ladwani
-    ? ladwani.mount(app, { gate: hub.gate('ladwani'), keys: hub.keys, ...extra.ladwani })
-    : null;
+  // /education/ is the address people are given; Education itself answers at
+  // /edu/ (its APP_URL on Hostinger), so the longer name redirects there.
+  app.get(['/education', '/education/*'], (req, res) => {
+    res.redirect(301, req.originalUrl.replace(/^\/education/i, '/edu'));
+  });
   const proxied = proxy.mount(app, {
-    env: ladwaniTab ? { ...process.env, LADWANI_ORIGIN: '' } : process.env,
-    gates: { edu: hub.gate('edu'), ladwani: hub.gate('ladwani') },
+    env: ladwaniTab ? { ...env, LADWANI_ORIGIN: '' } : env,
     // The bar for the proxy's own error page. Takes the request so the tier
     // badge comes from the same place every other page gets it.
-    renderMenu: (pathname, req) => menu.renderHtml({ pathname, env: currentEnv(req) }),
+    renderMenu: (pathname, req) => menu.renderHtml({ pathname, env: currentEnv(req), lang: pages.langOf(req) }),
   });
 
-  // The built-in administrators' sign-in, and their sign-out on the same
-  // /api/auth/sign-out every page calls: before Neon Auth, which owns /api/auth/*.
-  builtin.mount(app, {
-    express,
-    neonSignOut: () => neonAuth.enabled(),
-    audit: (actor, action, detail) => hubDb.run(
-      'INSERT INTO audit_log (actor, action, target, detail) VALUES ($1,$2,$3,$4)', [actor, action, 'hub', detail]),
-  });
+  const notifyHub = extra.notify ? extra.notify('HUB') : createNotifier('HUB', env, { fromName: 'bkesari' });
+  const hub = createHub({ db: hubDb, env, envName: currentEnv, notify: notifyHub, log: extra.log || console });
 
-  // Neon Auth's /api/auth/* proxy forwards the raw body too, so it also has to
-  // be mounted before the body parsers. Without NEON_AUTH_BASE_URL, /tasks/
-  // keeps its HTTP Basic login. A built-in administrator passes either way.
-  const trackerAccounts = neonAuth.enabled()
-    ? neonAuth.mount(app, { extraAllow: hub.allowsTasklist })
-    : basicAuth('TRACKER_USER', 'TRACKER_PASSWORD', 'bkesari Task Tracker', false);
-  const trackerLogin = (req, res, next) => {
-    const admin = builtin.currentUser(req);
-    if (!admin) return trackerAccounts(req, res, next);
-    req.trackerUser = { email: admin.email, name: admin.name, builtin: true };
-    return next();
-  };
+  const tasklist = createTaskList({
+    db, tier: currentEnv, log: extra.log || console,
+    notify: extra.notify ? extra.notify('TASKLIST') : createNotifier('TASKLIST', env, { fromName: 'TaskList · bkesari' }),
+    secret: projectSecret('TASKLIST'),
+    realtime,
+    // Neon Function `report` (functions/report.ts): last-seven-days figures
+    // computed next to the database. Server to function only; the browser
+    // never sees the function URL or ORIGIN_SECRET.
+    report: reportFunction(env),
+  });
 
   // The ATIP snapshot is a full HTML page, so its route gets a larger limit.
-  // Both spellings are listed on every ATIP route below. Express's routing is
-  // case-insensitive by default, so /ATIP/ already resolves -- but that is a
-  // default someone can flip with `case sensitive routing`, and uploaders may be
-  // configured with either /atip/api/snapshot or /ATIP/api/snapshot.
-  // Naming both keeps old publishers working whatever that setting says.
+  // Both spellings are listed on every ATIP route below: Express's routing is
+  // case-insensitive by default, but that is a default someone can flip, and
+  // uploaders may be configured with either /atip/api/snapshot or /ATIP/api/snapshot.
   app.use(['/atip/api/snapshot', '/ATIP/api/snapshot'], express.json({ limit: '15mb' }));
-  app.use(express.json({ limit: '1mb' }));
+
+  // TaskList and the hub parse their own bodies, route by route.
+  tasklist.mount(app);
   hub.mount(app);
 
-  // ATIP belongs to the owner. Signed-in non-owners and visitors alike get a 404.
-  // Without Neon Auth (local runs) the old ATIP_USER/ATIP_PASSWORD login stays,
-  // and a built-in administrator (an owner) passes it.
+  // ATIP belongs to the owner: the hub admin with the owner role. Without a
+  // hub admin session, ATIP_USER/ATIP_PASSWORD (HTTP Basic) still opens it
+  // when set; otherwise visitors get a plain 404.
   const atipBasic = basicAuth('ATIP_USER', 'ATIP_PASSWORD', 'bkesari ATIP', true);
-  const atipOwner = neonAuth.enabled() || extra.getUser
-    ? wrap(async (req, res, next) => {
-        const user = await hub.whoami(req, res);
-        if (user && user.isOwner) return next();
-        res.status(404).type('text/plain').send('Not found');
-      })
-    : (req, res, next) => (builtin.currentUser(req) ? next() : atipBasic(req, res, next));
+  const atipOwner = wrap(async (req, res, next) => {
+    if (await hub.isOwner(req)) return next();
+    if (env.ATIP_USER && env.ATIP_PASSWORD) return atipBasic(req, res, next);
+    res.status(404).type('text/plain').send('Not found');
+  });
+
+  // Browsers ask for /favicon.ico whatever a page links; answer with the icon
+  // rather than a 404 that every page would log to its console.
+  app.get('/favicon.ico', (req, res) => {
+    res.type('image/png').set('Cache-Control', 'public, max-age=86400').sendFile(path.join(__dirname, 'public', 'icons', 'icon-192.png'));
+  });
 
   // The renamed page. 301 so links and bookmarks to /global-warming keep working.
   app.get(['/global-warming', '/global-warming/*'], (req, res) => {
     res.redirect(301, req.path.replace(/^\/global-warming/i, '/environment') + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''));
   });
 
-  const api = express.Router();
-
-  async function findProject(id, q = db) {
-    id = toId(id);
-    if (!id) return null;
-    return q.get(`SELECT p.*, ${LATEST_COMMENT('project', 'p')},
-      (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS task_count
-      FROM projects p WHERE p.id = $1`, [id]);
-  }
-
-  async function findTask(id, q = db) {
-    id = toId(id);
-    if (!id) return null;
-    return q.get(`SELECT t.*, p.name AS project_name, ${LATEST_COMMENT('task', 't')}
-      FROM tasks t LEFT JOIN projects p ON p.id = t.project_id WHERE t.id = $1`, [id]);
-  }
-
-  async function requireProjectId(value, q = db) {
-    if (value === undefined || value === null || value === '') return null;
-    const id = toId(value);
-    if (!id || !(await q.get('SELECT id FROM projects WHERE id = $1', [id]))) {
-      throw new HttpError(400, 'Selected project does not exist');
-    }
-    return id;
-  }
-
-  api.get('/meta', (req, res) => res.json({ statuses: STATUSES }));
-
-  // Who is signed in, so the page can offer "Sign out" under Neon Auth.
-  api.get('/me', (req, res) => {
-    if (!req.trackerUser) return res.json({ auth: neonAuth.enabled() ? 'neon' : 'basic' });
-    const { builtin: isBuiltin, ...user } = req.trackerUser;
-    res.json({ auth: isBuiltin ? 'builtin' : 'neon', ...user });
-  });
-
-  // Neon Realtime: a sealed live query the dashboard subscribes to, so it
-  // refreshes when anyone changes a project or task. 404 when not configured,
-  // which the page takes as "no live updates" and carries on.
-  api.get('/live', wrap(async (req, res) => {
-    if (!realtime.enabled()) throw new HttpError(404, 'Live updates are not configured');
-    res.set('Cache-Control', 'no-store');
-    res.json(await realtime.sealTrackerChanges());
-  }));
-
-  // Neon Function `report` (functions/report.ts): last-seven-days figures
-  // computed next to the database. Server to function only; the browser never
-  // sees the function URL or ORIGIN_SECRET.
-  api.get('/report', wrap(async (req, res) => {
-    const url = process.env.NEON_FUNCTION_REPORT_BASE_URL;
-    const secret = process.env.ORIGIN_SECRET;
-    if (!url || !secret) throw new HttpError(404, 'The report function is not configured');
-    // Unreachable or too slow is the function's failure too: a 502, like its errors.
-    const r = await fetch(url, { headers: { 'x-secret': secret }, redirect: 'manual', signal: AbortSignal.timeout(15000) })
-      .catch((err) => {
-        console.error('report function did not answer:', err.message);
-        throw new HttpError(502, 'The report function did not answer');
-      });
-    const body = await r.json().catch(() => null);
-    if (!r.ok || !body) {
-      console.error(`report function answered ${r.status}`, body);
-      throw new HttpError(502, (body && body.error) || `The report function answered ${r.status}`);
-    }
-    res.json(body);
-  }));
-
-  // Everything the dashboard needs in one call.
-  api.get('/overview', wrap(async (req, res) => {
-    const projects = await db.all(`SELECT p.*, ${LATEST_COMMENT('project', 'p')},
-      (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS task_count
-      FROM projects p ORDER BY p.id DESC`);
-    const tasks = await db.all(`SELECT t.*, p.name AS project_name, ${LATEST_COMMENT('task', 't')}
-      FROM tasks t LEFT JOIN projects p ON p.id = t.project_id ORDER BY t.id DESC`);
-    res.json({ projects, tasks, statuses: STATUSES });
-  }));
-
-  /* ---------- Projects ---------- */
-  api.get('/projects/:id', wrap(async (req, res) => {
-    const project = await findProject(req.params.id);
-    if (!project) throw new HttpError(404, 'Project not found');
-    const tasks = await db.all(`SELECT t.*, ${LATEST_COMMENT('task', 't')} FROM tasks t WHERE t.project_id = $1 ORDER BY t.id DESC`, [project.id]);
-    res.json({ ...project, tasks });
-  }));
-
-  api.post('/projects', wrap(async (req, res) => {
-    const p = readItem(req.body, 'name');
-    const now = nowUtc();
-    const r = await db.get(`INSERT INTO projects (name, description, owner, status, planned_start, planned_end, actual_start, actual_end, current_step, next_step, created_at, updated_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-      [p.name, p.description, p.owner, p.status, p.planned_start, p.planned_end, p.actual_start, p.actual_end, p.current_step, p.next_step, now, now]);
-    res.status(201).json(await findProject(r.id));
-  }));
-
-  api.put('/projects/:id', wrap(async (req, res) => {
-    if (!(await findProject(req.params.id))) throw new HttpError(404, 'Project not found');
-    const id = toId(req.params.id);
-    const p = readItem(req.body, 'name');
-    await db.run(`UPDATE projects SET name=$1, description=$2, owner=$3, status=$4, planned_start=$5, planned_end=$6, actual_start=$7, actual_end=$8, current_step=$9, next_step=$10, updated_at=$11 WHERE id=$12`,
-      [p.name, p.description, p.owner, p.status, p.planned_start, p.planned_end, p.actual_start, p.actual_end, p.current_step, p.next_step, nowUtc(), id]);
-    res.json(await findProject(id));
-  }));
-
-  // Deleting a project keeps its tasks; they become independent tasks.
-  api.delete('/projects/:id', wrap(async (req, res) => {
-    const id = toId(req.params.id);
-    if (id) {
-      await db.tx(async (q) => {
-        await q.run('UPDATE tasks SET project_id = NULL WHERE project_id = $1', [id]);
-        await q.run("DELETE FROM comments WHERE entity_type='project' AND entity_id = $1", [id]);
-        await q.run('DELETE FROM projects WHERE id = $1', [id]);
-      });
-    }
-    res.json({ ok: true });
-  }));
-
-  /* ---------- Tasks ---------- */
-  api.get('/tasks/:id', wrap(async (req, res) => {
-    const task = await findTask(req.params.id);
-    if (!task) throw new HttpError(404, 'Task not found');
-    res.json(task);
-  }));
-
-  api.post('/tasks', wrap(async (req, res) => {
-    const t = readItem(req.body, 'title');
-    const projectId = await requireProjectId(req.body.project_id);
-    const now = nowUtc();
-    const r = await db.get(`INSERT INTO tasks (project_id, title, description, owner, status, planned_start, planned_end, actual_start, actual_end, current_step, next_step, created_at, updated_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
-      [projectId, t.title, t.description, t.owner, t.status, t.planned_start, t.planned_end, t.actual_start, t.actual_end, t.current_step, t.next_step, now, now]);
-    res.status(201).json(await findTask(r.id));
-  }));
-
-  api.put('/tasks/:id', wrap(async (req, res) => {
-    if (!(await findTask(req.params.id))) throw new HttpError(404, 'Task not found');
-    const id = toId(req.params.id);
-    const t = readItem(req.body, 'title');
-    const projectId = await requireProjectId(req.body.project_id);
-    await db.run(`UPDATE tasks SET project_id=$1, title=$2, description=$3, owner=$4, status=$5, planned_start=$6, planned_end=$7, actual_start=$8, actual_end=$9, current_step=$10, next_step=$11, updated_at=$12 WHERE id=$13`,
-      [projectId, t.title, t.description, t.owner, t.status, t.planned_start, t.planned_end, t.actual_start, t.actual_end, t.current_step, t.next_step, nowUtc(), id]);
-    res.json(await findTask(id));
-  }));
-
-  api.delete('/tasks/:id', wrap(async (req, res) => {
-    const id = toId(req.params.id);
-    if (id) {
-      await db.tx(async (q) => {
-        await q.run("DELETE FROM comments WHERE entity_type='task' AND entity_id = $1", [id]);
-        await q.run('DELETE FROM tasks WHERE id = $1', [id]);
-      });
-    }
-    res.json({ ok: true });
-  }));
-
-  /* ---------- Comments (status updates), newest first ---------- */
-  api.get('/:kind(projects|tasks)/:id/comments', wrap(async (req, res) => {
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 0, 0), 1000);
-    const id = toId(req.params.id);
-    if (!id) return res.json([]);
-    const rows = await db.all(
-      `SELECT id, body, created_at FROM comments WHERE entity_type = $1 AND entity_id = $2 ORDER BY id DESC${limit ? ' LIMIT ' + limit : ''}`,
-      [TYPES[req.params.kind], id]);
-    res.json(rows);
-  }));
-
-  // The timestamp is always taken from the server clock at the moment of posting.
-  api.post('/:kind(projects|tasks)/:id/comments', wrap(async (req, res) => {
-    const type = TYPES[req.params.kind];
-    const table = req.params.kind; // 'projects' or 'tasks' only: the route pattern allows nothing else
-    const id = toId(req.params.id);
-    if (!id || !(await db.get(`SELECT id FROM ${table} WHERE id = $1`, [id]))) throw new HttpError(404, `${type} not found`);
-    const body = cleanText((req.body || {}).body, 5000);
-    if (!body) throw new HttpError(400, 'Comment cannot be empty');
-    const now = nowUtc();
-    const r = await db.tx(async (q) => {
-      const row = await q.get('INSERT INTO comments (entity_type, entity_id, body, created_at) VALUES ($1,$2,$3,$4) RETURNING id', [type, id, body, now]);
-      await q.run(`UPDATE ${table} SET updated_at = $1 WHERE id = $2`, [now, id]);
-      return row;
-    });
-    res.status(201).json({ id: r.id, body, created_at: now });
-  }));
-
-  api.use((req, res) => res.status(404).json({ error: 'Not found' }));
-  api.use((err, req, res, next) => {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
-    // PostgreSQL SQLSTATEs that mean the request carried bad data, not that the
-    // server broke. Validation above should catch these first; this is the net.
-    const PG_BAD_INPUT = {
-      '22001': 'Text is too long',          // string_data_right_truncation
-      '22003': 'A number is out of range',  // numeric_value_out_of_range
-      '22007': 'Invalid date',              // invalid_datetime_format
-      '22008': 'Invalid date',              // datetime_field_overflow
-      '22P02': 'Invalid value',             // invalid_text_representation
-      '23503': 'A referenced record does not exist', // foreign_key_violation
-    };
-    if (err && PG_BAD_INPUT[err.code]) return res.status(400).json({ error: PG_BAD_INPUT[err.code] });
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  });
-
-  // Express treats /tasks and /tasks/ as the same route, so check the raw path.
-  app.get('/tasks', (req, res, next) => {
-    if (req.path.endsWith('/')) return next();
-    res.redirect(302, req.path + '/');
-  });
   // ATIP decides who it is for before anything else, so even the slash
   // redirect gives nothing away: a non-owner gets the same 404 as for /ATIP/.
   app.get(['/atip', '/ATIP'], atipOwner, (req, res, next) => {
     if (req.path.endsWith('/')) return next();
     res.redirect(302, req.path + '/');
   });
-  app.use('/tasks', trackerLogin);
-  app.use('/tasks/api', api);
 
   // Upload from the ATIP machine: bearer token, not the viewer login.
   app.post(['/atip/api/snapshot', '/ATIP/api/snapshot'], wrap(async (req, res) => {
-    const token = process.env.ATIP_PUBLISH_TOKEN;
+    const token = env.ATIP_PUBLISH_TOKEN;
     const [scheme, given] = (req.headers.authorization || '').split(' ');
     if (!token) return res.status(503).json({ error: 'ATIP_PUBLISH_TOKEN is not set on the server' });
     if (scheme !== 'Bearer' || !given || !same(given, token)) return res.status(401).json({ error: 'Invalid token' });
@@ -571,21 +359,34 @@ function createApp(db, extra = {}) {
     html = /<body[^>]*>/i.test(html) ? html.replace(/<body[^>]*>/i, m => m + lead) : lead + html;
     res.type('html').send(html);
   }));
-  // The tracker's page, however its path is spelled, goes through the same
-  // login as /tasks/ above (see servesTrackerFile).
-  app.use((req, res, next) => (servesTrackerFile(req.path) ? trackerLogin(req, res, next) : next()));
-  app.use(express.static(path.join(__dirname, 'public'), {
+
+  const notFoundPage = (req, res) => {
+    const lang = pages.langOf(req);
+    if (/\/api\//.test(req.path) || /\bjson\b/.test(req.headers.accept || '')) return res.status(404).json({ error: 'Not found' });
+    return res.status(404).set({ 'X-Robots-Tag': 'noindex', 'Cache-Control': 'no-cache' }).type('html').send(pages.layout({
+      req, lang, env: currentEnv(req), title: `${pages.t(lang, 'nf.title')} — bkesari`, body: pages.notFound({ lang }),
+    }));
+  };
+
+  // The style guide is for the people building the projects: dev and test only.
+  app.use((req, res, next) => (/^\/styleguide(\/|$)/i.test(req.path) && currentEnv(req) === 'prod' ? notFoundPage(req, res) : next()));
+
+  const PUBLIC = path.join(__dirname, 'public');
+  app.use(express.static(PUBLIC, {
     extensions: ['html'],
-    // The service worker must be re-checked on every visit, or a fix to it
-    // could take a day to reach phones that installed the app.
+    index: ['index.html'],
+    // The service workers must be re-checked on every visit, or a fix to one
+    // could take a day to reach phones that installed the app. The pinned
+    // design system never changes under the same version, so it caches for a year.
     setHeaders: (res, file) => {
       if (file.endsWith(`${path.sep}sw.js`)) res.set('Cache-Control', 'no-cache');
       if (file.endsWith('.webmanifest')) res.type('application/manifest+json');
+      if (file.includes(`${path.sep}kesari-ui${path.sep}`)) res.set('Cache-Control', 'public, max-age=31536000, immutable');
     },
   }));
 
   // A tab whose destination is not deployed on this tier yet. Answer with a
-  // short page carrying the menu, so navigation continues instead of
+  // short page carrying the shell, so navigation continues instead of
   // dead-ending on a bare 404 while the estate is still being assembled.
   //
   // Registered after express.static on purpose: the moment real files exist for
@@ -593,25 +394,21 @@ function createApp(db, extra = {}) {
   // this stops firing for it, with nothing to remember to remove.
   app.get(menu.TABS.map((tab) => tab.path), (req, res) => {
     const tab = menu.TABS.find((t) => t.path === req.path) || { name: 'This project' };
-    res.status(404).set('X-Robots-Tag', 'noindex').type('html').send(
-      `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHtml(tab.name)} — not on this tier yet</title></head>
-<body style="margin:0;font:15px/1.5 'Inter',system-ui,sans-serif;background:#F6F4EF;color:#1B1D24">
-${menu.renderHtml({ pathname: req.path, env: currentEnv(req) })}
-<div style="max-width:620px;margin:0 auto;padding:56px 16px">
-  <h1 style="font-size:26px;letter-spacing:-.02em;margin:0 0 10px">${escapeHtml(tab.name)}</h1>
-  <p style="color:#5F6472;margin:0 0 6px">This tab is in the menu, but nothing is serving
-  <code>${escapeHtml(req.path)}</code> on this tier yet.</p>
-  <p style="color:#9A9EA9;margin:0">Everything else in the menu above still works.</p>
-</div></body></html>`,
-    );
+    const lang = pages.langOf(req);
+    res.status(404).set('X-Robots-Tag', 'noindex').type('html').send(pages.layout({
+      req, lang, env: currentEnv(req), title: `${tab.name} — bkesari`,
+      body: pages.notOnTier({ lang, name: tab.name, path: req.path }),
+    }));
   });
+
+  // Anything else: the branded 404 for people, JSON for programs.
+  app.use(notFoundPage);
 
   // Last: any error nothing above answered. Express's own handler sends the
   // stack trace whenever NODE_ENV is not "production" (locally, in CI, and on
   // any host that does not set it), and a malformed JSON body reached it on
-  // every path, before any login. Answer with the status and a plain message.
+  // every path. Answer with the status and a plain message: JSON for an API
+  // or a JSON request, the branded 500 page for a person.
   app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);
     const status = Number(err.status || err.statusCode) >= 400 ? Number(err.status || err.statusCode) : 500;
@@ -620,17 +417,21 @@ ${menu.renderHtml({ pathname: req.path, env: currentEnv(req) })}
       : err.type === 'entity.parse.failed' ? 'The request body is not valid JSON'
       : err.type === 'entity.too.large' ? 'The request body is too large'
       : 'Bad request';
+    const wantsHtml = req.method === 'GET' && !/\/api\//.test(req.path) && /text\/html/.test(req.headers.accept || '');
+    if (wantsHtml && status >= 500) {
+      const lang = pages.langOf(req);
+      return res.status(status).type('html').send(pages.layout({ req, lang, env: currentEnv(req), title: `${pages.t(lang, 'err.title')} — bkesari`, body: pages.serverError({ lang }) }));
+    }
     res.status(status).json({ error: message });
   });
 
-  return { app, proxied, ladwaniTab };
+  return { app, proxied, ladwaniTab, hub, tasklist };
 }
 
 /**
  * One database per project (blueprint A-05). TASKLIST_DATABASE_URL and
- * ATIP_DATABASE_URL name them; DATABASE_URL is the hub's own, holding only
- * sign-in permissions. With neither set, DATABASE_URL carries everything, as
- * it did before the split.
+ * ATIP_DATABASE_URL name them; DATABASE_URL is the hub's own (tiles, contact
+ * messages, hub admins). With neither set, DATABASE_URL carries everything.
  */
 async function openDatabases() {
   const split = (prefix, schemaFile) => {
@@ -663,18 +464,11 @@ async function main() {
   await new Promise((resolve, reject) => server.once('error', reject).listen(port, resolve));
   console.log(`bkesari portal listening on port ${port}, connecting to the database`);
   const { db, extra } = await openDatabases();
-  const { app, proxied, ladwaniTab } = createApp(db, { ...extra, ladwani: {} });
+  const { app, proxied, ladwaniTab, hub } = createApp(db, { ...extra, ladwani: {} });
+  await hub.bootstrapAdmin().catch((err) => console.error('Hub admin bootstrap failed:', err.message));
   handler = app;
   console.log(`bkesari portal running at http://localhost:${port}`);
-  console.log(`Task Tracker at http://localhost:${port}/tasks/`);
-  if (neonAuth.enabled()) {
-    const n = neonAuth.allowedEmails().size;
-    console.log(`Task Tracker login: Neon Auth, ${n} allowed email${n === 1 ? '' : 's'} (TRACKER_ALLOWED_EMAILS)`);
-  } else if (!process.env.TRACKER_PASSWORD) {
-    console.warn('WARNING: TRACKER_USER/TRACKER_PASSWORD not set - the tracker is open to anyone who can reach it.');
-  }
-  console.log(`Built-in administrators (${USERNAMES.join(', ')}): ` +
-    (createBuiltinAdmins({ log: { warn() {} } }).enabled() ? 'sign-in on' : 'sign-in off (set BUILTIN_ADMIN_PASSWORD_HASH)'));
+  console.log(`TaskList at http://localhost:${port}/tasklist/ (its own accounts, cookie tl_sid)`);
   console.log(`Neon: realtime ${realtime.enabled() ? 'on' : 'off'}, ` +
     `object storage ${storage.enabled() ? 'on' : 'off'}, ` +
     `report function ${process.env.NEON_FUNCTION_REPORT_BASE_URL && process.env.ORIGIN_SECRET ? 'on' : 'off'}`);
@@ -696,4 +490,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createApp, main };
+module.exports = { createApp, main, trustProxySetting, securityHeaders, reportFunction };

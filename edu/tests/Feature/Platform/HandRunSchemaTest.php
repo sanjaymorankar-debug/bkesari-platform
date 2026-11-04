@@ -42,4 +42,15 @@ class HandRunSchemaTest extends TestCase
         $this->assertTrue(str_contains($sql, 'hub_user_id character varying(80)'), 'users.hub_user_id is missing');
         $this->assertTrue(str_contains($sql, 'ADD CONSTRAINT users_hub_user_id_unique UNIQUE (hub_user_id);'), 'users_hub_user_id_unique is missing');
     }
+
+    public function test_the_hand_run_schema_has_the_mobile_sign_in_column(): void
+    {
+        if (! is_file(self::SCHEMA)) {
+            $this->markTestSkipped('database/edu/ is not beside this copy of the app');
+        }
+        $sql = file_get_contents(self::SCHEMA);
+
+        $this->assertTrue(str_contains($sql, 'mobile character varying(16)'), 'users.mobile is missing');
+        $this->assertTrue(str_contains($sql, 'ADD CONSTRAINT users_mobile_unique UNIQUE (mobile);'), 'users_mobile_unique is missing');
+    }
 }

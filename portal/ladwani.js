@@ -17,18 +17,24 @@ const crypto = require('crypto');
  *   - The API is LadWani's NestJS app (ladwani/apps/api), initialised here
  *     without listen() and mounted at /ladwani/api/v1.
  *
- * Both sit behind the hub's own gate for the 'ladwani' project: sign-in,
- * access, and the signed X-Bkesari-Token that LadWani signs the user in with.
+ * LadWani signs its own people in (its users table, in its own database; its
+ * session cookie lw_sid on Path=/ladwani). The hub puts no gate in front of it
+ * and forwards nothing about who anyone is: since 3 Nov 2026 there is no
+ * shared bkesari ID. The one thing the hub tells LadWani is the visitor's
+ * address as the hub saw it (VISITOR_HEADER, trust-proxy aware), so LadWani's
+ * rate limits count per visitor rather than per proxy.
  *
  * LadWani's settings carry a LADWANI_ prefix so they cannot collide with the
- * hub's: LADWANI_DATABASE_URL (required for the API) and, optionally,
- * LADWANI_JWT_SECRET. Without the latter, LadWani's session secret is derived
- * from HUB_TOKEN_PRIVATE_KEY, so the hub needs no second secret of its own.
+ * hub's: LADWANI_DATABASE_URL (required for the API) and LADWANI_JWT_SECRET.
+ * Without the latter a secret is derived from HUB_AUTH_SECRET (or the older
+ * HUB_TOKEN_PRIVATE_KEY), so a tier needs no extra setting; set it to keep
+ * LadWani's sessions independent of the hub's key material.
  */
 
 const BASE = '/ladwani';
-// Names the signed-in person to LadWani's rate limits (its VisitorThrottlerGuard),
-// so each person gets their own budget whatever proxies stand in front.
+// Names the visitor to LadWani's rate limits (its VisitorThrottlerGuard): the
+// client address as the hub saw it, so each visitor gets their own budget
+// whatever proxies stand in front.
 const VISITOR_HEADER = 'x-bkesari-visitor';
 const PLACEHOLDER = '_';
 // Worker threads for Prisma's query engine (a tokio runtime, which reads
@@ -78,24 +84,27 @@ function resolveStatic(webDir, urlPath) {
 }
 
 /**
- * LadWani's session secret: LADWANI_JWT_SECRET when set, otherwise derived from
- * the hub's signing key, so it is as stable and as secret as that key.
+ * LadWani's session secret: LADWANI_JWT_SECRET when set, otherwise derived
+ * from the hub's secret, otherwise made at start-up (sessions then end on a
+ * restart; fine for one local process, never for a tier).
  */
-function sessionSecret(env, keys) {
+function sessionSecret(env, log = console) {
   if (env.LADWANI_JWT_SECRET) return env.LADWANI_JWT_SECRET;
-  const pem = keys.privateKey.export({ type: 'pkcs8', format: 'pem' });
-  return crypto.createHmac('sha256', pem).update('bkesari-hub/ladwani-session/v1').digest('hex');
+  const base = env.HUB_AUTH_SECRET || env.HUB_TOKEN_PRIVATE_KEY;
+  if (base) return crypto.createHmac('sha256', base).update('bkesari-hub/ladwani-session/v2').digest('hex');
+  log.warn('LADWANI_JWT_SECRET is not set: LadWani sessions will not survive a restart.');
+  return crypto.randomBytes(32).toString('hex');
 }
 
 /**
  * Starts LadWani's API in this process and resolves to its Express app.
  * `loadApi` returns LadWani's createApi(); tests pass their own.
  */
-async function startApi({ env, keys, loadApi }) {
+async function startApi({ env, loadApi, log }) {
   // LadWani reads these through its own env() helper (ladwani/apps/api/src/common/env.ts).
-  env.LADWANI_JWT_SECRET = sessionSecret(env, keys);
-  env.LADWANI_HUB_JWKS = JSON.stringify(keys.jwks);
+  env.LADWANI_JWT_SECRET = sessionSecret(env, log);
   env.LADWANI_VISITOR_HEADER = VISITOR_HEADER;
+  if (!env.LADWANI_COOKIE_PATH) env.LADWANI_COOKIE_PATH = BASE;
   // Read by the engine when it starts, so set before LadWani loads it; a value
   // set on the site wins. The engine aborts the whole process (the hub with it)
   // on anything but a whole number above 0, so such a value stops only the API.
@@ -114,15 +123,6 @@ function readyState(env) {
   return `ready (database engine: ${env.TOKIO_WORKER_THREADS} worker threads; the server shows ${os.availableParallelism()} CPUs)`;
 }
 
-/** The `sub` of a token this process just signed (the gate's), without checking it again. */
-function tokenSubject(token) {
-  try {
-    return String(JSON.parse(Buffer.from(String(token).split('.')[1], 'base64url').toString()).sub || '') || null;
-  } catch {
-    return null;
-  }
-}
-
 const sendPlain = (res, status, text) => res.status(status).type('text/plain').set('Cache-Control', 'no-store').send(text);
 
 /**
@@ -134,8 +134,6 @@ const sendPlain = (res, status, text) => res.status(status).type('text/plain').s
  * Mount BEFORE the hub's body parsers: the API reads the request body itself.
  */
 function mount(app, {
-  gate,
-  keys,
   env = process.env,
   log = console,
   webDir = DEFAULT_WEB_DIR,
@@ -146,7 +144,7 @@ function mount(app, {
   let api = null;
   let apiProblem = null;
   const apiReady = env.LADWANI_DATABASE_URL
-    ? startApi({ env, keys, loadApi }).then(
+    ? startApi({ env, loadApi, log }).then(
       (handler) => { api = handler; return readyState(env); },
       (err) => { apiProblem = `LadWani's API did not start: ${err.message}`; log.error(apiProblem); return apiProblem; },
     )
@@ -161,34 +159,28 @@ function mount(app, {
   });
 
   app.use(BASE, (req, res, next) => {
-    // Whatever the browser sent under this name is forged: only the gate may set it.
+    // Whatever the browser sent under these names is forged: only the hub may
+    // set the visitor header, and the old hub token is never honoured again.
     delete req.headers['x-bkesari-token'];
     delete req.headers[VISITOR_HEADER];
 
-    // The build's own JS and CSS carry no one's data, and a page loads dozens
-    // of them; asking Neon Auth about each would slow every page for nothing.
-    if (req.path.startsWith('/_next/static/')) return serveStatic(req, res, { gated: false });
-
-    gate(req, res, async (err) => {
-      if (err) return next(err);
-      if (req.path === '/api' || req.path.startsWith('/api/')) {
-        await apiReady;
+    if (req.path === '/api' || req.path.startsWith('/api/')) {
+      return apiReady.then(() => {
         if (!api) return res.status(503).set('Cache-Control', 'no-store').json({ error: 'LadWani is not available', reason: apiProblem });
-        const visitor = tokenSubject(req.headers['x-bkesari-token']);
-        if (visitor) req.headers[VISITOR_HEADER] = visitor;
+        req.headers[VISITOR_HEADER] = `ip:${req.ip}`;
         return api(req, res, next);
-      }
-      return serveStatic(req, res, { gated: true });
-    });
+      }, next);
+    }
+    return serveStatic(req, res);
   });
 
-  function serveStatic(req, res, { gated }) {
+  function serveStatic(req, res) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return sendPlain(res, 405, 'Method not allowed');
     const file = resolveStatic(webDir, req.path);
     if (!file) {
-      // The app's own 404 page only past the gate: ungated, only build assets are served.
+      // The app's own 404 page, except for a missing build asset.
       const notFound = path.join(webDir, '404.html');
-      return gated && isFile(notFound) ? res.status(404).sendFile(notFound) : sendPlain(res, 404, 'Not found');
+      return !req.path.startsWith('/_next/') && isFile(notFound) ? res.status(404).sendFile(notFound) : sendPlain(res, 404, 'Not found');
     }
     const immutable = req.path.startsWith('/_next/static/');
     res.set('Cache-Control', immutable ? 'public, max-age=31536000, immutable' : 'private, no-cache');
