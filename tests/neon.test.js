@@ -76,12 +76,7 @@ test('writeFetchResponse: each Set-Cookie stays separate, Expires commas include
   const headers = new Headers({ 'content-type': 'application/json', 'content-length': '999' });
   headers.append('set-cookie', 'a=1; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT');
   headers.append('set-cookie', 'b=2; Path=/; HttpOnly');
-  const sent = {};
-  const res = {
-    status(code) { sent.status = code; return this; },
-    setHeader(name, value) { sent[name.toLowerCase()] = value; },
-    send(buf) { sent.body = buf.toString(); },
-  };
+  const { res, sent } = fakeExpressRes();
   await neonAuth.writeFetchResponse(res, new Response('{"ok":true}', { status: 201, headers }));
   assert.equal(sent.status, 201);
   assert.deepEqual(sent['set-cookie'], ['a=1; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT', 'b=2; Path=/; HttpOnly']);
@@ -89,6 +84,29 @@ test('writeFetchResponse: each Set-Cookie stays separate, Expires commas include
   assert.equal(sent['content-length'], undefined, 'Express computes the length of the body it sends');
   assert.equal(sent.body, '{"ok":true}');
 });
+
+test('writeFetchResponse keeps a cookie set before it, so sign-out clears the built-in session too', async () => {
+  // portal/builtin-admins.js clears bk_builtin on /api/auth/sign-out, then
+  // Neon Auth answers the same request with its own cookies.
+  const headers = new Headers();
+  headers.append('set-cookie', 'neon=; Path=/; Max-Age=0');
+  const { res, sent } = fakeExpressRes();
+  res.setHeader('Set-Cookie', 'bk_builtin=; Path=/; Max-Age=0');
+  await neonAuth.writeFetchResponse(res, new Response('{}', { status: 200, headers }));
+  assert.deepEqual(sent['set-cookie'], ['bk_builtin=; Path=/; Max-Age=0', 'neon=; Path=/; Max-Age=0']);
+});
+
+/** The parts of an Express response writeFetchResponse uses. */
+function fakeExpressRes() {
+  const sent = {};
+  const res = {
+    status(code) { sent.status = code; return this; },
+    setHeader(name, value) { sent[name.toLowerCase()] = value; },
+    getHeader(name) { return sent[name.toLowerCase()]; },
+    send(buf) { sent.body = buf.toString(); },
+  };
+  return { res, sent };
+}
 
 test('snapshotKey: dated folder, digits-only file name, nothing else from the input', () => {
   assert.equal(storage.snapshotKey('2026-10-24', '2026-10-24 15:23:34'), 'atip-snapshots/2026-10-24/20261024152334.html');

@@ -36,6 +36,20 @@ export interface LoginResult {
   user: { id: string; roles: string[]; memberId: string | null }
 }
 
+/**
+ * The hub's built-in administrators (portal/builtin-admins.js in bkesari-platform):
+ * bkesari IDs `builtin:<name>`, addresses `<name>@builtin.bkesari.com`. The hub
+ * gives them its top role, ADMIN here, so their addresses are reserved: nobody
+ * registers one, and they never take over an account someone else made.
+ */
+const BUILTIN_ADMIN_ID_PREFIX = 'builtin:'
+const BUILTIN_ADMIN_EMAIL_DOMAIN = '@builtin.bkesari.com'
+
+/** True for an address in the built-in administrators' domain. */
+export function isReservedEmail(email: string | null): boolean {
+  return Boolean(email && email.endsWith(BUILTIN_ADMIN_EMAIL_DOMAIN))
+}
+
 /** Emails are stored lower-cased and trimmed; null when absent. */
 export function normalizeEmail(email: string | null | undefined): string | null {
   const trimmed = email?.trim()
@@ -76,6 +90,12 @@ export class AuthService {
       let user = await tx.user.findFirst({ where: { OR: [{ hubUserId: claims.sub }, { email }], deletedAt: null } })
       if (user && user.hubUserId && user.hubUserId !== claims.sub) {
         throw new ConflictException('This email belongs to another bkesari ID.')
+      }
+      // Found only by its email, the account was made by whoever typed that
+      // address, and their password still opens it. A built-in administrator
+      // is granted ADMIN below, so it never links to one.
+      if (user && !user.hubUserId && claims.sub.startsWith(BUILTIN_ADMIN_ID_PREFIX)) {
+        throw new ConflictException('A LadWani account already uses this address; an administrator must remove it first.')
       }
       if (user && (user.status === 'SUSPENDED' || user.status === 'BLOCKED')) {
         throw new ForbiddenException('Account suspended. Contact an administrator.')
@@ -122,6 +142,7 @@ export class AuthService {
     // this Asha@x.com and asha@x.com would be two accounts and a sign-in with the
     // other capitalisation would fail.
     const email = normalizeEmail(dto.email)
+    if (isReservedEmail(email)) throw new ConflictException('This email address is reserved.')
     if (email) {
       const existingEmail = await this.prisma.user.findUnique({ where: { email } })
       if (existingEmail) throw new ConflictException('An account with this email already exists.')

@@ -8,6 +8,8 @@
    - Open projects (Driving Simulator, Environmental Activities) need nothing.
    - ATIP is the owner's alone. Anyone else gets a plain 404, with no request
      path and no hint that the page exists.
+   - The owners are HUB_OWNER_EMAILS (a verified address) and the built-in
+     administrators, smorankar and sonalimorankar (portal/builtin-admins.js).
    - LadWani and Education forward the request with a short-lived signed token
      (RS256, 60 s): user id, email and the role for that project. The apps
      verify it against /.well-known/jwks.json and map `sub` to a hub_user_id
@@ -22,6 +24,7 @@ const crypto = require('crypto');
 const express = require('express');
 const menu = require('./public/shared/menu.js');
 const neonAuth = require('./neon-auth');
+const { isBuiltinUser } = require('./builtin-admins');
 
 const TOKEN_TTL_SECONDS = 60;
 const TOKEN_HEADER = 'x-bkesari-token';
@@ -115,13 +118,18 @@ function createHub({ db, getUser = neonAuth.currentUser, env = process.env, log 
   }
   const projectByKey = async (key) => (await projects()).find((p) => p.key === key) || null;
 
-  /** The request's user with isOwner set; only a verified address counts as the owner. */
+  /**
+   * The request's user with isOwner set. Only a verified address on
+   * HUB_OWNER_EMAILS counts as the owner, or a built-in administrator (a user
+   * object builtin-admins.js made, which nothing from Neon Auth can pass for).
+   */
   async function whoami(req, res) {
     if (req.hubUser !== undefined) return req.hubUser;
     const u = await getUser(req, res);
     req.hubUser = u && u.email ? {
       id: String(u.id), email: String(u.email).toLowerCase(), name: u.name || null,
-      emailVerified: Boolean(u.emailVerified), isOwner: Boolean(u.emailVerified) && isOwnerEmail(u.email),
+      emailVerified: Boolean(u.emailVerified),
+      isOwner: isBuiltinUser(u) || (Boolean(u.emailVerified) && isOwnerEmail(u.email)),
     } : null;
     return req.hubUser;
   }
@@ -339,7 +347,7 @@ load();
   /** For TaskList: may this signed-in user open /tasks/ through the permission table? */
   async function allowsTasklist(u) {
     if (!u || !u.emailVerified) return false;
-    if (isOwnerEmail(u.email)) return true;
+    if (isBuiltinUser(u) || isOwnerEmail(u.email)) return true;
     return Boolean(await db.get("SELECT 1 AS ok FROM project_access WHERE user_id = $1 AND project_key = 'tasklist' AND status = 'active'", [String(u.id)]));
   }
 
