@@ -1,5 +1,6 @@
 <?php
 
+use App\Rules\NotReservedEmail;
 use Illuminate\Support\Facades\Password;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -13,8 +14,10 @@ new #[Layout('layouts.guest')] class extends Component
      */
     public function sendPasswordResetLink(): void
     {
+        // A built-in administrator's address is refused (D-036): those
+        // accounts have no password of their own to reset.
         $this->validate([
-            'email' => ['required', 'string', 'email'],
+            'email' => ['required', 'string', 'email', new NotReservedEmail],
         ]);
 
         // We will send the password reset link to this user. Once we have attempted

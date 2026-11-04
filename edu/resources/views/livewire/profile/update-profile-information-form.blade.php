@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\User;
+use App\Rules\NotReservedEmail;
+use App\Support\BuiltinAdmins;
 use App\Support\IndianMobile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
@@ -32,7 +34,11 @@ new class extends Component
 
         $validated = $this->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', Rule::unique(User::class)->ignore($user->id)],
+            // No account takes a built-in administrator's address, and a
+            // built-in administrator keeps its own (D-036): it is how their
+            // username finds the same row every time.
+            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', Rule::unique(User::class)->ignore($user->id),
+                BuiltinAdmins::isBuiltin($user) ? Rule::in([$user->email]) : new NotReservedEmail],
             'mobile' => ['nullable', 'string', 'max:20', function (string $attribute, mixed $value, Closure $fail) use ($user): void {
                 $normalized = IndianMobile::normalize($value);
                 if ($normalized === null) {
@@ -41,6 +47,8 @@ new class extends Component
                     $fail(__('This mobile number is already used by another account.'));
                 }
             }],
+        ], [
+            'email.in' => __('A built-in administrator account keeps its email address.'),
         ]);
 
         $validated['mobile'] = filled($validated['mobile'] ?? null) ? IndianMobile::normalize($validated['mobile']) : null;

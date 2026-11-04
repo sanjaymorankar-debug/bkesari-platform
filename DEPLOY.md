@@ -193,6 +193,16 @@ MAIL_TIMEOUT=15                   # seconds; a code is sent while the person wai
    `Mail::raw('test', fn ($m) => $m->to('you@example.com')->subject('Education mail test'))`).
    After changing any of these, run `php artisan config:cache` again (step 3).
 
+   **Built-in administrators** (D-036, Part 9): `smorankar` and `sonalimorankar` sign in on the
+   *Password* tab with the username in "Email", as system admin. Their password is only in this
+   tier's `.env`, as the second line `node scripts/hash-builtin-admin-password.js` prints, in its
+   single quotes so the `$` signs stay as they are; unset, or anything but a `$2y$` bcrypt hash,
+   their sign-in is off. Then `php artisan config:cache` again.
+
+```bash
+BUILTIN_ADMIN_PASSWORD_BCRYPT='$2y$12$…'
+```
+
    `bk_edu` already exists on Neon with the migrations applied and no data, so `migrate`
    reports nothing to do there; the starting data is still needed. It differs by tier:
 

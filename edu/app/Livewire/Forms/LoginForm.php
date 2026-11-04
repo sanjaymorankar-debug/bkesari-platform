@@ -3,6 +3,7 @@
 namespace App\Livewire\Forms;
 
 use App\Support\Attempts;
+use App\Support\BuiltinAdmins;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
@@ -19,7 +20,8 @@ class LoginForm extends Form
     /** How long that lock lasts, in seconds: 15 minutes from the fifth miss. */
     public const LOCKOUT_SECONDS = 900;
 
-    #[Validate('required|string|email')]
+    /** An email address, or a built-in administrator's username (emailRules()). */
+    #[Validate('required|string')]
     public string $email = '';
 
     #[Validate('required|string')]
@@ -27,6 +29,19 @@ class LoginForm extends Form
 
     #[Validate('boolean')]
     public bool $remember = false;
+
+    /**
+     * The rules for the email field: an email address, except that the
+     * built-in administrators type their username there (D-036).
+     *
+     * @return list<string>
+     */
+    public function emailRules(): array
+    {
+        return BuiltinAdmins::username($this->email) !== null
+            ? ['required', 'string']
+            : ['required', 'string', 'email'];
+    }
 
     /**
      * Attempt to authenticate the request's credentials.
@@ -48,7 +63,7 @@ class LoginForm extends Form
             $this->throwLockedOut();
         }
 
-        if (! Auth::attempt($this->only(['email', 'password']), $this->remember)) {
+        if (! $this->attempt()) {
             // The fifth miss starts a full 15 minutes, however long the five
             // took: the limiter's window otherwise runs from the first miss.
             if ($attempts >= self::MAX_ATTEMPTS) {
@@ -67,6 +82,31 @@ class LoginForm extends Form
         }
 
         RateLimiter::clear($this->throttleKey());
+    }
+
+    /** Checks the password and, when it is right, signs the account in. */
+    private function attempt(): bool
+    {
+        $username = BuiltinAdmins::username($this->email);
+        if ($username !== null) {
+            // A built-in administrator: their one password, never a row's own.
+            // With the hash unset or malformed this is the usual wrong answer.
+            if (! BuiltinAdmins::passwordMatches($this->password)) {
+                return false;
+            }
+
+            Auth::login(BuiltinAdmins::account($username), $this->remember);
+
+            return true;
+        }
+
+        // Their addresses take no password at all: the username is the only
+        // way in, so a row someone made with such an address opens for nobody.
+        if (BuiltinAdmins::isReservedEmail($this->email)) {
+            return false;
+        }
+
+        return Auth::attempt($this->only(['email', 'password']), $this->remember);
     }
 
     /**
@@ -100,10 +140,14 @@ class LoginForm extends Form
     }
 
     /**
-     * Get the authentication rate limiting throttle key.
+     * Get the authentication rate limiting throttle key: the email (or the
+     * built-in username, however it is typed, so " SMORANKAR" and
+     * "smorankar" share one count) and the address the request came from.
      */
     protected function throttleKey(): string
     {
-        return Str::transliterate(Str::lower($this->email).'|'.request()->ip());
+        $who = BuiltinAdmins::username($this->email) ?? Str::lower($this->email);
+
+        return Str::transliterate($who.'|'.request()->ip());
     }
 }

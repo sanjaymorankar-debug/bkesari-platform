@@ -79,7 +79,8 @@ new #[Layout('layouts.guest')] class extends Component
     public function login(): void
     {
         $this->validate([
-            'form.email' => ['required', 'string', 'email'],
+            // An email address, or a built-in administrator's username (D-036).
+            'form.email' => $this->form->emailRules(),
             'form.password' => ['required', 'string'],
             'form.remember' => ['boolean'],
         ]);
@@ -117,6 +118,7 @@ new #[Layout('layouts.guest')] class extends Component
         $result = $emailSignIn->send($email, request()->ip());
 
         match ($result['status']) {
+            'reserved' => $this->addError('codeEmail', __('This email address is reserved.')),
             'unavailable' => $this->addError('codeEmail', __('We could not send a code by email. Sign in with your password instead.')),
             'throttled' => $this->addError('codeEmail', __('Too many codes asked for. Try again in :minutes min, or sign in with your password.', [
                 'minutes' => max(1, (int) ceil(($result['retryAfter'] ?? 60) / 60)),
@@ -431,7 +433,8 @@ new #[Layout('layouts.guest')] class extends Component
             <form wire:submit="login" id="email-sign-in" novalidate>
                 <div class="k-field">
                     <x-input-label for="email" :value="__('Email')" />
-                    <x-text-input wire:model="form.email" id="email" type="email" name="email" required autofocus autocomplete="username" />
+                    {{-- type="text": the built-in administrators type their username here (D-036). --}}
+                    <x-text-input wire:model="form.email" id="email" type="text" inputmode="email" name="email" required autofocus autocomplete="username" autocapitalize="none" spellcheck="false" />
                     <x-input-error :messages="$errors->get('form.email')" />
                 </div>
 

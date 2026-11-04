@@ -8,6 +8,7 @@ use App\Models\SchoolStaff;
 use App\Models\StudentSchoolRelationship;
 use App\Models\TeacherSchoolRelationship;
 use App\Notifications\RelationshipApproved;
+use App\Rules\NotReservedEmail;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -33,7 +34,7 @@ new #[Layout('layouts.app')] class extends Component
         abort_unless($school, 404);
 
         $validated = $this->validate([
-            'inviteEmail' => ['required', 'email', 'max:255'],
+            'inviteEmail' => ['required', 'email', 'max:255', new NotReservedEmail],
             'inviteRole' => ['required', 'in:parent,student,teacher'],
             'inviteStudentName' => ['nullable', 'string', 'max:255'],
         ]);

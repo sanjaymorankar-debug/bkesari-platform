@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\User;
+use App\Support\BuiltinAdmins;
 use App\Support\SignInCodes;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -103,7 +104,9 @@ class MobileSignIn
         }
 
         $user = User::where('mobile', $mobile)->first();
-        if (! $user) {
+        // A built-in administrator signs in only with the username (D-036),
+        // so a number put on one of those accounts opens nothing either.
+        if (! $user || BuiltinAdmins::isBuiltin($user)) {
             // Nothing is sent, and the caller says the same as when it is.
             return ['status' => 'sent'];
         }

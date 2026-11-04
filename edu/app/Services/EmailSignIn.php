@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Mail\SignInCodeMail;
 use App\Models\User;
+use App\Support\BuiltinAdmins;
 use App\Support\EndSessions;
 use App\Support\SignInCodes;
 use Illuminate\Support\Facades\DB;
@@ -91,12 +92,18 @@ class EmailSignIn
 
     /**
      * Sends a code to $email (already normalised). `code` comes back only in
-     * screen mode, and only when an account has the address.
+     * screen mode, and only when an account has the address. An address on
+     * the built-in administrators' domain is refused outright (`reserved`):
+     * they sign in only with their username (D-036).
      *
-     * @return array{status: 'sent'|'throttled'|'unavailable'|'failed', code?: string, retryAfter?: int}
+     * @return array{status: 'sent'|'throttled'|'unavailable'|'failed'|'reserved', code?: string, retryAfter?: int}
      */
     public function send(string $email, string $ip): array
     {
+        if (BuiltinAdmins::isReservedEmail($email)) {
+            return ['status' => 'reserved'];
+        }
+
         if (! $this->available()) {
             return ['status' => 'unavailable'];
         }

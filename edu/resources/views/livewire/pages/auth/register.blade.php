@@ -4,6 +4,7 @@ use App\Models\ParentProfile;
 use App\Models\StudentProfile;
 use App\Models\TeacherProfile;
 use App\Models\User;
+use App\Rules\NotReservedEmail;
 use App\Support\IndianMobile;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Auth;
@@ -30,7 +31,7 @@ new #[Layout('layouts.guest')] class extends Component
     {
         $validated = $this->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
+            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', new NotReservedEmail, 'unique:'.User::class],
             'mobile' => ['nullable', 'string', 'max:20', function (string $attribute, mixed $value, Closure $fail): void {
                 $normalized = IndianMobile::normalize($value);
                 if ($normalized === null) {

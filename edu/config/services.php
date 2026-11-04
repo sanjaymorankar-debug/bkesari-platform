@@ -20,6 +20,14 @@ return [
         'webhook_token' => env('SMS_WEBHOOK_TOKEN'),
     ],
 
+    // The built-in administrators, smorankar and sonalimorankar (D-036,
+    // App\Support\BuiltinAdmins): the bcrypt hash ($2y$...) of their one
+    // password, as `node scripts/hash-builtin-admin-password.js` prints it
+    // (single-quoted in .env). Unset or not a bcrypt hash: their sign-in is off.
+    'builtin_admins' => [
+        'password_bcrypt' => env('BUILTIN_ADMIN_PASSWORD_BCRYPT'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services
