@@ -20,7 +20,14 @@ Deploys onto the existing Hostinger account already running `devmiladwani.agtci.
 | `JWT_SECRET` | Yes in production | Bootstrap now refuses to start in production without it (`main.ts`) — no fallback is used outside dev |
 | `WEB_ORIGIN` | Yes | Exact origin the API's CORS policy allows, e.g. `https://devmiladwani.agtci.com` |
 | `PORT` | No | Defaults to 4000 |
-| `NODE_ENV` | Yes | Must be `production` — gates the JWT secret check, secure cookie flag, and hides dev-only response fields (e.g. `devOtp`) |
+| `NODE_ENV` | Yes | Must be `production` — gates the JWT secret check and the secure cookie flag |
+| `APP_ENV` | Yes on a tier | `dev`, `test` or `prod` (the hub's tier setting). Decides whether a one-time code may appear in an answer (`devOtp`): only on `dev`, or locally with `APP_ENV` unset and `NODE_ENV` not `production`, and only with no mail provider. Never on `test` or `prod`. |
+| `MAIL_HOST` | Yes on test and production | SMTP host, `smtp.hostinger.com`. Unset: no mail; on test and production, sending a code then answers 503. |
+| `MAIL_PORT` | No | `465` (TLS from the first byte, the default) or `587` (STARTTLS, then required) |
+| `MAIL_USERNAME` / `MAIL_PASSWORD` | Yes with `MAIL_HOST` | The mailbox and its password |
+| `MAIL_FROM_ADDRESS` | No | Sender address; defaults to `MAIL_USERNAME` |
+| `MAIL_FROM_NAME` | No | Sender name; defaults to `LadWani · bkesari` |
+| `MAIL_SCHEME` | No | As Laravel's: `smtps` or `smtp`, to override what the port implies |
 | `PAYMENT_GATEWAY_PROVIDER` | Yes for real payments | `RAZORPAY` to activate the live gateway; unset/`DEV` keeps the simulated one |
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET` | Yes if `PAYMENT_GATEWAY_PROVIDER=RAZORPAY` | Read lazily — the app won't crash at boot if these are missing, only when a real gateway call is actually made |
 | `DEV_GATEWAY_SECRET` / `DEV_GATEWAY_WEBHOOK_SECRET` | No | Dev-only defaults exist; irrelevant once `PAYMENT_GATEWAY_PROVIDER=RAZORPAY` |
@@ -71,15 +78,18 @@ database, nothing shared with the bkesari hub. The hub puts no gate in front of
 - Session cookie `lw_sid`: HttpOnly, SameSite=Lax, Path=`LADWANI_COOKIE_PATH`
   (default `/ladwani`; set `/` when the web app runs at the root), Secure except
   on plain http to localhost. Max-Age 30 days, rotated on every refresh.
-- Sign-in: mobile + OTP (`/auth/otp/send`, `/auth/otp/login`) first, email or
-  mobile + password (`/auth/login`) second. Five wrong passwords lock password
+- Sign-in: email + a code by email (`/auth/otp/send`, `/auth/otp/login` with
+  `{ email }`) first, email or mobile + password (`/auth/login`) second. Five wrong passwords lock password
   sign-in for 15 minutes; a code still works, and a reset clears the lock.
-- Forgot password: `/auth/password/forgot` sends a code to the account's mobile,
+- Forgot password: `/auth/password/forgot` sends a code to the account's email,
   `/auth/password/reset` sets the password and ends every session.
 - `GET /auth/session` answers the hub's app shell (`/shared/menu.js`) with who is
   signed in, without rotating the cookie.
 - Every `/auth` route refuses cross-site requests (`Origin` must name the host;
   `Sec-Fetch-Site: cross-site` is refused).
-- **No SMS provider is wired in yet.** Outside production the API returns codes
-  as `devOtp`; in production they are not sent anywhere, so OTP sign-in, sign-up
-  and password reset need a provider before LadWani goes live there.
+- **Codes go by email** (SMTP, the `MAIL_*` settings above; inside the hub each
+  may carry a `LADWANI_` prefix to apply to LadWani alone). SMS is on hold: no
+  SMS provider is wired in, the `{ mobile }` code paths stay in the API, and
+  the web offers them only when `GET /auth/session` says `smsLive: true`.
+  Without a mail provider, the dev tier and local runs return the code as
+  `devOtp`; test and production answer 503 and never return it.

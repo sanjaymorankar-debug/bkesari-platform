@@ -1,18 +1,19 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useId, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { api } from '../../lib/api-client'
 import { errorMessage } from '../../lib/auth-context'
 import { useT } from '../../lib/i18n'
-import { AuthFrame, DevCode, OtpInput, TextField } from '../../components/auth-ui'
+import { AuthFrame, DevCode, OtpInput, TextField, cleanEmail, codeSendError } from '../../components/auth-ui'
 import { ErrorBanner } from '../../components/ui'
 
-/** Forgot password: a code to the account's mobile, then a new password. */
+/** Forgot password: a code to the account's email, then a new password. */
 export default function ForgotPasswordPage() {
   const t = useT()
   const router = useRouter()
+  const sentId = useId()
   const [identifier, setIdentifier] = useState('')
   const [sent, setSent] = useState(false)
   const [devCode, setDevCode] = useState<string | null>(null)
@@ -26,18 +27,20 @@ export default function ForgotPasswordPage() {
   async function sendCode(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    if (!identifier.trim()) {
-      setErrors({ identifier: t('validation.identifier') })
+    const email = cleanEmail(identifier)
+    if (!email) {
+      setErrors({ identifier: t('validation.email') })
       return
     }
     setErrors({})
     setBusy(true)
     try {
-      const reply = await api.postFull<{ sent: boolean }>('/auth/password/forgot', { identifier: identifier.trim() })
+      const reply = await api.postFull<{ sent: boolean }>('/auth/password/forgot', { identifier: email })
+      setIdentifier(email)
       setDevCode(reply.devOtp ?? null)
       setSent(true)
     } catch (err) {
-      setError(errorMessage(err))
+      setError(codeSendError(err, t))
     } finally {
       setBusy(false)
     }
@@ -75,15 +78,29 @@ export default function ForgotPasswordPage() {
       <ErrorBanner message={error} />
       {!sent ? (
         <form onSubmit={sendCode} noValidate>
-          <TextField label={t('field.identifier')} autoComplete="username" value={identifier} onChange={(e) => setIdentifier(e.target.value)} error={errors.identifier} autoFocus />
+          <TextField
+            label={t('field.email')}
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
+            error={errors.identifier}
+            autoFocus
+          />
           <button className="k-btn k-btn--block" type="submit" aria-busy={busy || undefined} disabled={busy}>
             {t('signIn.sendCode')}
           </button>
         </form>
       ) : (
         <form onSubmit={reset} noValidate>
+          <p className="k-hint" id={sentId}>
+            {t('signIn.checkSpam')}
+          </p>
           <DevCode code={devCode} />
-          <OtpInput label={t('field.otp')} error={errors.otp} onChange={setOtp} autoFocus />
+          <OtpInput label={t('field.otp')} describedBy={sentId} error={errors.otp} onChange={setOtp} autoFocus />
           <TextField
             label={t('field.newPassword')}
             hint={t('field.passwordHint')}

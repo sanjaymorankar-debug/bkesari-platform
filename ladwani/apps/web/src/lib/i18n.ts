@@ -4,32 +4,41 @@ import { useCallback, useSyncExternalStore } from 'react'
 import en from '../i18n/en.json'
 import mr from '../i18n/mr.json'
 import hi from '../i18n/hi.json'
-import { kesari, type KesariLang } from './kesari'
+import type { KesariLang } from './kesari'
 
 /**
  * LadWani's strings in English, Marathi and Hindi (src/i18n/*.json; English is
- * the source, scripts/check-i18n.js keeps the others key for key). The language
- * is Kesari's, chosen in the app shell and shared by every bkesari project:
- * window.Kesari.currentLang(), announced by the `kesari:lang` event.
+ * the source, scripts/check-i18n.js keeps the others key for key). English
+ * unless the person chose another language with the app shell's switcher,
+ * which every bkesari project shares: it saves the choice in localStorage
+ * 'kesari.lang' and the cookie k_lang, and announces it with the `kesari:lang`
+ * event. The browser's own language (navigator.language, Accept-Language) is
+ * never used to choose.
  */
 export type MessageKey = Exclude<keyof typeof en, '_meta'>
 type Dict = Record<string, string | Record<string, string>>
 
 const DICTS: Record<KesariLang, Dict> = { en, mr, hi }
 const LANGS = Object.keys(DICTS) as KesariLang[]
+const isLang = (value: unknown): value is KesariLang => LANGS.includes(value as KesariLang)
 
+/**
+ * The switcher's choice, in the shell's own order (portal/public/shared/menu.js):
+ * the saved one, then the cookie, then English. Not Kesari.currentLang(),
+ * which falls back to the browser's language.
+ */
 function readLang(): KesariLang {
   try {
-    const lang = kesari()?.currentLang()
-    if (lang && LANGS.includes(lang)) return lang
-  } catch {
-    // the runtime failed; fall through to the stored choice
-  }
-  try {
-    const saved = window.localStorage.getItem('kesari.lang') as KesariLang | null
-    if (saved && LANGS.includes(saved)) return saved
+    const saved = window.localStorage.getItem('kesari.lang')
+    if (isLang(saved)) return saved
   } catch {
     // storage blocked (private window)
+  }
+  try {
+    const cookie = /(?:^|;\s*)k_lang=(en|mr|hi)(?:;|$)/.exec(document.cookie)?.[1]
+    if (isLang(cookie)) return cookie
+  } catch {
+    // no document.cookie (sandboxed frame)
   }
   return 'en'
 }

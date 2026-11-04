@@ -10,6 +10,7 @@ export interface SignUpProgress {
   step: 1 | 2 | 3 | 4
   firstName?: string
   lastName?: string
+  email?: string
   mobile?: string
   gender?: string
   dateOfBirth?: string

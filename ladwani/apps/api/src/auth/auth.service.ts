@@ -4,7 +4,6 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common'
@@ -15,6 +14,9 @@ import { RegisterDto } from './dto/register.dto'
 import { LoginDto } from './dto/login.dto'
 import { VerifyOtpDto } from './dto/verify-otp.dto'
 import { normalizeMobile } from './dto/fields'
+import { CodeDeliveryService, type CodeChannel } from './code-delivery.service'
+import type { CodePurpose, Lang } from './code-email'
+import { OTP_MAX_TRIES, OTP_SENDS_PER_HOUR, OTP_TTL_MINUTES } from './otp-rules'
 
 const ACCESS_TOKEN_TTL = '15m'
 const REFRESH_TOKEN_TTL_DAYS = 30
@@ -22,25 +24,44 @@ export const MAX_FAILED_ATTEMPTS = 5
 export const LOCK_MINUTES = 15
 const BCRYPT_COST = 12
 
-/** One-time codes (docs/17 §1): 6 digits, bcrypt-hashed, 10 minutes, 3 sent per account per hour. */
-export const OTP_TTL_MINUTES = 10
-export const OTP_SENDS_PER_HOUR = 3
-/** Tries one code allows; a wrong one at the limit voids the code. */
-export const OTP_MAX_TRIES = 5
+export { OTP_MAX_TRIES, OTP_SENDS_PER_HOUR, OTP_TTL_MINUTES }
 
 /**
- * verification_tokens.type values. Every try at a code is recorded as an
- * OTP_MISS row whose token_hash holds the id of that code (a right one removes
- * its row again), so tries are counted per code without a schema change.
+ * verification_tokens.type values, one per purpose and channel. Codes go by
+ * email (owner's decision, 4 Nov 2026: SMS is on hold); the MOBILE_* and
+ * PASSWORD_RESET (by SMS: the name predates email codes) paths stay for when
+ * SMS comes back. Every try at a code is recorded as an OTP_MISS row whose
+ * token_hash holds the id of that code (a right one removes its row again),
+ * so tries are counted per code without a schema change.
  */
 export const OTP_TYPES = {
+  EMAIL_VERIFY: 'EMAIL_VERIFY',
+  EMAIL_LOGIN: 'EMAIL_LOGIN',
+  EMAIL_PASSWORD_RESET: 'EMAIL_PASSWORD_RESET',
   MOBILE_VERIFY: 'MOBILE_VERIFY',
   MOBILE_LOGIN: 'MOBILE_LOGIN',
   PASSWORD_RESET: 'PASSWORD_RESET',
 } as const
 type OtpType = (typeof OTP_TYPES)[keyof typeof OTP_TYPES]
 const OTP_MISS = 'OTP_MISS'
+/** All of them count towards OTP_SENDS_PER_HOUR, whichever channel they went by. */
 const SENT_OTP_TYPES: string[] = Object.values(OTP_TYPES)
+/** Where each type of code was sent, so a right code proves that inbox (or phone) is the person's. */
+const CHANNEL_OF: Record<OtpType, CodeChannel> = {
+  EMAIL_VERIFY: 'email',
+  EMAIL_LOGIN: 'email',
+  EMAIL_PASSWORD_RESET: 'email',
+  MOBILE_VERIFY: 'sms',
+  MOBILE_LOGIN: 'sms',
+  PASSWORD_RESET: 'sms',
+}
+const VERIFIED_FIELD = { email: 'emailVerified', sms: 'mobileVerified' } as const
+
+/** Who a code is for: an email address, or (while SMS is on hold, only with a provider or on dev) a mobile number. Email wins when both are given. */
+export interface CodeTarget {
+  email?: string
+  mobile?: string
+}
 
 export type OtpCheck = 'ok' | 'none' | 'expired' | 'wrong' | 'too_many'
 
@@ -69,30 +90,41 @@ export function normalizeEmail(email: string | null | undefined): string | null 
 
 @Injectable()
 export class AuthService {
-  private readonly log = new Logger('Auth')
   /** Compared against when no account matches, so an unknown sign-in takes as long as a wrong password. */
   private noSuchUserHash?: Promise<string>
 
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
+    private delivery: CodeDeliveryService,
   ) {}
 
-  async register(dto: RegisterDto): Promise<{ userId: string; otpForDev: string }> {
-    const existingMobile = await this.prisma.user.findUnique({ where: { mobile: dto.mobile } })
-    if (existingMobile) throw new ConflictException('An account with this mobile number already exists.')
+  /**
+   * Creates the account and emails it a code, which verifies the email and
+   * signs the person in (loginWithOtp). The mobile number is kept on the
+   * account but not verified while SMS is on hold. `devOtp` only as
+   * CodeDeliveryService allows: dev tier or a local run, with no mail provider.
+   */
+  async register(dto: RegisterDto, lang: Lang = 'en'): Promise<{ userId: string; devOtp?: string }> {
+    // Before anything is written: where nobody could receive the code, say so.
+    this.delivery.assertAvailable('email')
 
     // Stored and compared lower-cased. PostgreSQL compares exactly, so without
     // this Asha@x.com and asha@x.com would be two accounts and a sign-in with the
     // other capitalisation would fail.
     const email = normalizeEmail(dto.email)
-    if (email) {
-      const existingEmail = await this.prisma.user.findUnique({ where: { email } })
-      if (existingEmail) throw new ConflictException('An account with this email already exists.')
+    if (!email) throw new BadRequestException('Enter a valid email address')
+    // The email first: an unfinished earlier sign-up with it carries on with a
+    // sign-in code (web /sign-up), so the web needs to know which one is taken.
+    if (await this.prisma.user.findUnique({ where: { email } })) {
+      throw taken('EMAIL_TAKEN', 'An account with this email already exists.')
+    }
+    if (await this.prisma.user.findUnique({ where: { mobile: dto.mobile } })) {
+      throw taken('MOBILE_TAKEN', 'An account with this mobile number already exists.')
     }
 
-    // No password yet: a random one nobody knows. Mobile + OTP signs this account
-    // in, and "Forgot password" sets a real one.
+    // No password yet: a random one nobody knows. Email + code signs this
+    // account in, and "Forgot password" sets a real one.
     const passwordHash = await hash(dto.password ?? randomBytes(32).toString('hex'), BCRYPT_COST)
     const memberRole = await this.getOrCreateMemberRole()
 
@@ -113,7 +145,7 @@ export class AuthService {
       await tx.verificationToken.create({
         data: {
           userId: user.id,
-          type: OTP_TYPES.MOBILE_VERIFY,
+          type: OTP_TYPES.EMAIL_VERIFY,
           tokenHash: otpHash,
           expiresAt: new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000),
         },
@@ -122,15 +154,18 @@ export class AuthService {
       return user.id
     })
 
-    this.deliverOtp(dto.mobile)
-    return { userId, otpForDev: otp }
+    // A failed send answers 503; the account stays, and asking again (409,
+    // then a sign-in code) carries on from here.
+    const sent = await this.delivery.deliver('email', email, otp, 'sign-up', lang)
+    return { userId, ...sent }
   }
 
+  /** Verifies the email (or, later, the mobile) with the sign-up code. */
   async verifyOtp(dto: VerifyOtpDto): Promise<{ verified: true }> {
-    const check = await this.checkOtp(dto.userId, [OTP_TYPES.MOBILE_VERIFY], dto.otp)
+    const { check, type } = await this.spendOtp(dto.userId, [OTP_TYPES.EMAIL_VERIFY, OTP_TYPES.MOBILE_VERIFY], dto.otp)
     if (check === 'none') throw new NotFoundException('No pending verification for this account.')
-    if (check !== 'ok') throw new BadRequestException(otpProblem(check))
-    await this.markMobileVerified(dto.userId)
+    if (check !== 'ok' || !type) throw new BadRequestException(otpProblem(check === 'ok' ? 'expired' : check))
+    await this.markVerified(dto.userId, CHANNEL_OF[type])
     return { verified: true }
   }
 
@@ -168,33 +203,43 @@ export class AuthService {
     return this.issueSession(user)
   }
 
-  // ── Mobile + OTP sign-in ─────────────────────────────────────────────
+  // ── Sign-in with a code (by email; by SMS once it is back) ─────────
 
   /**
-   * Sends a sign-in code to `mobile` when it belongs to an account that may sign
-   * in. The caller answers the same either way; only `otpForDev` (never in
-   * production) differs.
+   * Sends a sign-in code to the email (or mobile) when it belongs to an
+   * account that may sign in. The caller answers the same either way, and no
+   * mail goes to an address without an account; only `devOtp` (dev tier or a
+   * local run, no provider) differs. 503 for everyone alike where nothing can
+   * deliver the code.
    */
-  async sendLoginOtp(mobile: string): Promise<{ otpForDev?: string }> {
-    const user = await this.prisma.user.findFirst({ where: { mobile, deletedAt: null } })
+  async sendLoginOtp(target: CodeTarget, lang: Lang = 'en'): Promise<{ devOtp?: string }> {
+    const { channel, where } = codeTarget(target)
+    this.delivery.assertAvailable(channel)
+    const user = await this.prisma.user.findFirst({ where: { ...where, deletedAt: null } })
     if (!user || BLOCKED_STATUSES.has(user.status)) return {}
-    return this.issueOtp(user.id, user.mobile, OTP_TYPES.MOBILE_LOGIN)
+    const to = channel === 'email' ? user.email : user.mobile
+    if (!to) return {}
+    return this.issueOtp(user.id, channel === 'email' ? OTP_TYPES.EMAIL_LOGIN : OTP_TYPES.MOBILE_LOGIN, to, 'sign-in', lang)
   }
 
   /**
    * Signs in with a code from sendLoginOtp (or the one sent at sign-up, which
-   * proves the same thing: this person holds the phone). A password lock does
-   * not apply: it stops password guessing, and codes have their own limits.
+   * proves the same thing: this person holds the inbox, or the phone). A
+   * password lock does not apply: it stops password guessing, and codes have
+   * their own limits. An email code only works with that email, a mobile code
+   * only with that number.
    */
-  async loginWithOtp(mobile: string, otp: string): Promise<LoginResult> {
-    const user = await this.prisma.user.findFirst({ where: { mobile, deletedAt: null }, include: SESSION_USER_INCLUDE })
+  async loginWithOtp(target: CodeTarget, otp: string): Promise<LoginResult> {
+    const { channel, where } = codeTarget(target)
+    const user = await this.prisma.user.findFirst({ where: { ...where, deletedAt: null }, include: SESSION_USER_INCLUDE })
     if (!user) {
       await this.spendCompareTime(otp)
       throw new UnauthorizedException(otpProblem('wrong'))
     }
     if (BLOCKED_STATUSES.has(user.status)) throw new ForbiddenException('Account suspended. Contact an administrator.')
 
-    const check = await this.checkOtp(user.id, [OTP_TYPES.MOBILE_LOGIN, OTP_TYPES.MOBILE_VERIFY], otp)
+    const types = channel === 'email' ? [OTP_TYPES.EMAIL_LOGIN, OTP_TYPES.EMAIL_VERIFY] : [OTP_TYPES.MOBILE_LOGIN, OTP_TYPES.MOBILE_VERIFY]
+    const check = await this.checkOtp(user.id, types, otp)
     if (check !== 'ok') throw new UnauthorizedException(otpProblem(check))
 
     await this.prisma.user.update({
@@ -203,7 +248,7 @@ export class AuthService {
         failedAttempts: 0,
         lockedUntil: null,
         lastLoginAt: new Date(),
-        mobileVerified: true,
+        [VERIFIED_FIELD[channel]]: true,
         ...(user.status === 'PENDING' ? { status: 'ACTIVE' } : {}),
       },
     })
@@ -212,11 +257,20 @@ export class AuthService {
 
   // ── Forgot password ─────────────────────────────────────────────────
 
-  /** Sends a reset code to the account's mobile. Same answer whether or not it exists. */
-  async requestPasswordReset(identifier: string): Promise<{ otpForDev?: string }> {
+  /**
+   * Sends a reset code to the account's email (found by its email or mobile).
+   * The same answer whether or not the account exists. An account with no
+   * email gets nothing while SMS is on hold, and is answered the same.
+   */
+  async requestPasswordReset(identifier: string, lang: Lang = 'en'): Promise<{ devOtp?: string }> {
+    const byEmail = this.delivery.mode('email')
+    const bySms = this.delivery.mode('sms')
+    if (byEmail === 'off' && bySms === 'off') throw this.delivery.unavailable('email')
     const user = await this.findByIdentifier(identifier)
-    if (!user || !user.mobile || BLOCKED_STATUSES.has(user.status)) return {}
-    return this.issueOtp(user.id, user.mobile, OTP_TYPES.PASSWORD_RESET)
+    if (!user || BLOCKED_STATUSES.has(user.status)) return {}
+    if (user.email && byEmail !== 'off') return this.issueOtp(user.id, OTP_TYPES.EMAIL_PASSWORD_RESET, user.email, 'reset', lang)
+    if (user.mobile && bySms !== 'off') return this.issueOtp(user.id, OTP_TYPES.PASSWORD_RESET, user.mobile, 'reset', lang)
+    return {}
   }
 
   /** Sets a new password with a reset code, clears any lock and ends every session. */
@@ -227,16 +281,16 @@ export class AuthService {
       throw new BadRequestException(otpProblem('wrong'))
     }
 
-    const check = await this.checkOtp(user.id, [OTP_TYPES.PASSWORD_RESET], otp)
-    if (check !== 'ok') throw new BadRequestException(otpProblem(check))
+    const { check, type } = await this.spendOtp(user.id, [OTP_TYPES.EMAIL_PASSWORD_RESET, OTP_TYPES.PASSWORD_RESET], otp)
+    if (check !== 'ok' || !type) throw new BadRequestException(otpProblem(check === 'ok' ? 'expired' : check))
 
     const passwordHash = await hash(password, BCRYPT_COST)
     const now = new Date()
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: user.id },
-        // The code went to this mobile, so the number is verified too.
-        data: { passwordHash, failedAttempts: 0, lockedUntil: null, mobileVerified: true },
+        // The code reached this inbox (or phone), so that is verified too.
+        data: { passwordHash, failedAttempts: 0, lockedUntil: null, [VERIFIED_FIELD[CHANNEL_OF[type]]]: true },
       }),
       this.prisma.refreshToken.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: now } }),
     ])
@@ -294,27 +348,31 @@ export class AuthService {
 
   /**
    * Issues a code of `type` for the account, voiding its earlier unused codes of
-   * that type. Past OTP_SENDS_PER_HOUR codes in the last hour nothing is sent,
-   * and the caller still answers as if it had been.
+   * that type, and sends it to `to` (CodeDeliveryService). Past
+   * OTP_SENDS_PER_HOUR codes in the last hour nothing is sent, and the caller
+   * still answers as if it had been.
    */
-  private async issueOtp(userId: string, mobile: string | null, type: OtpType): Promise<{ otpForDev?: string }> {
-    const since = new Date(Date.now() - 60 * 60 * 1000)
-    const recent = await this.prisma.verificationToken.count({
-      where: { userId, type: { in: SENT_OTP_TYPES }, createdAt: { gte: since } },
-    })
-    if (recent >= OTP_SENDS_PER_HOUR) return {}
-
+  private async issueOtp(userId: string, type: OtpType, to: string, purpose: CodePurpose, lang: Lang): Promise<{ devOtp?: string }> {
     const otp = this.newOtp()
     const tokenHash = await hash(otp, BCRYPT_COST)
-    const now = new Date()
-    await this.prisma.$transaction([
-      this.prisma.verificationToken.updateMany({ where: { userId, type, usedAt: null }, data: { usedAt: now } }),
-      this.prisma.verificationToken.create({
+    const issued = await this.prisma.$transaction(async (tx) => {
+      // One send at a time per account: requests sent together wait on this
+      // row lock, so each counts the codes the others issued and the limit
+      // holds (every send is a real email now).
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`
+      const now = new Date()
+      const recent = await tx.verificationToken.count({
+        where: { userId, type: { in: SENT_OTP_TYPES }, createdAt: { gte: new Date(now.getTime() - 60 * 60 * 1000) } },
+      })
+      if (recent >= OTP_SENDS_PER_HOUR) return false
+      await tx.verificationToken.updateMany({ where: { userId, type, usedAt: null }, data: { usedAt: now } })
+      await tx.verificationToken.create({
         data: { userId, type, tokenHash, expiresAt: new Date(now.getTime() + OTP_TTL_MINUTES * 60 * 1000) },
-      }),
-    ])
-    if (mobile) this.deliverOtp(mobile)
-    return { otpForDev: otp }
+      })
+      return true
+    })
+    if (!issued) return {}
+    return this.delivery.deliver(CHANNEL_OF[type], to, otp, purpose, lang)
   }
 
   /**
@@ -323,12 +381,18 @@ export class AuthService {
    * parallel cannot buy one code more than OTP_MAX_TRIES comparisons.
    */
   async checkOtp(userId: string, types: OtpType[], otp: string): Promise<OtpCheck> {
+    return (await this.spendOtp(userId, types, otp)).check
+  }
+
+  /** checkOtp, also naming the type of the code it checked (so the caller knows where it was sent). */
+  private async spendOtp(userId: string, types: OtpType[], otp: string): Promise<{ check: OtpCheck; type?: OtpType }> {
     const token = await this.prisma.verificationToken.findFirst({
       where: { userId, type: { in: types }, usedAt: null },
       orderBy: { createdAt: 'desc' },
     })
-    if (!token) return 'none'
-    if (token.expiresAt < new Date()) return 'expired'
+    if (!token) return { check: 'none' }
+    const type = token.type as OtpType
+    if (token.expiresAt < new Date()) return { check: 'expired', type }
 
     const attempt = await this.prisma.verificationToken.create({
       data: { userId, type: OTP_MISS, tokenHash: token.id, expiresAt: token.expiresAt, usedAt: new Date() },
@@ -337,31 +401,20 @@ export class AuthService {
     const voidCode = () => this.prisma.verificationToken.updateMany({ where: { id: token.id, usedAt: null }, data: { usedAt: new Date() } })
     if (tries > OTP_MAX_TRIES) {
       await voidCode()
-      return 'too_many'
+      return { check: 'too_many', type }
     }
 
     if (await compare(otp, token.tokenHash)) {
       await this.prisma.verificationToken.delete({ where: { id: attempt.id } })
       // Single use, even under two requests at once: only one update claims it.
       const claimed = await voidCode()
-      return claimed.count === 1 ? 'ok' : 'expired'
+      return { check: claimed.count === 1 ? 'ok' : 'expired', type }
     }
     if (tries >= OTP_MAX_TRIES) {
       await voidCode()
-      return 'too_many'
+      return { check: 'too_many', type }
     }
-    return 'wrong'
-  }
-
-  /**
-   * No SMS provider is wired in yet (docs/02 §17 defers it). Outside production
-   * the API hands the code back as `devOtp`; in production it is only noted
-   * here that a code could not be sent, never the code itself.
-   */
-  private deliverOtp(mobile: string): void {
-    if (process.env.NODE_ENV === 'production') {
-      this.log.warn(`No SMS provider is configured; a code for …${mobile.slice(-4)} was not delivered.`)
-    }
+    return { check: 'wrong', type }
   }
 
   /** A bcrypt comparison that can never match, so "no such account" takes as long as a wrong answer. */
@@ -374,13 +427,13 @@ export class AuthService {
     return randomInt(0, 1_000_000).toString().padStart(6, '0')
   }
 
-  /** A verified mobile activates a new account; it never lifts a suspension. */
-  private async markMobileVerified(userId: string) {
+  /** A verified email (or mobile) activates a new account; it never lifts a suspension. */
+  private async markVerified(userId: string, channel: CodeChannel) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } })
     if (!user) throw new NotFoundException('No pending verification for this account.')
     await this.prisma.user.update({
       where: { id: userId },
-      data: { mobileVerified: true, ...(user.status === 'PENDING' ? { status: 'ACTIVE' } : {}) },
+      data: { [VERIFIED_FIELD[channel]]: true, ...(user.status === 'PENDING' ? { status: 'ACTIVE' } : {}) },
     })
   }
 
@@ -425,6 +478,20 @@ export class AuthService {
   }
 }
 
+/** 409 naming which of the two is taken, for the web's sign-up (reason EMAIL_TAKEN or MOBILE_TAKEN). */
+function taken(reason: 'EMAIL_TAKEN' | 'MOBILE_TAKEN', message: string): ConflictException {
+  return new ConflictException({ statusCode: 409, error: 'Conflict', message, reason })
+}
+
+/** Where a code goes, and how to find its account. Never matches "no email" or "no mobile". */
+function codeTarget(target: CodeTarget): { channel: CodeChannel; where: { email: string } | { mobile: string } } {
+  const email = normalizeEmail(target.email)
+  if (email) return { channel: 'email', where: { email } }
+  const mobile = typeof target.mobile === 'string' ? (normalizeMobile(target.mobile) as string) : ''
+  if (mobile) return { channel: 'sms', where: { mobile } }
+  throw new BadRequestException('Enter your email address')
+}
+
 function otpProblem(check: Exclude<OtpCheck, 'ok'>): string {
   if (check === 'too_many') return 'Too many wrong codes. Ask for a new one.'
   if (check === 'wrong') return 'That code is not right. Check it and try again.'
@@ -433,5 +500,5 @@ function otpProblem(check: Exclude<OtpCheck, 'ok'>): string {
 
 function lockedMessage(until: Date): string {
   const minutes = Math.max(1, Math.ceil((until.getTime() - Date.now()) / 60_000))
-  return `Too many wrong passwords. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}, or sign in with a code sent to your mobile.`
+  return `Too many wrong passwords. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}, or sign in with a code sent to your email.`
 }

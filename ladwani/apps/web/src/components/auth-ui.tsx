@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type KeyboardEvent, type ReactNode } from 'react'
-import { useT } from '../lib/i18n'
+import { useT, type Translate } from '../lib/i18n'
 import { kesari } from '../lib/kesari'
+import { ApiError } from '../lib/api-client'
+import { errorMessage } from '../lib/auth-context'
 
 /**
  * The frame every sign-in screen shares: LadWani's name in its accent, and the
@@ -54,12 +56,26 @@ export function TextField({
  * fill every box), or one plain field when the runtime is not on the page.
  * The boxes are created by kesari.js after mount, never in the static HTML.
  */
-export function OtpInput({ label, error, onChange, autoFocus }: { label: string; error?: string | null; onChange: (value: string) => void; autoFocus?: boolean }) {
+export function OtpInput({
+  label,
+  error,
+  onChange,
+  autoFocus,
+  describedBy,
+}: {
+  label: string
+  error?: string | null
+  onChange: (value: string) => void
+  autoFocus?: boolean
+  /** The id of text that explains where the code went ("We sent a code to ..."), read out with the boxes. */
+  describedBy?: string
+}) {
   const box = useRef<HTMLDivElement>(null)
   const [fallback, setFallback] = useState(false)
   const id = useId()
   const changeRef = useRef(onChange)
   changeRef.current = onChange
+  const description = [describedBy, `${id}-error`].filter(Boolean).join(' ')
 
   useEffect(() => {
     const el = box.current
@@ -73,7 +89,7 @@ export function OtpInput({ label, error, onChange, autoFocus }: { label: string;
     const inputs = el.querySelectorAll('input:not([type=hidden])')
     inputs.forEach((input) => {
       if (error) input.setAttribute('aria-invalid', 'true')
-      input.setAttribute('aria-describedby', `${id}-error`)
+      input.setAttribute('aria-describedby', description)
     })
     if (autoFocus) (inputs[0] as HTMLInputElement | undefined)?.focus()
     const listener = (e: Event) => changeRef.current((e as CustomEvent<{ value: string }>).detail.value)
@@ -104,7 +120,7 @@ export function OtpInput({ label, error, onChange, autoFocus }: { label: string;
           pattern="[0-9]*"
           aria-labelledby={`${id}-label`}
           aria-invalid={error ? true : undefined}
-          aria-describedby={`${id}-error`}
+          aria-describedby={description}
           autoFocus={autoFocus}
           onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 6))}
         />
@@ -158,7 +174,10 @@ export function tabPanelProps(tabsId: string, key: string) {
   return { role: 'tabpanel', id: `${tabsId}-${key}-panel`, 'aria-labelledby': `${tabsId}-${key}`, tabIndex: 0 }
 }
 
-/** Shows the code the API hands back outside production (no SMS provider is wired yet). */
+/**
+ * Shows the code the API hands back on the dev site (or a local run) when no
+ * mail provider is configured. The test and live sites never send one.
+ */
 export function DevCode({ code }: { code?: string | null }) {
   const t = useT()
   if (!code) return null
@@ -167,6 +186,22 @@ export function DevCode({ code }: { code?: string | null }) {
       <p>{t('auth.devCode', { code })}</p>
     </div>
   )
+}
+
+/** An email address as typed, without the spaces around it; '' when it does not look like one. */
+export function cleanEmail(value: string): string {
+  const v = value.trim()
+  return v.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? v : ''
+}
+
+/**
+ * What to say when a code could not be sent: the API's 503 for email ("We
+ * could not send the email right now...") in the person's language, else the
+ * API's own message.
+ */
+export function codeSendError(err: unknown, t: Translate, channel: 'email' | 'sms' = 'email'): string {
+  const fromApi = err instanceof ApiError && err.status === 503 && Boolean((err.body as { message?: unknown } | null)?.message)
+  return fromApi && channel === 'email' ? t('auth.mailUnavailable') : errorMessage(err)
 }
 
 /** A 10-digit Indian mobile, as the API wants it, from what people type. */

@@ -14,13 +14,21 @@ export interface SessionResult {
   user: AuthUser
 }
 
+/** Where a one-time code went: an email address (the default while SMS is on hold) or a mobile number. */
+export type CodeTarget = { email: string } | { mobile: string }
+
 interface AuthContextValue {
   user: AuthUser | null
   loading: boolean
+  /**
+   * Whether the API has an SMS provider (GET /auth/session, smsLive). None
+   * today: SMS is on hold, so the screens offer codes by email only.
+   */
+  smsLive: boolean
   /** Email or mobile + password. */
   login: (identifier: string, password: string) => Promise<void>
-  /** Mobile + the 6-digit code from POST /auth/otp/send (or from sign-up). */
-  loginWithOtp: (mobile: string, otp: string) => Promise<void>
+  /** The 6-digit code from POST /auth/otp/send (or from sign-up), with the email (or mobile) it went to. */
+  loginWithOtp: (target: CodeTarget, otp: string) => Promise<void>
   logout: () => Promise<void>
   setUser: (user: AuthUser | null) => void
 }
@@ -53,6 +61,7 @@ function storeUser(user: AuthUser | null) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUserState] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const [smsLive, setSmsLive] = useState(false)
 
   const setUser = useCallback((next: AuthUser | null) => {
     storeUser(next)
@@ -87,8 +96,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (stored) setUserState(stored) // a 5xx or network trouble is not a sign-out
           return
         }
-        const body = (await res.json().catch(() => null)) as { user?: unknown } | null
+        const body = (await res.json().catch(() => null)) as { user?: unknown; smsLive?: unknown } | null
         if (cancelled) return
+        setSmsLive(body?.smsLive === true)
         if (!body || !body.user) { forget(); return }
         if (getAccessToken() && stored) { setUserState(stored); return }
         const result = await api.post<SessionResult>('/auth/refresh')
@@ -111,7 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const loginWithOtp = useCallback(
-    async (mobile: string, otp: string) => adopt(await api.post<SessionResult>('/auth/otp/login', { mobile, otp })),
+    async (target: CodeTarget, otp: string) => adopt(await api.post<SessionResult>('/auth/otp/login', { ...target, otp })),
     [adopt],
   )
 
@@ -124,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     forget()
   }, [forget])
 
-  return <AuthContext.Provider value={{ user, loading, login, loginWithOtp, logout, setUser }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ user, loading, smsLive, login, loginWithOtp, logout, setUser }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth(): AuthContextValue {

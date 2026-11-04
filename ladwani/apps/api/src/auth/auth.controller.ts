@@ -2,6 +2,8 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res, Unauthoriz
 import { Throttle } from '@nestjs/throttler'
 import type { Request, Response } from 'express'
 import { AuthService, LoginResult, OTP_TTL_MINUTES } from './auth.service'
+import { CodeDeliveryService } from './code-delivery.service'
+import { langOf } from './code-email'
 import { RegisterDto } from './dto/register.dto'
 import { LoginDto } from './dto/login.dto'
 import { VerifyOtpDto } from './dto/verify-otp.dto'
@@ -12,10 +14,8 @@ import { appBase, clearSessionCookie, readSessionCookie, setSessionCookie } from
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000
 
-/** Dev-only: no SMS provider is wired yet. Never present in a production response. */
-function devOnly(otp: string | undefined): { devOtp?: string } {
-  return process.env.NODE_ENV !== 'production' && otp ? { devOtp: otp } : {}
-}
+/** The language the shell is showing (cookie k_lang), for the email with the code. English unless chosen. */
+const langFrom = (req: Request) => langOf(req.cookies?.k_lang)
 
 /** The shell's account menu links, in the language the shell is showing (cookie k_lang). */
 const PROFILE_LABEL: Record<string, string> = { en: 'My profile', mr: 'माझी प्रोफाइल', hi: 'मेरी प्रोफ़ाइल' }
@@ -23,19 +23,27 @@ const PROFILE_LABEL: Record<string, string> = { en: 'My profile', mr: 'माझ
 /**
  * LadWani's own sign-in, end to end: its users, its codes, its session cookie
  * (session-cookie.ts). Every route refuses cross-site requests (SameOriginGuard).
+ * One-time codes go by email (CodeDeliveryService). An answer carries the code
+ * itself (`devOtp`) only on the dev tier or a local run with no mail provider
+ * configured: AuthService returns it only then, and it is passed on as it is.
+ * Never on the test or production tiers.
  */
 @Controller('auth')
 @UseGuards(SameOriginGuard)
 export class AuthController {
-  constructor(private auth: AuthService) {}
+  constructor(
+    private auth: AuthService,
+    private delivery: CodeDeliveryService,
+  ) {}
 
+  /** Creates the account and emails it a code (409 with reason EMAIL_TAKEN or MOBILE_TAKEN when one is in use). */
   @Post('register')
   @Throttle({ default: { limit: 5, ttl: 60 * 60 * 1000 } })
-  async register(@Body() dto: RegisterDto) {
-    const { userId, otpForDev } = await this.auth.register(dto)
+  async register(@Body() dto: RegisterDto, @Req() req: Request) {
+    const { userId, devOtp } = await this.auth.register(dto, langFrom(req))
     return {
-      data: { userId, message: 'Account created. Verify your mobile to continue.' },
-      ...devOnly(otpForDev),
+      data: { userId, sent: true, expiresInMinutes: OTP_TTL_MINUTES, message: 'Account created. Enter the code we emailed you to continue.' },
+      ...(devOtp ? { devOtp } : {}),
     }
   }
 
@@ -54,15 +62,24 @@ export class AuthController {
     return this.signedIn(req, res, await this.auth.login(dto))
   }
 
-  /** Sends a sign-in code. The same answer whether or not the number has an account. */
+  /**
+   * Sends a sign-in code to { email } (or { mobile }, kept for when SMS is
+   * back). The same answer whether or not the address has an account; 503 for
+   * everyone where nothing can deliver it.
+   */
   @Post('otp/send')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: FIFTEEN_MINUTES } })
-  async sendOtp(@Body() dto: SendOtpDto) {
-    const { otpForDev } = await this.auth.sendLoginOtp(dto.mobile)
+  async sendOtp(@Body() dto: SendOtpDto, @Req() req: Request) {
+    const byEmail = dto.email !== undefined || dto.mobile === undefined
+    const { devOtp } = await this.auth.sendLoginOtp(byEmail ? { email: dto.email } : { mobile: dto.mobile }, langFrom(req))
     return {
-      data: { sent: true, expiresInMinutes: OTP_TTL_MINUTES, message: 'If this number has a LadWani account, a code is on its way.' },
-      ...devOnly(otpForDev),
+      data: {
+        sent: true,
+        expiresInMinutes: OTP_TTL_MINUTES,
+        message: byEmail ? 'If this email has a LadWani account, a code is on its way.' : 'If this number has a LadWani account, a code is on its way.',
+      },
+      ...(devOtp ? { devOtp } : {}),
     }
   }
 
@@ -70,18 +87,19 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 10, ttl: FIFTEEN_MINUTES } })
   async otpLogin(@Body() dto: OtpLoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    return this.signedIn(req, res, await this.auth.loginWithOtp(dto.mobile, dto.otp))
+    const byEmail = dto.email !== undefined || dto.mobile === undefined
+    return this.signedIn(req, res, await this.auth.loginWithOtp(byEmail ? { email: dto.email } : { mobile: dto.mobile }, dto.otp))
   }
 
-  /** Sends a reset code to the account's mobile. The same answer whether or not the account exists. */
+  /** Sends a reset code to the account's email. The same answer whether or not the account exists. */
   @Post('password/forgot')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: FIFTEEN_MINUTES } })
-  async forgotPassword(@Body() dto: ForgotPasswordDto) {
-    const { otpForDev } = await this.auth.requestPasswordReset(dto.identifier)
+  async forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: Request) {
+    const { devOtp } = await this.auth.requestPasswordReset(dto.identifier, langFrom(req))
     return {
-      data: { sent: true, expiresInMinutes: OTP_TTL_MINUTES, message: 'If an account matches, a code is on its way to its mobile number.' },
-      ...devOnly(otpForDev),
+      data: { sent: true, expiresInMinutes: OTP_TTL_MINUTES, message: 'If an account matches, a code is on its way to its email address.' },
+      ...(devOtp ? { devOtp } : {}),
     }
   }
 
@@ -125,21 +143,26 @@ export class AuthController {
    * For the bkesari app shell's account menu (portal/public/shared/menu.js):
    * who is signed in to LadWani, read from the session cookie without rotating
    * it. Not wrapped in { data }: the shell reads this shape as it is.
+   * Also, for LadWani's own sign-in screens, which code channels have a
+   * provider: mailLive (MAIL_HOST is set) and smsLive (false while SMS is on
+   * hold; the screens offer mobile codes only when it is true).
    */
   @Get('session')
   @Throttle({ default: { limit: 60, ttl: 60 * 1000 } })
   async session(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     res.set('Cache-Control', 'no-store')
     const base = appBase()
+    const live = { mailLive: this.delivery.live('email'), smsLive: this.delivery.live('sms') }
     const person = await this.auth.sessionPerson(readSessionCookie(req))
     // Signed out is an answer, not an error: a 401 here would be logged to the
     // browser's console on every page a visitor opens.
-    if (!person) return { user: null, signInUrl: `${base}/sign-in/` }
-    const lang = String(req.cookies?.k_lang ?? 'en')
+    if (!person) return { user: null, signInUrl: `${base}/sign-in/`, ...live }
+    const lang = langFrom(req)
     return {
       user: person,
       signOut: { url: `${base}/api/v1/auth/logout`, next: `${base}/sign-in` },
       links: [{ label: PROFILE_LABEL[lang] ?? PROFILE_LABEL.en, href: `${base}/profile/edit/` }],
+      ...live,
     }
   }
 

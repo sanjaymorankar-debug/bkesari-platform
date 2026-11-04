@@ -49,7 +49,7 @@ async function request<T>(method: string, path: string, body?: unknown, retry = 
   return json?.data as T
 }
 
-/** The whole JSON body, for the few replies that carry more than `data` (devOtp, outside production). */
+/** The whole JSON body, for the few replies that carry more than `data` (devOtp: dev site or local, no mail provider). */
 async function requestJson<T>(method: string, path: string, body?: unknown, retry = true): Promise<T> {
   const token = getAccessToken()
   const res = await fetch(`${API_BASE}${path}`, {

@@ -3,9 +3,12 @@ import { RoleCode } from '../roles'
 export interface RegisterRequestDto {
   firstName: string
   lastName: string
+  /** Required: the sign-up code is emailed here (SMS is on hold). */
+  email: string
+  /** Kept on the account; not verified while SMS is on hold. */
   mobile: string
-  email?: string
-  password: string
+  /** Optional: an account can start with the emailed code and set one later. */
+  password?: string
 }
 
 export interface LoginRequestDto {

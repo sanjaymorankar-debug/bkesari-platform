@@ -1,22 +1,24 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useId, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { api, BASE_PATH } from '../../lib/api-client'
 import { errorMessage, useAuth } from '../../lib/auth-context'
 import { useT } from '../../lib/i18n'
 import { loadProgress } from '../../lib/sign-up-progress'
-import { AuthFrame, DevCode, OtpInput, TextField, cleanMobile, useCountdown } from '../../components/auth-ui'
+import { AuthFrame, DevCode, OtpInput, TextField, cleanEmail, codeSendError, useCountdown } from '../../components/auth-ui'
 import { ErrorBanner } from '../../components/ui'
 
 /**
- * Verify a mobile after registering: for someone who created an account and
- * left before entering the code. A new code signs them in and activates it.
+ * Verify an email after registering: for someone who created an account and
+ * left before entering the code. A new code by email signs them in and
+ * activates it.
  */
 export default function VerifyPage() {
   const t = useT()
   const { loginWithOtp } = useAuth()
-  const [mobile, setMobile] = useState('')
+  const sentId = useId()
+  const [email, setEmail] = useState('')
   const [sentAt, setSentAt] = useState(0)
   const [devCode, setDevCode] = useState<string | null>(null)
   const [otp, setOtp] = useState('')
@@ -26,33 +28,33 @@ export default function VerifyPage() {
   const [resendIn, setResendIn] = useCountdown()
 
   useEffect(() => {
-    let known = loadProgress()?.mobile ?? ''
+    let known = loadProgress()?.email ?? ''
     try {
-      known = cleanMobile(new URLSearchParams(window.location.search).get('mobile') ?? '') || known
+      known = cleanEmail(new URLSearchParams(window.location.search).get('email') ?? '') || known
     } catch {
       // no query
     }
-    setMobile(known)
+    setEmail(known)
   }, [])
 
   async function send(e?: FormEvent) {
     e?.preventDefault()
     setError(null)
-    const clean = cleanMobile(mobile)
+    const clean = cleanEmail(email)
     if (!clean) {
-      setErrors({ mobile: t('validation.mobile') })
+      setErrors({ email: t('validation.email') })
       return
     }
     setErrors({})
     setBusy(true)
     try {
-      const reply = await api.postFull<{ sent: boolean }>('/auth/otp/send', { mobile: clean })
-      setMobile(clean)
+      const reply = await api.postFull<{ sent: boolean }>('/auth/otp/send', { email: clean })
+      setEmail(clean)
       setDevCode(reply.devOtp ?? null)
       setSentAt(Date.now())
       setResendIn(30)
     } catch (err) {
-      setError(errorMessage(err))
+      setError(codeSendError(err, t))
     } finally {
       setBusy(false)
     }
@@ -67,7 +69,7 @@ export default function VerifyPage() {
     setErrors({})
     setBusy(true)
     try {
-      await loginWithOtp(mobile, otp)
+      await loginWithOtp({ email }, otp)
       // Back to sign-up if it was left part-way, else home.
       window.location.assign(`${BASE_PATH}${loadProgress() ? '/sign-up/' : '/dashboard/'}`)
     } catch (err) {
@@ -90,25 +92,29 @@ export default function VerifyPage() {
       {!sentAt ? (
         <form onSubmit={send} noValidate>
           <TextField
-            label={t('field.mobile')}
-            hint={t('field.mobileHint')}
-            type="tel"
-            inputMode="numeric"
-            autoComplete="tel-national"
-            value={mobile}
-            onChange={(e) => setMobile(e.target.value)}
-            error={errors.mobile}
+            label={t('field.email')}
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            error={errors.email}
             autoFocus
           />
           <button className="k-btn k-btn--block" type="submit" aria-busy={busy || undefined} disabled={busy}>
-            {t('signIn.sendCode')}
+            {t('signIn.tabEmail')}
           </button>
         </form>
       ) : (
         <form onSubmit={verify} noValidate>
-          <p>{t('signIn.codeSentTo', { mobile })}</p>
+          <div id={sentId}>
+            <p>{t('signIn.emailCodeSentTo', { email })}</p>
+            <p className="k-hint">{t('signIn.checkSpam')}</p>
+          </div>
           <DevCode code={devCode} />
-          <OtpInput key={sentAt} label={t('field.otp')} error={errors.otp} onChange={setOtp} autoFocus />
+          <OtpInput key={sentAt} label={t('field.otp')} describedBy={sentId} error={errors.otp} onChange={setOtp} autoFocus />
           <button className="k-btn k-btn--block" type="submit" aria-busy={busy || undefined} disabled={busy}>
             {t('signUp.verify')}
           </button>

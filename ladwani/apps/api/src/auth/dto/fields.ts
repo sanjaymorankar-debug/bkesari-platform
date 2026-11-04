@@ -1,6 +1,6 @@
 import { applyDecorators } from '@nestjs/common'
 import { Transform } from 'class-transformer'
-import { IsString, Matches, MaxLength, MinLength } from 'class-validator'
+import { IsEmail, IsString, Matches, MaxLength, MinLength } from 'class-validator'
 
 /**
  * An Indian mobile number as people type it -- "+91 98765 43210",
@@ -21,6 +21,16 @@ export function IsIndianMobile() {
   return applyDecorators(
     Transform(({ value }) => normalizeMobile(value)),
     Matches(MOBILE_PATTERN, { message: 'Enter a valid 10-digit Indian mobile number' }),
+  )
+}
+
+/** An email address as people type it, spaces around it removed (AuthService lower-cases it). */
+export function IsEmailAddress() {
+  return applyDecorators(
+    Transform(({ value }) => (typeof value === 'string' ? value.trim() : value)),
+    IsString({ message: 'Enter a valid email address' }),
+    MaxLength(254, { message: 'Enter a valid email address' }),
+    IsEmail({}, { message: 'Enter a valid email address' }),
   )
 }
 

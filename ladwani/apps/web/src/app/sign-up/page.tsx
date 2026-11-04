@@ -8,7 +8,7 @@ import { api, ApiError } from '../../lib/api-client'
 import { useT, type MessageKey } from '../../lib/i18n'
 import { clearProgress, loadProgress, saveProgress, type SignUpProgress } from '../../lib/sign-up-progress'
 import { ID_PROOF_TYPES, MAX_ID_PROOF_BYTES, uploadDocument } from '../../lib/upload'
-import { AuthFrame, DevCode, OtpInput, TextField, cleanMobile } from '../../components/auth-ui'
+import { AuthFrame, DevCode, OtpInput, TextField, cleanEmail, cleanMobile, codeSendError } from '../../components/auth-ui'
 import { ErrorBanner, ErrorState, ListSkeleton } from '../../components/ui'
 import { Icon } from '../../components/icons'
 import places from '../../data/places.json'
@@ -71,7 +71,7 @@ export default function SignUpPage() {
         ))}
       </ol>
 
-      {step === 1 && <StepMobile key={restored ? 'restored' : 'built'} progress={progress} onDone={(patch) => update({ ...patch, step: 2 })} />}
+      {step === 1 && <StepContact key={restored ? 'restored' : 'built'} progress={progress} onDone={(patch) => update({ ...patch, step: 2 })} />}
       {step === 2 && <StepProfile progress={progress} onDone={(patch) => update({ ...patch, step: 3 })} />}
       {step === 3 && <StepPlace progress={progress} onBack={() => update({ step: 2 })} onDone={(patch) => update({ ...patch, step: 4 })} />}
       {step === 4 && (
@@ -112,12 +112,18 @@ function StepButtons({ busy, onBack, label }: { busy: boolean; onBack?: () => vo
   )
 }
 
-/** Step 1: name and mobile, then the code sent to it. Creates the account and signs it in. */
-function StepMobile({ progress, onDone }: StepProps) {
+/**
+ * Step 1: name, email and mobile, then the code emailed to that address.
+ * Creates the account and signs it in; the code verifies the email. The
+ * mobile number is kept on the account (no texts are sent while SMS is on hold).
+ */
+function StepContact({ progress, onDone }: StepProps) {
   const t = useT()
   const { loginWithOtp } = useAuth()
+  const sentId = useId()
   const [firstName, setFirstName] = useState(progress.firstName ?? '')
   const [lastName, setLastName] = useState(progress.lastName ?? '')
+  const [email, setEmail] = useState(progress.email ?? '')
   const [mobile, setMobile] = useState(progress.mobile ?? '')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [sent, setSent] = useState<{ existing: boolean; devCode: string | null } | null>(null)
@@ -129,31 +135,38 @@ function StepMobile({ progress, onDone }: StepProps) {
   async function sendCode(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    const clean = cleanMobile(mobile)
+    const cleanAddress = cleanEmail(email)
+    const cleanNumber = cleanMobile(mobile)
     const next: Record<string, string> = {}
     if (firstName.trim().length < 2) next.firstName = t('validation.firstName')
     if (!lastName.trim()) next.lastName = t('validation.lastName')
-    if (!clean) next.mobile = t('validation.mobile')
+    if (!cleanAddress) next.email = t('validation.email')
+    if (!cleanNumber) next.mobile = t('validation.mobile')
     setErrors(next)
     if (Object.keys(next).length) return
     setBusy(true)
     try {
-      saveProgress({ ...progress, step: 1, firstName: firstName.trim(), lastName: lastName.trim(), mobile: clean })
-      const reply = await api.postFull<{ userId: string }>('/auth/register', { firstName: firstName.trim(), lastName: lastName.trim(), mobile: clean })
+      const contact = { firstName: firstName.trim(), lastName: lastName.trim(), email: cleanAddress, mobile: cleanNumber }
+      saveProgress({ ...progress, step: 1, ...contact })
+      const reply = await api.postFull<{ userId: string }>('/auth/register', contact)
       setSent({ existing: false, devCode: reply.devOtp ?? null })
-      setMobile(clean)
+      setEmail(cleanAddress)
+      setMobile(cleanNumber)
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        // Already registered (perhaps an earlier, unfinished sign-up): sign in with a code and carry on.
+      const reason = err instanceof ApiError && err.status === 409 ? (err.body as { reason?: string } | null)?.reason : undefined
+      if (reason === 'MOBILE_TAKEN') {
+        setErrors({ mobile: t('signUp.mobileTaken') })
+      } else if (err instanceof ApiError && err.status === 409) {
+        // This email already has an account (perhaps an earlier, unfinished sign-up): sign in with a code and carry on.
         try {
-          const reply = await api.postFull<{ sent: boolean }>('/auth/otp/send', { mobile: clean })
+          const reply = await api.postFull<{ sent: boolean }>('/auth/otp/send', { email: cleanAddress })
           setSent({ existing: true, devCode: reply.devOtp ?? null })
-          setMobile(clean)
+          setEmail(cleanAddress)
         } catch (inner) {
-          setError(errorMessage(inner))
+          setError(codeSendError(inner, t))
         }
       } else {
-        setError(errorMessage(err))
+        setError(codeSendError(err, t))
       }
     } finally {
       setBusy(false)
@@ -169,8 +182,8 @@ function StepMobile({ progress, onDone }: StepProps) {
     setOtpError(null)
     setBusy(true)
     try {
-      await loginWithOtp(mobile, otp)
-      onDone({ firstName: firstName.trim(), lastName: lastName.trim(), mobile })
+      await loginWithOtp({ email }, otp)
+      onDone({ firstName: firstName.trim(), lastName: lastName.trim(), email, mobile: cleanMobile(mobile) || mobile })
     } catch (err) {
       setOtpError(errorMessage(err))
       setBusy(false)
@@ -181,9 +194,12 @@ function StepMobile({ progress, onDone }: StepProps) {
     return (
       <form onSubmit={verify} noValidate>
         <ErrorBanner message={error} />
-        <p>{sent.existing ? t('signUp.existingAccount', { mobile }) : t('signUp.codeSent', { mobile })}</p>
+        <div id={sentId}>
+          <p>{sent.existing ? t('signUp.existingAccount', { email }) : t('signUp.codeSent', { email })}</p>
+          <p className="k-hint">{t('signIn.checkSpam')}</p>
+        </div>
         <DevCode code={sent.devCode} />
-        <OtpInput label={t('field.otp')} error={otpError} onChange={setOtp} autoFocus />
+        <OtpInput label={t('field.otp')} describedBy={sentId} error={otpError} onChange={setOtp} autoFocus />
         <StepButtons busy={busy} onBack={() => setSent(null)} label={t('signUp.verify')} />
       </form>
     )
@@ -196,6 +212,18 @@ function StepMobile({ progress, onDone }: StepProps) {
         <TextField label={t('field.firstName')} autoComplete="given-name" value={firstName} onChange={(e) => setFirstName(e.target.value)} error={errors.firstName} autoFocus />
         <TextField label={t('field.lastName')} autoComplete="family-name" value={lastName} onChange={(e) => setLastName(e.target.value)} error={errors.lastName} />
       </div>
+      <TextField
+        label={t('field.email')}
+        hint={t('field.emailHint')}
+        type="email"
+        inputMode="email"
+        autoComplete="email"
+        autoCapitalize="none"
+        spellCheck={false}
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        error={errors.email}
+      />
       <TextField
         label={t('field.mobile')}
         hint={t('field.mobileHint')}
