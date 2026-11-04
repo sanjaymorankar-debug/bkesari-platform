@@ -323,6 +323,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | EDU-CR-18 | The committed build matches its manifest and is exactly what the sources produce | S1 row 5, S4 |
 | EDU-CR-19 | Every protected GET route refuses a guest; no private file is served; complaint evidence downloads only for those the complaint policy allows, and only through its own complaint; the suite refuses a hosted database | S6 `guest_routes.py`, `http.sh`, the S6 refusal check; `ComplaintEvidenceTest` (3); `NeonReadinessTest`'s three `test_the_suite_refuses_*` |
 | EDU-CR-20 | No score, rank or label column in the growth or benchmark tables; a school cannot verify itself | `NoLabelingRulesTest`, `BenchmarkHonestyTest`, `UdiseVerificationTest`, `ClaimedVsExperiencedTest` |
+| EDU-CR-21 | A hub token grants only parent, student or teacher, with one exception named in Education's own code: the hub's built-in administrators (`HubSignIn::BUILTIN_ADMINS`, `builtin:smorankar` and `builtin:sonalimorankar`) become `system_admin`, and only when the token carries the hub's top role, `admin`; any other id, a look-alike `builtin:` id or a built-in id with a lesser role does not | `HubSignInTest` :: test_the_token_never_grants_a_privileged_role, test_the_hubs_builtin_administrators_are_system_admin, test_only_the_two_builtin_ids_with_the_admin_role_become_system_admin |
 
 ### R3 — change-area map
 

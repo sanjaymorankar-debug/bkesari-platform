@@ -20,11 +20,22 @@ use Throwable;
  * Only the low-privilege roles are granted from the hub token. School, district,
  * national and safeguarding roles carry access to protected identities, so they
  * stay assignments made inside Education, never something a token can confer.
+ *
+ * The one exception is named here, in Education's own code: the hub's two
+ * built-in administrators (portal/builtin-admins.js) are system_admin. Their
+ * bkesari IDs, `builtin:<username>`, are minted only by the hub; Neon Auth's
+ * ids never contain a colon, so no account anyone can sign up for matches one.
+ * The hub gives its owners the top role, so their token must also say `admin`.
  */
 class HubSignIn
 {
     /** Hub role -> the Education role it grants. */
     public const ROLE_MAP = ['parent' => 'parent', 'student' => 'student', 'teacher' => 'teacher'];
+
+    /** The hub's built-in administrators' bkesari IDs: system_admin here. */
+    public const BUILTIN_ADMINS = ['builtin:smorankar', 'builtin:sonalimorankar'];
+
+    public const BUILTIN_ADMIN_ROLE = 'system_admin';
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -65,6 +76,9 @@ class HubSignIn
             $user->save();
 
             $role = self::ROLE_MAP[$claims['role'] ?? ''] ?? null;
+            if (self::isBuiltinAdmin($claims)) {
+                $role = self::BUILTIN_ADMIN_ROLE;
+            }
             if ($role && Role::where('name', $role)->where('guard_name', 'web')->exists() && ! $user->hasRole($role)) {
                 $user->assignRole($role);
             }
@@ -77,5 +91,11 @@ class HubSignIn
         }
         Auth::login($user);
         $request->session()->regenerate();
+    }
+
+    /** A token for one of the hub's built-in administrators, carrying the hub's top role. */
+    public static function isBuiltinAdmin(array $claims): bool
+    {
+        return in_array($claims['sub'] ?? null, self::BUILTIN_ADMINS, true) && ($claims['role'] ?? null) === 'admin';
     }
 }
