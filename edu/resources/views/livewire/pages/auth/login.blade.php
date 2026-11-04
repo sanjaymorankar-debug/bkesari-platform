@@ -269,7 +269,13 @@ new #[Layout('layouts.guest')] class extends Component
 
     private function toTwoFactorChallenge(User $user, bool $remember): void
     {
-        session(['2fa_user_id' => $user->id, '2fa_remember' => $remember]);
+        // With the password the first step was passed against: the challenge
+        // ends if the account's password changes before it is answered.
+        session([
+            '2fa_user_id' => $user->id,
+            '2fa_remember' => $remember,
+            '2fa_password' => Auth::guard()->hashPasswordForCookie($user->getAuthPassword()),
+        ]);
         $this->redirect(route('two-factor.challenge', absolute: false), navigate: true);
     }
 

@@ -52,6 +52,19 @@ new #[Layout('layouts.guest')] class extends Component
         }
 
         $user = User::findOrFail($userId);
+
+        // The first step was passed against the account as it was then. If
+        // its password has changed since (the first emailed code made it the
+        // inbox owner's, or it was reset), this challenge was opened by
+        // whoever was signing in before, and it ends here.
+        $passedWith = session('2fa_password');
+        if ($passedWith !== null && ! hash_equals((string) $passedWith, Auth::guard()->hashPasswordForCookie($user->getAuthPassword()))) {
+            session()->forget(['2fa_user_id', '2fa_remember', '2fa_password']);
+            $this->redirect(route('login', absolute: false), navigate: true);
+
+            return;
+        }
+
         $twoFactor = TwoFactorAuthentication::where('user_id', $user->id)->firstOrFail();
 
         $this->validate(['code' => ['required', 'string']]);
@@ -92,7 +105,7 @@ new #[Layout('layouts.guest')] class extends Component
 
         RateLimiter::clear($throttleKey);
         Auth::login($user, session('2fa_remember', false));
-        session()->forget(['2fa_user_id', '2fa_remember']);
+        session()->forget(['2fa_user_id', '2fa_remember', '2fa_password']);
         Session::regenerate();
 
         $this->redirectIntended(default: route('dashboard', absolute: false), navigate: true);

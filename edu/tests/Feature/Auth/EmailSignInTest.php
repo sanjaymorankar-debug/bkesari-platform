@@ -7,11 +7,14 @@ use App\Models\TwoFactorAuthentication;
 use App\Models\User;
 use App\Services\EmailSignIn;
 use Closure;
+use Illuminate\Auth\Events\Validated;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter as RateLimiterFacade;
@@ -188,6 +191,89 @@ class EmailSignInTest extends TestCase
 
         $this->assertTrue(Hash::check('Ashas-own-pass-1', $asha->refresh()->password));
         $this->assertSame(1, DB::table('sessions')->where('user_id', $asha->id)->count());
+    }
+
+    /** An account someone else set up with Asha's address and a password of their own. */
+    private function setUpBySomeoneElse(?string $twoFactorSecret = null): User
+    {
+        $account = User::factory()->create(['email' => self::EMAIL, 'email_verified_at' => null, 'password' => Hash::make('Someone-elses-pass-1')]);
+        if ($twoFactorSecret !== null) {
+            TwoFactorAuthentication::create(['user_id' => $account->id, 'secret' => $twoFactorSecret, 'confirmed_at' => now()]);
+        }
+
+        return $account;
+    }
+
+    private function signInWithTheirPassword()
+    {
+        return Volt::test('pages.auth.login')->call('useMethod', 'password')
+            ->set('form.email', self::EMAIL)->set('form.password', 'Someone-elses-pass-1')->call('login');
+    }
+
+    public function test_a_password_sign_in_that_raced_the_first_code_ends_at_its_next_request(): void
+    {
+        $account = $this->setUpBySomeoneElse();
+        $this->askForCode();
+        $code = $this->emailedCode();
+
+        // Whoever set the account up signs in with their password, and Asha's
+        // code is checked in the moment between their password passing and
+        // their session being saved: deleting the stored sessions cannot
+        // reach a session that is saved afterwards.
+        $claimed = false;
+        Event::listen(Validated::class, function () use ($code, &$claimed) {
+            if (! $claimed) {
+                $claimed = true;
+                $this->assertSame('ok', app(EmailSignIn::class)->verify(self::EMAIL, $code)['status']);
+            }
+        });
+        $this->signInWithTheirPassword()->assertRedirect(route('dashboard', absolute: false));
+        $this->assertTrue($claimed);
+        $this->assertNotNull($account->refresh()->email_verified_at, 'the code made the account the inbox owner’s');
+
+        // Their next request is a new one, which reads the account afresh.
+        Auth::forgetGuards();
+        $this->getJson(route('shell.me'))->assertUnauthorized();
+        $this->assertGuest();
+    }
+
+    public function test_a_two_factor_challenge_left_open_by_whoever_set_the_account_up_ends_at_the_first_code(): void
+    {
+        $secret = (new Google2FA)->generateSecretKey();
+        $account = $this->setUpBySomeoneElse($secret);
+
+        // They pass the password step in their browser and leave the challenge open.
+        $this->signInWithTheirPassword()->assertRedirect(route('two-factor.challenge', absolute: false));
+        $theirBrowser = session()->all();
+
+        // Asha signs in by code in hers: the account becomes hers.
+        session()->flush();
+        $this->askForCode()->set('emailCode', $this->emailedCode())->call('verifyEmailCode')
+            ->assertRedirect(route('two-factor.challenge', absolute: false));
+        $this->assertNotNull($account->refresh()->email_verified_at);
+
+        // Back in their browser, their authenticator app's code no longer gets them in.
+        session()->flush();
+        session()->put($theirBrowser);
+        Volt::test('pages.auth.two-factor-challenge')->set('code', (new Google2FA)->getCurrentOtp($secret))->call('verify')
+            ->assertRedirect(route('login', absolute: false));
+        $this->assertGuest();
+        $this->assertNull(session('2fa_user_id'));
+    }
+
+    public function test_the_challenge_the_first_code_itself_opens_still_signs_in(): void
+    {
+        $secret = (new Google2FA)->generateSecretKey();
+        $account = $this->setUpBySomeoneElse($secret);
+
+        $this->askForCode()->set('emailCode', $this->emailedCode())->call('verifyEmailCode')
+            ->assertRedirect(route('two-factor.challenge', absolute: false));
+        Volt::test('pages.auth.two-factor-challenge')->set('code', (new Google2FA)->getCurrentOtp($secret))->call('verify')
+            ->assertRedirect(route('dashboard', absolute: false));
+
+        $this->assertAuthenticatedAs($account);
+        Auth::forgetGuards();
+        $this->getJson(route('shell.me'))->assertOk()->assertJsonPath('user.email', self::EMAIL);
     }
 
     public function test_the_email_gives_the_code_and_says_what_it_is_for(): void

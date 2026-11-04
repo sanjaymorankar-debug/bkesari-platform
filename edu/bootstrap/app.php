@@ -30,6 +30,13 @@ return Application::configure(basePath: dirname(__DIR__))
         // front of it any more, and nothing the hub forwards is trusted as an
         // identity. The session cookie (config/session.php) is `edu_sid`,
         // scoped to the path this app is published under.
+        //
+        // A session keeps the password it was signed in with (SessionGuard
+        // stores its hash) and ends at its next request once the account's
+        // password has changed. Deleting an account's stored sessions
+        // (App\Support\EndSessions) cannot reach a sign-in that checked the
+        // old password a moment before and saves its session just after.
+        $middleware->authenticateSessions();
 
         // The language the visitor picked in the bkesari shell (the `k_lang`
         // cookie, en|mr|hi). The browser writes that cookie itself, so it is
