@@ -134,6 +134,51 @@ describe('built-in administrators on PostgreSQL', { skip }, () => {
     assert.equal(n.status, 200, 'a name is fine');
   });
 
+  test('a row with a built-in address from before the address was reserved: its password, mobile and sessions open nothing', async () => {
+    // Until ffe6137 anyone could sign up to TaskList with the address and a password, or add it
+    // to a mobile account, and keep that session (portal-tester, run 8). Such a row, as made then:
+    await db.run("DELETE FROM tl_users WHERE email = 'smorankar@builtin.bkesari.com'");
+    const row = await db.get(`INSERT INTO tl_users (email, mobile, name, password_hash, mobile_verified)
+      VALUES ('smorankar@builtin.bkesari.com', '9876509902', 'Someone else', $1, TRUE) RETURNING id`, [require('bcryptjs').hashSync('someone-elses-pass-1', 4)]);
+    const token = require('crypto').randomBytes(32).toString('base64url');
+    await db.run(`INSERT INTO tl_sessions (user_id, token_hash, csrf, expires_at) VALUES ($1, $2, 'csrf-of-the-earlier-session-0', now() + interval '30 days')`,
+      [row.id, require('crypto').createHash('sha256').update(token).digest('hex')]);
+    const earlier = new Browser(base);
+    earlier.jar.set('tl_sid|/tasklist', { name: 'tl_sid', value: token, path: '/tasklist' });
+    const h = { 'x-forwarded-for': '203.0.113.17' };
+    const byPassword = async () => {
+      const b = new Browser(base);
+      const s = await b.fetch('GET', '/tasklist/api/auth/session');
+      return (await b.fetch('POST', '/tasklist/api/auth/sign-in', { json: { identifier: 'smorankar@builtin.bkesari.com', password: 'someone-elses-pass-1' }, csrf: s.json.csrf, headers: h })).status;
+    };
+    const byMobileCode = async () => {
+      const b = new Browser(base);
+      const s = await b.fetch('GET', '/tasklist/api/auth/session');
+      const send = await b.fetch('POST', '/tasklist/api/auth/otp/send', { json: { mobile: '9876509902' }, csrf: s.json.csrf, headers: h });
+      if (!send.json || !send.json.devCode) return { status: `no code (${send.status})` };
+      const v = await b.fetch('POST', '/tasklist/api/auth/otp/verify', { json: { mobile: '9876509902', code: send.json.devCode, name: 'Mobile' }, csrf: s.json.csrf, headers: h });
+      return { status: v.status, id: v.json && v.json.user ? v.json.user.id : null };
+    };
+    assert.equal(await byPassword(), 401, 'its password opens nothing');
+    assert.notEqual((await byMobileCode()).status, 200, 'nor a code to its mobile');
+    // The administrator's first sign-in takes the row over: whoever made it is signed out of it.
+    const { b: admin, r } = await signIn('/tasklist/api/auth', 'smorankar', PASSWORD, '203.0.113.18');
+    assert.equal(r.status, 200, r.text);
+    assert.equal(r.json.user.id, Number(row.id));
+    assert.equal(r.json.user.role, 'owner');
+    assert.equal(r.json.user.mobile, null);
+    assert.equal(r.json.user.hasPassword, false);
+    assert.equal((await earlier.fetch('GET', '/tasklist/api/tasks')).status, 401, 'the earlier session is no one now');
+    assert.equal(await byPassword(), 401);
+    // The mobile is free again: a code to it now makes an account of its own, never the administrator's.
+    const mobileNow = await byMobileCode();
+    assert.equal(mobileNow.status, 200);
+    assert.notEqual(mobileNow.id, Number(row.id));
+    // Signing in again takes nothing from the administrator's own session.
+    assert.equal((await signIn('/tasklist/api/auth', 'smorankar', PASSWORD, '203.0.113.18')).r.status, 200);
+    assert.equal((await admin.fetch('GET', '/tasklist/api/tasks')).status, 200);
+  });
+
   test('tries sent together are held to 10 per address, before any password is checked', async () => {
     const b = new Browser(base);
     const s = await b.fetch('GET', '/tasklist/api/auth/session');
@@ -143,5 +188,24 @@ describe('built-in administrators on PostgreSQL', { skip }, () => {
     assert.deepEqual(counts, { 401: 10, 429: 4 }, JSON.stringify(counts));
     const right = await b.fetch('POST', '/tasklist/api/auth/sign-in', { json: { identifier: 'smorankar', password: PASSWORD }, csrf: s.json.csrf, headers: { 'x-forwarded-for': '203.0.113.16' } });
     assert.equal(right.status, 429, 'locked out from that address, right password or not');
+  });
+
+  test('a built-in administrator\'s row is not a first hub admin: HUB_ADMIN_EMAIL still makes one at start', async () => {
+    // The first test signed both in to /admin, and nothing else made an admin here. A tier that
+    // starts with HUB_ADMIN_EMAIL only later still gets that admin (portal-tester, run 8).
+    const rows = await db.all('SELECT email FROM hub_admin_users ORDER BY email');
+    assert.deepEqual(rows.map((r) => r.email), ['smorankar@builtin.bkesari.com', 'sonalimorankar@builtin.bkesari.com']);
+    const keep = { HUB_ADMIN_EMAIL: process.env.HUB_ADMIN_EMAIL, HUB_ADMIN_PASSWORD: process.env.HUB_ADMIN_PASSWORD };
+    Object.assign(process.env, { HUB_ADMIN_EMAIL: 'Agtcipl@Gmail.com', HUB_ADMIN_PASSWORD: 'first-admin-local-1' });
+    try {
+      const made = createApp(db, { notify: () => ({}), log: quiet });
+      assert.ok(await made.hub.bootstrapAdmin(), 'the first admin is made');
+      assert.equal(await made.hub.bootstrapAdmin(), null, 'and only once');
+      const { r } = await signIn('/admin/api/auth', 'agtcipl@gmail.com', 'first-admin-local-1', '203.0.113.19');
+      assert.equal(r.status, 200, r.text);
+      assert.equal(r.json.user.role, 'owner');
+    } finally {
+      for (const [k, v] of Object.entries(keep)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
   });
 });

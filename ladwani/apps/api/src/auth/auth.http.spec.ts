@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { request as httpRequest } from 'http'
 import type { AddressInfo } from 'net'
 import { Global, INestApplication, Module, ValidationPipe } from '@nestjs/common'
@@ -718,6 +719,29 @@ describe('LadWani auth over HTTP', () => {
       expect(r.body.data.user.id).toBe(made.id)
       expect(r.body.data.user.roles).toEqual(['MEMBER', 'ADMIN'])
       expect(builtinRows()).toEqual([expect.objectContaining({ status: 'ACTIVE', emailVerified: true, failedAttempts: 0, lockedUntil: null, deletedAt: null })])
+    })
+
+    it('takes over a row with its address from before the address was reserved: the sessions of whoever made it end', async () => {
+      // Until 585ceb4 anyone could register the address with a password and sign in with it (a
+      // PENDING account may). Such a row, and its session, as made then (portal-tester, run 8):
+      const made = await addUser(db, { email: ADDRESS, mobile: '9000000002', status: 'PENDING', mobileVerified: false })
+      const raw = 'a-session-from-before-the-address-was-reserved'
+      await db.refreshToken.create({ data: { userId: made.id, tokenHash: createHash('sha256').update(raw).digest('hex'), expiresAt: new Date(Date.now() + 86_400_000), revokedAt: null } })
+      const earlier = { headers: { cookie: `lw_sid=${raw}` } }
+      expect((await call('GET', '/auth/session', earlier)).body.user).toMatchObject({ email: ADDRESS })
+      const r = await signIn('smorankar')
+      expect(r.status).toBe(200)
+      expect(r.body.data.user).toMatchObject({ id: made.id, roles: ['MEMBER', 'ADMIN'] })
+      // The earlier session is no one now, and cannot be refreshed into ADMIN's.
+      expect((await call('GET', '/auth/session', earlier)).body.user).toBeNull()
+      expect((await call('POST', '/auth/refresh', earlier)).status).toBe(401)
+      // Nor do the password or the mobile it was made with open it.
+      for (const identifier of [ADDRESS, '9000000002']) {
+        expect((await call('POST', '/auth/login', { body: { identifier, password: 'Correct1pass' } })).status).toBe(401)
+      }
+      // The administrator's own session stays, also through the next sign-in.
+      expect((await signIn('smorankar')).status).toBe(200)
+      expect(await sessionUser(r)).toMatchObject({ email: ADDRESS })
     })
 
     it('makes the ADMIN role where the seed has not run', async () => {

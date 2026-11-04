@@ -338,6 +338,9 @@ export class AuthService {
         await tx.member.create({ data: { userId, firstName: username } })
       }
       if (!(await tx.userRole.findFirst({ where: { userId, roleId: admin.id } }))) {
+        // The row becomes the administrator's now. One made before the address was reserved
+        // (585ceb4) may hold the sessions of whoever registered it: none may turn into ADMIN's.
+        await tx.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } })
         await tx.userRole.create({ data: { userId, roleId: admin.id } })
       }
       await tx.user.update({

@@ -310,9 +310,17 @@ function createProjectAuth(o) {
     }
     const email = `${username}@${builtin.EMAIL_DOMAIN}`;
     const role = builtinAdmins.role || 'owner';
-    const user = await db.get(`INSERT INTO ${T.users} (email, name, role, email_verified) VALUES ($1,$2,$3,TRUE)
-      ON CONFLICT (lower(email)) WHERE email IS NOT NULL
-      DO UPDATE SET role = EXCLUDED.role, status = 'active', failed_attempts = 0, locked_until = NULL RETURNING *`, [email, username, role]);
+    const user = await db.tx(async (q) => {
+      // A row with this address that this sign-in did not make (one from before the address
+      // was reserved has a password or a mobile) is someone else's: its sessions end here, and
+      // its password and mobile go, before it becomes the administrator's.
+      const prior = await q.get(`SELECT id FROM ${T.users} WHERE lower(email) = $1 AND (password_hash IS NOT NULL OR mobile IS NOT NULL) FOR UPDATE`, [email]);
+      if (prior) await q.run(`DELETE FROM ${T.sessions} WHERE user_id = $1`, [prior.id]);
+      return q.get(`INSERT INTO ${T.users} (email, name, role, email_verified) VALUES ($1,$2,$3,TRUE)
+        ON CONFLICT (lower(email)) WHERE email IS NOT NULL
+        DO UPDATE SET role = EXCLUDED.role, status = 'active', failed_attempts = 0, locked_until = NULL,
+          password_hash = NULL, mobile = NULL, mobile_verified = FALSE, email_verified = TRUE RETURNING *`, [email, username, role]);
+    });
     await audit(user.id, username, 'sign-in', 'built-in administrator', req);
     const csrf = await startSession(req, res, user, 'builtin');
     res.json({ user: publicUser(user), csrf });
@@ -329,7 +337,11 @@ function createProjectAuth(o) {
     if (!password) throw new AuthError(400, 'password', 'Enter your password.');
     await limit(`signin:ip:${clientIp(req)}`, 20, 15 * 60);
     await limit(`signin:id:${email || mobile}`, 10, 15 * 60);
-    const user = email ? await findByEmail(email) : await findByMobile(mobile);
+    const found = email ? await findByEmail(email) : await findByMobile(mobile);
+    // A built-in administrator's row signs in by its username only (above): a password or
+    // mobile it carries from before its address was reserved opens nothing, and no failure
+    // is counted against it here.
+    const user = isBuiltinAccount(found) ? null : found;
     // Claim this try before the password is compared, in one statement, so
     // attempts sent together each count and no more than LOCK_AFTER are ever
     // checked: the claim that reaches LOCK_AFTER locks out every one after it.
@@ -490,6 +502,11 @@ function createProjectAuth(o) {
       created = Boolean(fresh);
       user = fresh || await find();
       if (created) await audit(user.id, target, 'sign-up', `otp ${channel}`, req);
+    }
+    // Nor does a code (by mobile: their addresses get none) open a built-in administrator's row.
+    if (isBuiltinAccount(user)) {
+      await audit(user.id, target, 'sign-in-refused', 'otp: built-in administrator', req);
+      throw new AuthError(403, 'builtin', 'This account signs in with its username and password.');
     }
     if (!created && !user[`${col}_verified`]) {
       // An email nobody has confirmed is not a way in: whoever put it on the

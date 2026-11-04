@@ -29,6 +29,7 @@ const crypto = require('crypto');
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const { createProjectAuth, normalizeEmail, normalizeMobile } = require('./project-auth');
+const { EMAIL_DOMAIN: BUILTIN_DOMAIN } = require('./builtin-admins');
 const pages = require('./hub-pages');
 const { escapeHtml } = require('./public/shared/menu.js');
 
@@ -80,7 +81,8 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
   async function bootstrapAdmin() {
     const email = normalizeEmail(env.HUB_ADMIN_EMAIL);
     if (!email) return null;
-    const any = await db.get('SELECT id FROM hub_admin_users LIMIT 1');
+    // The built-in administrators' rows (D-036) are not a first admin: they appear at their first sign-in.
+    const any = await db.get("SELECT id FROM hub_admin_users WHERE email IS NULL OR lower(email) NOT LIKE '%@' || $1 LIMIT 1", [BUILTIN_DOMAIN]);
     if (any) return null;
     let hash = env.HUB_ADMIN_PASSWORD_HASH || null;
     if (!hash && env.HUB_ADMIN_PASSWORD) hash = await bcrypt.hash(env.HUB_ADMIN_PASSWORD, 11);
