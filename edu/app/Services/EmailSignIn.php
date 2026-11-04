@@ -71,9 +71,15 @@ class EmailSignIn
         $this->codes = new SignInCodes('email-sign-in');
     }
 
+    /**
+     * Trimmed and lowercased the way PostgreSQL's citext compares (the simple
+     * Unicode mapping, as BuiltinAdmins::isReservedEmail() does). Str::lower's
+     * full mapping turns a dotted capital I into i + U+0307, which matches no
+     * row there and slipped past the reserved-domain check (edu-tester D1).
+     */
     public static function normalize(string $email): string
     {
-        return Str::lower(trim($email));
+        return mb_convert_case(trim($email), MB_CASE_LOWER_SIMPLE);
     }
 
     public function mode(): string

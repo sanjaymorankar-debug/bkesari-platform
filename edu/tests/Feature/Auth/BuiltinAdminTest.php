@@ -418,6 +418,52 @@ class BuiltinAdminTest extends TestCase
         $this->assertSame('reserved', app(EmailSignIn::class)->send('sonalimorankar@builtin.bkesari.com', '203.0.113.9')['status']);
     }
 
+    public function test_a_dotted_capital_i_on_the_reserved_domain_gets_no_sign_in_code_either(): void
+    {
+        // On PostgreSQL (citext: lower(), the simple mapping) these ARE the
+        // reserved addresses. Str::lower made the İ an i + U+0307, so the form
+        // said a code was sent instead of refusing the address (edu-tester D1).
+        BuiltinAdmins::account('smorankar');
+        Mail::fake();
+        config(['mail.default' => 'smtp']);
+
+        foreach (["smorankar@bu\u{0130}ltin.bkesari.com", "SMORANKAR@BU\u{0130}LT\u{0130}N.B\u{212A}ESAR\u{0130}.COM"] as $typed) {
+            Volt::test('pages.auth.login')
+                ->call('useMethod', 'code')
+                ->set('codeEmail', $typed)
+                ->call('sendEmailCode')
+                ->assertHasErrors('codeEmail')
+                ->assertSee('This email address is reserved.')
+                ->assertSet('emailSentTo', '');
+            $this->assertSame('smorankar@builtin.bkesari.com', EmailSignIn::normalize($typed));
+        }
+
+        Mail::assertNothingOutgoing();
+        $this->assertNull(Cache::get('email-sign-in:code:'.hash('sha256', 'smorankar@builtin.bkesari.com')));
+    }
+
+    public function test_a_row_made_with_a_dotted_capital_i_or_a_kelvin_sign_opens_for_nobody(): void
+    {
+        // Rows made before the domain was reserved, stored as typed: on
+        // PostgreSQL each is the built-in administrator's own row (citext),
+        // so neither the maker's password nor a number put on it opens it.
+        config(['services.sms.webhook_url' => 'https://sms.example.test/send', 'services.sms.webhook_token' => 'secret-token']);
+        Http::preventStrayRequests();
+        Http::fake();
+
+        foreach (["smorankar@bu\u{0130}ltin.bkesari.com" => '+919876543210', "sonalimorankar@builtin.b\u{212A}esari.com" => '+919876543211'] as $email => $mobile) {
+            User::factory()->create(['email' => $email, 'password' => Hash::make('Makers-pass-123'), 'mobile' => $mobile]);
+
+            $this->signIn($email, 'Makers-pass-123')
+                ->assertHasErrors('form.email')
+                ->assertSee('These credentials do not match our records.');
+            $this->assertGuest();
+            $this->assertSame(['status' => 'sent'], app(MobileSignIn::class)->send($mobile, '203.0.113.9'));
+        }
+
+        Http::assertNothingSent();
+    }
+
     public function test_no_password_reset_is_sent_for_a_reserved_address(): void
     {
         $admin = BuiltinAdmins::account('smorankar');

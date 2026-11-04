@@ -45,9 +45,9 @@ final class BuiltinAdmins
         return in_array($name, self::USERNAMES, true) ? $name : null;
     }
 
-    /** True for an address on the reserved domain, however it is typed. */
     /**
-     * Lowercased the way PostgreSQL's citext compares (lower(): the simple
+     * True for an address on the reserved domain, however it is typed:
+     * lowercased the way PostgreSQL's citext compares (lower(): the simple
      * Unicode mapping), not mb_strtolower's full one: under the simple mapping
      * İ (U+0130) is a plain i and the Kelvin sign a plain k, so
      * "bu\u{0130}ltin.bkesari.com" is the reserved domain there too.

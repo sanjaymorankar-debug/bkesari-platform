@@ -329,7 +329,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | EDU-CR-18 | The committed build matches its manifest and is exactly what the sources produce | S1 row 5, S4 |
 | EDU-CR-19 | Every protected GET route refuses a guest; no private file is served; complaint evidence downloads only for those the complaint policy allows, and only through its own complaint; the suite refuses a hosted database | S6 `guest_routes.py`, `http.sh`, the S6 refusal check; `ComplaintEvidenceTest` (3); `NeonReadinessTest`'s three `test_the_suite_refuses_*` |
 | EDU-CR-20 | No score, rank or label column in the growth or benchmark tables; a school cannot verify itself | `NoLabelingRulesTest`, `BenchmarkHonestyTest`, `UdiseVerificationTest`, `ClaimedVsExperiencedTest` |
-| EDU-CR-21 | Education's own accounts: the session cookie is `edu_sid`, on the path of `APP_URL`, Secure with https, HttpOnly, SameSite=Lax; nothing the hub forwards signs anyone in; five wrong passwords lock sign-in for 15 minutes, counted per account and per real client address: a forwarded address (`X-Forwarded-For`, and the forwarded scheme) is believed only from a request carrying the hub's `HUB_PROXY_SECRET` (D-038, `App\Http\Middleware\TrustHubProxy`), which sends the one address it worked out, never a chain a client sent; with no secret configured every proxy is trusted as before and the log says so once a day; a sign-in code, by email or (only where SMS is set up) by text, is hashed, single-use, expires in 10 minutes, dies after 5 wrong tries, is rate-limited, goes to no unknown address, still leaves two-factor to pass, and is shown on screen only on `APP_ENV` `local` or `dev` with nothing set up to deliver it (never on test or production); the first emailed code makes an account nobody had confirmed the inbox owner's (D-035): the email is confirmed, the old password replaced, and every earlier session and open two-factor challenge ends, as after a password reset, including a sign-in that checked the old password a moment before (a session ends at its next request once the account's password has changed); the built-in administrators (D-036) sign in only with their username and the password whose bcrypt hash is `BUILTIN_ADMIN_PASSWORD_BCRYPT`, as system admin, counted 5 per name and address and 50 per name from every address per 15 minutes, their `@builtin.bkesari.com` domain refused wherever an address is typed, and a row made on it before is taken over (password, sessions, two-factor and roles its maker set); all of these hold for requests sent together | `OwnAccountTest`, `EmailSignInTest`, `MobileSignInTest`, `AttemptsTest`, `PasswordResetTest`, `BuiltinAdminTest`, `TrustHubProxyTest`, `BasePathTest::test_the_session_cookie_is_sent_only_under_the_prefix_and_only_over_https`; `http.sh` cookie and `shell/me` lines; `browser.cjs` step 2 |
+| EDU-CR-21 | Education's own accounts: the session cookie is `edu_sid`, on the path of `APP_URL`, Secure with https, HttpOnly, SameSite=Lax; nothing the hub forwards signs anyone in; five wrong passwords lock sign-in for 15 minutes, counted per account and per real client address: a forwarded address (`X-Forwarded-For`, and the forwarded scheme) is believed only from a request carrying the hub's `HUB_PROXY_SECRET` (D-038, `App\Http\Middleware\TrustHubProxy`), which sends the one address it worked out, never a chain a client sent; with no secret configured every proxy is trusted as before and the log says so once a day; a sign-in code, by email or (only where SMS is set up) by text, is hashed, single-use, expires in 10 minutes, dies after 5 wrong tries, is rate-limited, goes to no unknown address, still leaves two-factor to pass, and is shown on screen only on `APP_ENV` `local` or `dev` with nothing set up to deliver it (never on test or production); the first emailed code makes an account nobody had confirmed the inbox owner's (D-035): the email is confirmed, the old password replaced, and every earlier session and open two-factor challenge ends, as after a password reset, including a sign-in that checked the old password a moment before (a session ends at its next request once the account's password has changed); the built-in administrators (D-036) sign in only with their username and the password whose bcrypt hash is `BUILTIN_ADMIN_PASSWORD_BCRYPT`, as system admin, counted 5 per name and address and 50 per name from every address per 15 minutes, their `@builtin.bkesari.com` domain refused wherever an address is typed, however it is typed (a dotted capital I or a Kelvin sign included, which PostgreSQL's citext lowercases to it: `BuiltinAdmins::isReservedEmail()` and `EmailSignIn::normalize()` lowercase as citext does), and a row made on it before is taken over (password, sessions, two-factor and roles its maker set); all of these hold for requests sent together | `OwnAccountTest`, `EmailSignInTest`, `MobileSignInTest`, `AttemptsTest`, `PasswordResetTest`, `BuiltinAdminTest`, `ReservedEmailTest`, `TrustHubProxyTest`, `BasePathTest::test_the_session_cookie_is_sent_only_under_the_prefix_and_only_over_https`; `http.sh` cookie and `shell/me` lines; `browser.cjs` step 2 |
 
 ### R3 — change-area map
 
@@ -337,7 +337,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 |---|---|
 | `config/database.php`, `app/Database/**`, `app/Providers/DatabaseServiceProvider.php`, `phpunit.xml`, `config/queue.php` | R1 on both engines, all of S7, CR-13 to CR-15 |
 | `app/Providers/AppServiceProvider.php`, `app/Routing/**`, `bootstrap/app.php`, `app/Http/Middleware/**`, `config/services.php` (`hub`), `routes/**`, `resources/views/layouts/**`, `resources/views/livewire/layout/**`, any `href`/`action`/`redirect` in a view | `BasePathTest`, `TrustHubProxyTest`, S5 (with `HUB_PROXY_SECRET` on both sides), S6 `guest_routes.py`, CR-01 to CR-03, CR-19, CR-21 (the address the limits count) |
-| `resources/views/livewire/pages/auth/**`, `app/Livewire/Forms/LoginForm.php`, `app/Support/EndSessions.php`, `bootstrap/app.php` (`authenticateSessions()`), `app/Models/TwoFactorAuthentication.php`, `app/Services/{EmailSignIn,MobileSignIn}.php`, `app/Support/{SignInCodes,Attempts,BuiltinAdmins}.php`, `app/Rules/NotReservedEmail.php`, `config/services.php` (`builtin_admins`), `app/Mail/SignInCodeMail.php`, `resources/views/emails/sign-in-code*.blade.php`, `config/mail.php`, `config/session.php`, `routes/auth.php`, `app/Http/Controllers/{ShellController,Auth/SignOutController}.php` | `Auth/*` (with `OwnAccountTest`, `EmailSignInTest`, `MobileSignInTest`, `BuiltinAdminTest`), `TwoFactorAuthTest`, `LanguageTest` (the strings), `browser.cjs`, CR-02, CR-10, CR-21 |
+| `resources/views/livewire/pages/auth/**`, `app/Livewire/Forms/LoginForm.php`, `app/Support/EndSessions.php`, `bootstrap/app.php` (`authenticateSessions()`), `app/Models/TwoFactorAuthentication.php`, `app/Services/{EmailSignIn,MobileSignIn}.php`, `app/Support/{SignInCodes,Attempts,BuiltinAdmins}.php`, `app/Rules/NotReservedEmail.php`, `config/services.php` (`builtin_admins`), `app/Mail/SignInCodeMail.php`, `resources/views/emails/sign-in-code*.blade.php`, `config/mail.php`, `config/session.php`, `routes/auth.php`, `app/Http/Controllers/{ShellController,Auth/SignOutController}.php` | `Auth/*` (with `OwnAccountTest`, `EmailSignInTest`, `MobileSignInTest`, `BuiltinAdminTest`), `ReservedEmailTest`, `TwoFactorAuthTest`, `LanguageTest` (the strings), `browser.cjs`, CR-02, CR-10, CR-21 |
 | `app/Http/Middleware/SetLocale.php`, `lang/*.json`, `bootstrap/app.php` (cookie encryption) | `LanguageTest`, S5 |
 | `database/migrations/**` | S3b, S3c (regenerate `database/edu/01_edu_schema.sql` with `pg_dump --schema-only --no-owner --no-privileges` and its migrations log), S7.4, CR-16, CR-17, the schema-level tests in `AnonymizationTest`, `NoLabelingRulesTest`, `BenchmarkHonestyTest`, `HealthAccessMatrixTest` |
 | `database/seeders/**` | S3b, `database/edu/02` and `03` if the rows they carry changed, `TEST_ACCOUNTS.md` |
@@ -485,8 +485,8 @@ framework's TrustProxies), and the hub sends the one address it worked out. With
 rule stays, and the warning that says so is written once a day, not on every request (edu-tester
 D1). S5 ran with the secret on both sides, and again with it blank. The hub was `b5908df`'s (`portal-tester`'s
 D1: the address and the secret also on a request with an `Expect` header). Same container type and versions (PHP 8.3.6 with libpq
-16.15, PostgreSQL 16.15, PgBouncer 1.22.0, Node 22.23, Chromium via Playwright 1.63). These are now
-the floor:
+16.15, PostgreSQL 16.15, PgBouncer 1.22.0, Node 22.23, Chromium via Playwright 1.63). These were
+the floor until the PR #29 re-measure below:
 
 | # | Level | Result |
 |---|---|---|
@@ -501,6 +501,29 @@ the floor:
 | 13 | S5 | with `HUB_PROXY_SECRET` on both sides: http 60 passed (3 s), browser 21 passed (9 s), with `KILL_URL` through PgBouncer. With it blank: the same, and one warning line for the 163 requests the app handled (before the D1 fix: 164 lines for 164) |
 | 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 0; `npm audit` 5 dev-only, 0 with `--omit=dev` |
 | 15 | S7.1 | 536 passed through the pooler, 40 s; 7.2/7.3/7.5/7.8 as specified |
+
+**Re-measured 2026-11-04, PR #29** (edu-tester, commit `4458e73` plus its fix in the working tree). The
+merge of `dev` brought `ReservedEmailTest` (6 tests) from PR #29. `BuiltinAdmins::isReservedEmail()` now
+lowercases with the simple Unicode mapping, as PostgreSQL's citext does: a dotted capital I is a plain i and
+a Kelvin sign a plain k there, and so `bu\u{0130}ltin.bkesari.com` is the reserved domain. On this bed (`C.UTF-8`, libc)
+that mapping equals `lower()` at every code point; `Str::lower` differs at U+0130 only. `EmailSignIn::normalize()`
+lowercases the same way, so the emailed-code form refuses the dotted form too (edu-tester D1). S5 ran with
+`HUB_PROXY_SECRET` on both sides. Same container type and versions (PHP 8.3.6 with libpq 16.15, PostgreSQL
+16.15, PgBouncer 1.22.0, Node 22.23, Chromium via Playwright 1.63). These are now the floor:
+
+| # | Level | Result |
+|---|---|---|
+| 2 | S1 php -l | 377 files, 0 errors (376 + `ReservedEmailTest.php`) |
+| 3 | S1 routes, views | 81 routes, views compile |
+| 4 | S1 Pint | the same 15 |
+| 7 | S3a SQLite | 544 tests: 539 passed, 5 skipped (the same 5), 3,557 assertions, 32 s. 8 tests added: `ReservedEmailTest` 6 (PR #29), `BuiltinAdminTest` +2 (23: edu-tester D1, and rows made with a dotted capital I or a Kelvin sign) |
+| 8 | S3a PostgreSQL | 544 tests: 544 passed, 3,565 assertions, 56 s |
+| 9 | S3b | `74\|68\|289\|20\|100\|citext`; 81 s |
+| 10–11 | S3c, S3d | schemas match (5,564 lines, 70 CHECKs); migrations logs identical; 04 twice gives one row, `system_admin` |
+| 12 | S4 | byte-identical (`app-DNyD-VXB.css`) |
+| 13 | S5 | with `HUB_PROXY_SECRET` on both sides: http 60 passed (3 s), browser 21 passed (9 s), with `KILL_URL` through PgBouncer |
+| 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 0; `npm audit` 5 dev-only, 0 with `--omit=dev` |
+| 15 | S7.1 | 544 passed through the pooler, 44 s; 7.2/7.3/7.5/7.8 as specified |
 
 Pint's baseline list: `app/Routing/BasePathRedirector.php`, `bootstrap/app.php`,
 `bootstrap/providers.php`, `database/seeders/FacilitySeeder.php`,
