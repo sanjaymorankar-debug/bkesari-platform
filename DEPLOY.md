@@ -95,7 +95,7 @@ safe to re-run.
 | `DATABASE_URL_UNPOOLED` | the same, with *Connection pooling* **off**. Used only to create the tables |
 | `HUB_AUTH_SECRET` | long random secret (`openssl rand -hex 32`), **different per tier**. Seals the hub's forms and codes; TaskList's and LadWani's secrets are derived from it unless `TASKLIST_AUTH_SECRET` / `LADWANI_JWT_SECRET` are set |
 | `HUB_ADMIN_EMAIL`, `HUB_ADMIN_PASSWORD_HASH` | the first hub admin, made at start when there is none (bcrypt hash: `node -e "console.log(require('bcryptjs').hashSync(process.argv[1], 11))" 'the password'`). `HUB_ADMIN_PASSWORD` (plain) also works; remove it after the first start. An address on `HUB_OWNER_EMAILS` (default `agtcipl@gmail.com`) gets the owner role, which also opens `/ATIP/` |
-| `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | **Hostinger email (SMTP), required on test and production.** One-time sign-in codes, password resets and verification links go by email (D-029). `MAIL_HOST=smtp.hostinger.com`, `MAIL_PORT=465`, `MAIL_USERNAME` = the mailbox (for example `no-reply@bkesari.com`, created in hPanel → Emails), `MAIL_PASSWORD` = its password, `MAIL_FROM_ADDRESS` = the same address (the default), `MAIL_FROM_NAME` optional (each project sets its own: "TaskList · bkesari", "LadWani · bkesari"). Without them on test or production, code sign-in answers "could not send" and only password sign-in works; **no code is ever shown on screen there** — only the dev tier shows one, and only when no mail is set. Per project: `TASKLIST_MAIL_…`, `LADWANI_MAIL_…`, `HUB_MAIL_…` |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | **Hostinger email (SMTP), required on test and production.** One-time sign-in codes, password resets and verification links go by email (D-029). `MAIL_HOST=smtp.hostinger.com`, `MAIL_PORT=465`, `MAIL_USERNAME` = the mailbox, **`code@agtci.com`** (the owner's choice, 4 Nov 2026), `MAIL_PASSWORD` = its password (from the owner; never in the repository), `MAIL_FROM_ADDRESS` = the same address (Hostinger sends only as the signed-in mailbox), `MAIL_FROM_NAME` optional (each project sets its own: "TaskList · bkesari", "LadWani · bkesari"). Without them on test or production, code sign-in answers "could not send" and only password sign-in works; **no code is ever shown on screen there** — only the dev tier shows one, and only when no mail is set. Per project: `TASKLIST_MAIL_…`, `LADWANI_MAIL_…`, `HUB_MAIL_…` |
 | `SMS_WEBHOOK_URL`, `SMS_WEBHOOK_TOKEN` | **On hold (D-029); leave unset.** When an SMS gateway is chosen: POST `{"to":"+91…","text":"…"}` with `Authorization: Bearer <token>`. While unset, the sign-in screens offer codes by email only |
 | `RESEND_API_KEY` + `MAIL_FROM`, or `MAIL_WEBHOOK_URL` | alternatives to SMTP for the hub and TaskList, used only when `MAIL_HOST` is not set |
 | `TRUST_PROXY` | Express `trust proxy`. Default `loopback` (Hostinger's front end); set it to the front end's address if the visitor's IP shows as one address for everyone |
@@ -175,9 +175,9 @@ MAIL_MAILER=smtp
 MAIL_SCHEME=smtps                 # port 465 is implicit TLS
 MAIL_HOST=smtp.hostinger.com
 MAIL_PORT=465
-MAIL_USERNAME=no-reply@bkesari.com
+MAIL_USERNAME=code@agtci.com
 MAIL_PASSWORD=<the mailbox password>
-MAIL_FROM_ADDRESS="no-reply@bkesari.com"
+MAIL_FROM_ADDRESS="code@agtci.com"
 MAIL_FROM_NAME="Education · bkesari"
 MAIL_TIMEOUT=15                   # seconds; a code is sent while the person waits
 ```

@@ -198,9 +198,9 @@ MAIL_MAILER=smtp
 MAIL_SCHEME=smtps                      # port 465 is implicit TLS
 MAIL_HOST=smtp.hostinger.com
 MAIL_PORT=465
-MAIL_USERNAME=no-reply@bkesari.com     # the whole mailbox address
+MAIL_USERNAME=code@agtci.com           # the whole mailbox address
 MAIL_PASSWORD=<the mailbox password, from hPanel -> Emails>
-MAIL_FROM_ADDRESS="no-reply@bkesari.com"   # the same mailbox
+MAIL_FROM_ADDRESS="code@agtci.com"         # the same mailbox
 MAIL_FROM_NAME="Education · bkesari"
 MAIL_TIMEOUT=15                        # seconds; codes are sent while the person waits
 ```

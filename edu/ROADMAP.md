@@ -187,7 +187,7 @@ The original spec for this platform is a multi-month, national-scale system (50+
 ## Decisions made this round
 
 - **AI provider**: kept rule-based/heuristic rather than integrating a real model — no API key was available, and the user chose to defer rather than block this round on acquiring one.
-- **Mail delivery**: Hostinger's own SMTP mailbox (`no-reply@bkesari.com`) rather than a transactional provider — one mailbox password to manage, at the cost of no delivery guarantee (see "Partially built" above).
+- **Mail delivery**: Hostinger's own SMTP mailbox (`code@agtci.com`) rather than a transactional provider — one mailbox password to manage, at the cost of no delivery guarantee (see "Partially built" above).
 
 ## Full doc set
 
