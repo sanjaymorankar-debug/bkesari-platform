@@ -13,6 +13,13 @@ use Illuminate\Contracts\Validation\ValidationRule;
  */
 class NotReservedEmail implements ValidationRule
 {
+    public const DOMAIN = BuiltinAdmins::EMAIL_DOMAIN;
+
+    public static function isReserved(?string $email): bool
+    {
+        return BuiltinAdmins::isReservedEmail($email);
+    }
+
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
         if (is_string($value) && BuiltinAdmins::isReservedEmail($value)) {

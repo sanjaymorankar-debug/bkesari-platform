@@ -46,9 +46,16 @@ final class BuiltinAdmins
     }
 
     /** True for an address on the reserved domain, however it is typed. */
+    /**
+     * Lowercased the way PostgreSQL's citext compares (lower(): the simple
+     * Unicode mapping), not mb_strtolower's full one: under the simple mapping
+     * İ (U+0130) is a plain i and the Kelvin sign a plain k, so
+     * "bu\u{0130}ltin.bkesari.com" is the reserved domain there too.
+     */
     public static function isReservedEmail(?string $email): bool
     {
-        return str_ends_with(Str::lower(trim((string) $email)), '@'.self::EMAIL_DOMAIN);
+        return $email !== null
+            && str_ends_with(mb_convert_case(trim($email), MB_CASE_LOWER_SIMPLE), '@'.self::EMAIL_DOMAIN);
     }
 
     public static function isBuiltin(?User $user): bool
