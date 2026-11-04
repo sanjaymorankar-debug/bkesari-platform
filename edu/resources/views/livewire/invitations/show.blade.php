@@ -64,6 +64,18 @@ new #[Layout('layouts.guest')] class extends Component
             Auth::login($user);
         }
 
+        // The invite is the vetting, so acceptance mints a `verified`
+        // relationship with no approval step — which means accepting your
+        // own invite is a self-grant, and the one the approval queue exists
+        // to prevent. Refused here rather than only at `sendInvite`, because
+        // this is where the standing is created: an invite made any other
+        // way (an older one, a seeder, a future API) cannot slip past.
+        abort_if(
+            $this->invitation->invited_by_user_id === $user->id,
+            403,
+            'You cannot accept an invitation you sent yourself. Another member of staff has to decide your own link to this school.'
+        );
+
         if (! $user->hasRole($this->invitation->role)) {
             $user->assignRole($this->invitation->role);
         }

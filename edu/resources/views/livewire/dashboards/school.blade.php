@@ -40,6 +40,18 @@ new #[Layout('layouts.app')] class extends Component
             'inviteStudentName' => ['nullable', 'string', 'max:255'],
         ]);
 
+        // A school-initiated invite is pre-trusted: accepting it creates the
+        // relationship already `verified`, with no approval step. Inviting
+        // your own address would therefore be the same self-grant the
+        // approval queue refuses, by a different door. Blocked here for a
+        // clear message, and again in the acceptance itself, which is where
+        // the standing is actually minted.
+        if (strcasecmp($validated['inviteEmail'], (string) Auth::user()->email) === 0) {
+            $this->addError('inviteEmail', 'You cannot invite your own address — another member of staff has to decide your own link to this school.');
+
+            return;
+        }
+
         $invitation = Invitation::create([
             'school_id' => $school->id,
             'invited_by_user_id' => Auth::id(),
@@ -149,6 +161,17 @@ new #[Layout('layouts.app')] class extends Component
         $mySchoolIds = SchoolStaff::where('user_id', Auth::id())->pluck('school_id');
         abort_unless($mySchoolIds->contains($relationship->school_id), 403);
 
+        // And never your own request. A member of staff whose own child
+        // attends the school they work at files this link like any other
+        // parent, but approving it themselves is the self-grant that unlocks
+        // everything else: verified standing here is what lets someone file
+        // anonymous complaints, feedback, teacher ratings and safeguarding
+        // reports about this school. Every dual-role refusal elsewhere in the
+        // platform (ComplaintPolicy's respond/review, the appeal screen's
+        // canReview, SafeguardingService::canView) assumes that standing was
+        // granted by somebody else. A colleague decides it instead.
+        abort_if($relationship->user_id === Auth::id(), 403, 'Another member of staff has to decide your own request to link this school.');
+
         return $relationship;
     }
 
@@ -241,30 +264,45 @@ new #[Layout('layouts.app')] class extends Component
                     @foreach ($pendingParents as $rel)
                         <div class="flex justify-between items-center py-2 border-b text-sm">
                             <span>{{ $rel->user->name }} — Parent</span>
-                            <span class="flex gap-2">
-                                <button wire:click="approveParent({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
-                                <button wire:click="rejectParent({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
-                            </span>
+                            @if ($rel->user_id === auth()->id())
+                                {{-- Your own request: a colleague decides it, so the buttons would only 403. --}}
+                                <span class="text-xs text-gray-500">Your own request — another member of staff has to decide it</span>
+                            @else
+                                <span class="flex gap-2">
+                                    <button wire:click="approveParent({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
+                                    <button wire:click="rejectParent({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
+                                </span>
+                            @endif
                         </div>
                     @endforeach
 
                     @foreach ($pendingStudents as $rel)
                         <div class="flex justify-between items-center py-2 border-b text-sm">
                             <span>{{ $rel->user->name }} — Student (Class {{ $rel->class_grade }})</span>
-                            <span class="flex gap-2">
-                                <button wire:click="approveStudent({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
-                                <button wire:click="rejectStudent({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
-                            </span>
+                            @if ($rel->user_id === auth()->id())
+                                {{-- Your own request: a colleague decides it, so the buttons would only 403. --}}
+                                <span class="text-xs text-gray-500">Your own request — another member of staff has to decide it</span>
+                            @else
+                                <span class="flex gap-2">
+                                    <button wire:click="approveStudent({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
+                                    <button wire:click="rejectStudent({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
+                                </span>
+                            @endif
                         </div>
                     @endforeach
 
                     @foreach ($pendingTeachers as $rel)
                         <div class="flex justify-between items-center py-2 border-b text-sm">
                             <span>{{ $rel->user->name }} — Teacher</span>
-                            <span class="flex gap-2">
-                                <button wire:click="approveTeacher({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
-                                <button wire:click="rejectTeacher({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
-                            </span>
+                            @if ($rel->user_id === auth()->id())
+                                {{-- Your own request: a colleague decides it, so the buttons would only 403. --}}
+                                <span class="text-xs text-gray-500">Your own request — another member of staff has to decide it</span>
+                            @else
+                                <span class="flex gap-2">
+                                    <button wire:click="approveTeacher({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
+                                    <button wire:click="rejectTeacher({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
+                                </span>
+                            @endif
                         </div>
                     @endforeach
                 </div>

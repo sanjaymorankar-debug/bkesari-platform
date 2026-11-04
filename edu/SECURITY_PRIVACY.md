@@ -88,6 +88,28 @@ for: an official act is still always named (CR-22). Viewing is untouched — a
 submitter still sees their own complaint and appeal — and another member of
 staff can answer it.
 
+Every dual-role refusal above assumes the standing was granted by **somebody
+else**, so the grant itself is gated too. Verified standing at a school is
+what lets anyone file an anonymous complaint, school or teacher feedback, a
+retaliation report or a safeguarding case about it, and a member of staff
+whose own child attends the school they work at files that link like any other
+parent. They may not decide it themselves: `authorizeRelationship()` refuses
+their own request, so a colleague decides it, and the queue says so rather
+than offering buttons that would only 403.
+
+The invite is the same grant by a different door, and needed closing too. A
+school-initiated invitation is pre-trusted — accepting it creates the
+relationship already `verified`, with no approval step — so inviting your own
+address and accepting it would hand you exactly what the queue just refused.
+`sendInvite()` refuses your own address (whatever its case) and the acceptance
+refuses an invitation you sent, the latter being the chokepoint: an invite made
+any other way cannot slip past it.
+
+Nobody is stranded by this. A colleague decides the request, and a school with
+one member of staff adds another through the registration flow's additional-staff
+step. What is *not* yet built is an escalation if a school genuinely has nobody
+else — a district officer cannot approve a relationship today (see `ROADMAP.md`).
+
 `AuditLoggingTest` enforces this directly — if a future call site reaches for
 `record()` where it should have used `recordAnonymous()`,
 `test_no_audit_row_ever_names_a_user_alongside_a_complaint_or_feedback` fails.

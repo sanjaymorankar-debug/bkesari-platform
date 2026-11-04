@@ -5,6 +5,7 @@ namespace Tests\Feature\Platform;
 use App\Mail\StaffCredentialsMail;
 use App\Models\District;
 use App\Models\OfficerJurisdiction;
+use App\Models\Invitation;
 use App\Models\ParentSchoolRelationship;
 use App\Models\School;
 use App\Models\SchoolStaff;
@@ -134,6 +135,123 @@ class RegistrationFlowTest extends TestCase
             ->assertForbidden();
 
         $this->assertSame('pending', $relationship->fresh()->status);
+    }
+
+    /**
+     * Verified standing at a school is what unlocks anonymous complaints,
+     * feedback, teacher ratings and safeguarding reports about it. Every
+     * dual-role refusal elsewhere — `ComplaintPolicy`'s respond/review, the
+     * appeal screen's `canReview`, `SafeguardingService::canView` — assumes
+     * somebody *else* granted that standing. A member of staff who could
+     * approve their own request could self-grant it, which is why this is
+     * the enabler for all of them rather than a tidiness rule.
+     */
+    public function test_school_admin_cannot_decide_their_own_relationship_request(): void
+    {
+        $school = $this->makeSchool();
+        $admin = $this->makeSchoolAdmin($school);
+        $admin->assignRole('parent');
+
+        // Their own child attends the school they work at, so they file the
+        // link like any other parent (onboarding creates it `pending`).
+        $own = ParentSchoolRelationship::create([
+            'user_id' => $admin->id, 'school_id' => $school->id, 'status' => 'pending',
+        ]);
+
+        Volt::actingAs($admin)->test('dashboards.school')
+            ->call('approveParent', $own->id)
+            ->assertForbidden();
+
+        Volt::actingAs($admin)->test('dashboards.school')
+            ->call('rejectParent', $own->id)
+            ->assertForbidden();
+
+        $own->refresh();
+        $this->assertSame('pending', $own->status);
+        $this->assertNull($own->decided_by_user_id, 'no decision may be recorded against themselves');
+        $this->assertNull($own->verified_at);
+    }
+
+    /** The escape hatch: a colleague decides it, so a genuine parent is not stranded. */
+    public function test_a_colleague_can_decide_the_admins_own_request(): void
+    {
+        $school = $this->makeSchool();
+        $admin = $this->makeSchoolAdmin($school);
+        $admin->assignRole('parent');
+        $colleague = $this->makeSchoolAdmin($school);
+
+        $own = ParentSchoolRelationship::create([
+            'user_id' => $admin->id, 'school_id' => $school->id, 'status' => 'pending',
+        ]);
+
+        Volt::actingAs($colleague)->test('dashboards.school')
+            ->call('approveParent', $own->id);
+
+        $own->refresh();
+        $this->assertSame('verified', $own->status);
+        $this->assertSame($colleague->id, $own->decided_by_user_id);
+    }
+
+    /** The queue says so rather than offering buttons that would only 403. */
+    public function test_the_queue_explains_that_a_colleague_must_decide_their_own_request(): void
+    {
+        $school = $this->makeSchool();
+        $admin = $this->makeSchoolAdmin($school);
+        $admin->assignRole('parent');
+
+        ParentSchoolRelationship::create([
+            'user_id' => $admin->id, 'school_id' => $school->id, 'status' => 'pending',
+        ]);
+
+        Volt::actingAs($admin)->test('dashboards.school')
+            ->assertOk()
+            ->assertSee('another member of staff has to decide it');
+    }
+
+    /**
+     * The other door to the same self-grant. A school-initiated invite is
+     * pre-trusted: accepting it creates the relationship already `verified`,
+     * with no approval step at all. So inviting yourself and accepting it
+     * would hand you the standing the approval queue just refused.
+     */
+    public function test_a_school_admin_cannot_invite_their_own_address(): void
+    {
+        $school = $this->makeSchool();
+        $admin = $this->makeSchoolAdmin($school);
+
+        Volt::actingAs($admin)->test('dashboards.school')
+            ->set('inviteEmail', strtoupper($admin->email))   // case must not matter
+            ->set('inviteRole', 'parent')
+            ->call('sendInvite')
+            ->assertHasErrors('inviteEmail');
+
+        $this->assertSame(0, Invitation::count());
+    }
+
+    /** And refused at the acceptance too, which is where the standing is minted. */
+    public function test_a_school_admin_cannot_accept_an_invitation_they_sent_themselves(): void
+    {
+        $school = $this->makeSchool();
+        $admin = $this->makeSchoolAdmin($school);
+
+        // Created directly: the sendInvite guard is bypassed on purpose, so
+        // this proves the acceptance stands on its own.
+        $invitation = Invitation::create([
+            'school_id' => $school->id,
+            'invited_by_user_id' => $admin->id,
+            'email' => $admin->email,
+            'role' => 'parent',
+            'token' => Invitation::generateToken(),
+            'status' => 'pending',
+        ]);
+
+        Volt::actingAs($admin)->test('invitations.show', ['token' => $invitation->token])
+            ->call('accept')
+            ->assertForbidden();
+
+        $this->assertSame(0, ParentSchoolRelationship::where('user_id', $admin->id)->count(),
+            'accepting your own invite must not mint a verified relationship');
+        $this->assertSame('pending', $invitation->fresh()->status);
     }
 
     public function test_district_officer_can_verify_pending_school_in_jurisdiction(): void

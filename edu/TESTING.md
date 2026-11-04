@@ -4,7 +4,7 @@
 php artisan test
 ```
 
-575 tests (PHPUnit via Laravel's test runner). With no extra configuration this runs against in-memory SQLite (`phpunit.xml`), so it needs no database server; 5 PostgreSQL-specific tests are skipped there. [`TEST_SPEC.md`](TEST_SPEC.md) is the full test specification: every check, in order, with the counts measured for it.
+580 tests (PHPUnit via Laravel's test runner). With no extra configuration this runs against in-memory SQLite (`phpunit.xml`), so it needs no database server; 5 PostgreSQL-specific tests are skipped there. [`TEST_SPEC.md`](TEST_SPEC.md) is the full test specification: every check, in order, with the counts measured for it.
 
 ### Against PostgreSQL (what CI runs)
 
@@ -48,6 +48,13 @@ Before the fix in `config/database.php` this failed 391 of 392 tests: the migrat
 - **Academic records** (`tests/Feature/Platform/AcademicRecordsTest.php`): School Admin can add a record for a verified student at their own school; blocked for a student not verified there; a different school's admin can't reach the page at all
 - **Notifications** (`tests/Feature/Platform/NotificationsTest.php`): approving a parent relationship sends `RelationshipApproved` to that parent (via `Notification::fake()`); **rejecting one notifies nobody** — all six approve/reject buttons share one `decide()` method, so a lost guard there would tell a rejected teacher their link was approved; a real (non-faked) notification can be listed and marked read through `/notifications`
 - **Two-factor auth** (`tests/Feature/Platform/TwoFactorAuthTest.php`): setup + confirm with a valid TOTP generates 8 recovery codes; confirming with a wrong code fails and leaves 2FA unconfirmed; login redirects to the challenge screen when 2FA is enabled without authenticating yet; the challenge completes login with a valid TOTP code, rejects an invalid one, and a recovery code works exactly once; **after five wrong codes for one account the challenge refuses even the right one for a minute**, recovery codes count towards the same limit and are not spent while it holds, a correct code inside the limit resets it, and one account's lock does not touch another's; codes sent together still get only five checks, and a recovery code carried by two requests at once signs in once
+- **Self-granted standing** (`tests/Feature/Platform/RegistrationFlowTest.php`): a school admin cannot approve
+  **or reject** their own request to link the school — no decision is recorded against themselves and the link stays
+  pending — while a colleague can, so a genuine parent on staff is not stranded; the queue says a colleague must
+  decide it rather than showing buttons that would 403; and the invite is closed as the same grant by another door —
+  inviting your own address is refused whatever its case, and accepting an invitation you sent is refused at the
+  acceptance itself (created directly in the test, so it stands without the send-side guard), minting no verified
+  relationship
 - **Timeline anonymity** (`tests/Feature/Platform/AnonymizationTest.php`): a submitter's resolution confirmation
   leaves no actor on `complaint_status_history` while the school's own transition still names the staff member;
   `recordStatusChange()` drops a submitter id even when a caller passes one explicitly, and keeps a staff id; and
