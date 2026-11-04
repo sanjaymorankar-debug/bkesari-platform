@@ -323,7 +323,7 @@ same with `DB_CONNECTION=pgsql` and the suite database), plus S7.1 when the bed 
 | EDU-CR-18 | The committed build matches its manifest and is exactly what the sources produce | S1 row 5, S4 |
 | EDU-CR-19 | Every protected GET route refuses a guest; no private file is served; complaint evidence downloads only for those the complaint policy allows, and only through its own complaint; the suite refuses a hosted database | S6 `guest_routes.py`, `http.sh`, the S6 refusal check; `ComplaintEvidenceTest` (3); `NeonReadinessTest`'s three `test_the_suite_refuses_*` |
 | EDU-CR-20 | No score, rank or label column in the growth or benchmark tables; a school cannot verify itself | `NoLabelingRulesTest`, `BenchmarkHonestyTest`, `UdiseVerificationTest`, `ClaimedVsExperiencedTest` |
-| EDU-CR-21 | A hub token grants only parent, student or teacher, with one exception named in Education's own code: the hub's built-in administrators (`HubSignIn::BUILTIN_ADMINS`, `builtin:smorankar` and `builtin:sonalimorankar`) become `system_admin`, and only when the token carries the hub's top role, `admin`; any other id, a look-alike `builtin:` id or a built-in id with a lesser role does not; and a built-in id never takes over an account found by its email (sign-up, a profile edit or a school registration can give any account that address) | `HubSignInTest` :: test_the_token_never_grants_a_privileged_role, test_the_hubs_builtin_administrators_are_system_admin, test_only_the_two_builtin_ids_with_the_admin_role_become_system_admin, test_a_builtin_id_never_takes_over_an_account_made_with_its_email; `ReservedEmailTest` (5): registration, a profile, an invitation and a new child refuse `@builtin.bkesari.com`, so no account can lock a built-in administrator out (D3) |
+| EDU-CR-21 | A hub token grants only parent, student or teacher, with one exception named in Education's own code: the hub's built-in administrators (`HubSignIn::BUILTIN_ADMINS`, `builtin:smorankar` and `builtin:sonalimorankar`) become `system_admin`, and only when the token carries the hub's top role, `admin`; any other id, a look-alike `builtin:` id or a built-in id with a lesser role does not; and a built-in id never takes over an account found by its email (sign-up, a profile edit or a school registration can give any account that address) | `HubSignInTest` :: test_the_token_never_grants_a_privileged_role, test_the_hubs_builtin_administrators_are_system_admin, test_only_the_two_builtin_ids_with_the_admin_role_become_system_admin, test_a_builtin_id_never_takes_over_an_account_made_with_its_email; `ReservedEmailTest` (6): registration, a profile, a school registration (admin and staff), an invitation and a new child refuse `@builtin.bkesari.com` however it is capitalised, `İ` (U+0130) included, which PostgreSQL's `citext` lowers to a plain `i` (`test_a_dotted_capital_i_does_not_slip_past_the_rule`), so no account can lock a built-in administrator out (D3) |
 
 ### R3 — change-area map
 
@@ -369,25 +369,28 @@ league/commonmark 2.10.0 → 2.10.4, 46 packages in all): every count below is u
 found): the final-run counts below are that measurement, 13 tests and 50 assertions more on each
 engine than 2026-10-24; rows 2, 9 and 14's audits moved too, nothing else. Node 22.23,
 Playwright 1.63; PgBouncer 1.22.0 listened on `:6433` that run, because a parallel agent's bed
-held `:6432`.
+held `:6432`. **Re-measured 2026-11-04 at `51fa11a`** (the reserved `builtin.bkesari.com`
+addresses, `ReservedEmailTest`) plus that run's fix of the rule (it lowercases the way `citext`
+does, so `İ` is reserved too): 6 tests and 44 assertions more on each engine; rows 2, 7, 8 and 7.1
+moved, nothing else. PgBouncer on `:6433` again.
 
 | # | Level | First run | Final run |
 |---|---|---|---|
 | 1 | S1 composer validate | valid | valid |
-| 2 | S1 php -l | 345 files, 0 errors | 357 files, 0 errors |
+| 2 | S1 php -l | 345 files, 0 errors | 359 files, 0 errors |
 | 3 | S1 routes, views | 76 routes, views compile | 76 routes, views compile |
 | 4 | S1 Pint (report-only) | 15 files listed (below) | the same 15 |
 | 5 | S1 manifest | 2 entries, all present | 2 entries, all present |
 | 6 | S2 Unit | 1 test, 1 passed | 1 test, 1 passed |
-| 7 | S3a SQLite | 392 tests: 389 passed, 3 skipped, 1,088 assertions, 20 s | 436 tests: 431 passed, 5 skipped, 1,283 assertions, 19 s |
-| 8 | S3a PostgreSQL | 392 tests: 392 passed, 1,094 assertions, 46 s | 436 tests: 436 passed, 1,291 assertions, 36 s |
+| 7 | S3a SQLite | 392 tests: 389 passed, 3 skipped, 1,088 assertions, 20 s | 442 tests: 437 passed, 5 skipped, 1,327 assertions, 19 s |
+| 8 | S3a PostgreSQL | 392 tests: 392 passed, 1,094 assertions, 46 s | 442 tests: 442 passed, 1,335 assertions, 37 s |
 | 9 | S3b migrate:fresh --seed | 74 tables, 66 migrations, 289 users, 20 schools, 100 complaints, citext; 80 s | the same, with 67 migrations (`hub_user_id`); 75 s |
 | 10 | S3c SQL load | all load and re-run; schemas match (5,546 lines, 70 CHECKs); nothing to migrate | the same, and 04 run twice gives one row, role `system_admin`; 4 s |
 | 11 | S3d incremental SQL | all load; schemas match | all load; schemas match; 4 s |
 | 12 | S4 rebuild | **FAIL**: rebuilt CSS differs; 3 classes the views use (`border-indigo-200`, `mt-5`, `sm:w-80`) missing from the committed CSS | byte-identical to the committed build (rebuilt in this run: `app-CDqm9BMW.css`); 10 s |
 | 13 | S5 smoke | not run before the fixes (a later probe on the earlier fixes: evidence upload through `/edu/` 404 at `/edu/edu/livewire/upload-file`) | http 50 passed, 0 failed (3 s); browser 18 passed, 0 failed (13 s), with `KILL_URL` |
 | 14 | S6 | no secrets; 56 guest routes refused (measured after the fixes); no hosted-database guard existed; `composer audit` 6 advisories; `npm audit` 7 (dev tooling), 0 with `--omit=dev` | no secrets; both hosted-database runs refused; 56 guest routes refused; `composer audit` 0 after the security update (6 before: 3 laravel/framework, 2 league/commonmark, 1 symfony/http-foundation), 1 on 2026-11-04 (symfony/mime CVE-2026-45070, published 2026-10-28, not reached: the app sets no MIME parameters); `npm audit` 5 (report-only), 0 with `--omit=dev` |
-| 15 | S7.1 suite through the pooler | **FAIL**: 392 tests, 1 passed, 391 errors (SQLSTATE 25P02, from the migrations on), 42 s | 436 tests: 436 passed, 1,291 assertions, 23 s |
+| 15 | S7.1 suite through the pooler | **FAIL**: 392 tests, 1 passed, 391 errors (SQLSTATE 25P02, from the migrations on), 42 s | 442 tests: 442 passed, 1,335 assertions, 31 s |
 | 15 | S7.2 / 7.3 routing | not possible (no direct-endpoint setting existed) | exit 0 / 1 / 1 as specified; 0 under `config:cache`, cache cleared |
 | 15 | S7.5 channel_binding | **FAIL**: `channel_binding=require` dropped, connected anyway | refused by PgBouncer 1.22 with `channel binding is required`; the direct endpoint connects |
 | 15 | S7.8 contention, 6 × 10 through the pooler | **FAIL** (retry only, measured before the lock): 4 of 6 processes failed, 29 created | 60 created, 60 distinct; 2 s |

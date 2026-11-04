@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Platform;
 
+use App\Models\Invitation;
 use App\Models\User;
 use App\Rules\NotReservedEmail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -72,6 +73,48 @@ class ReservedEmailTest extends TestCase
             ->assertHasErrors(['inviteEmail']);
 
         $this->assertDatabaseMissing('invitations', ['email' => 'smorankar@builtin.bkesari.com']);
+    }
+
+    public function test_a_dotted_capital_i_does_not_slip_past_the_rule(): void
+    {
+        // PostgreSQL's citext compares lower(), the simple Unicode mapping, under
+        // which İ (U+0130) is a plain i. PHP's mb_strtolower makes it i + U+0307,
+        // so smorankar@buİltin.bkesari.com passed the rule, yet on PostgreSQL it
+        // IS the built-in administrator's address: the forms that do not insist
+        // on lowercase stored it, and HubSignIn then refused the administrator.
+        $dotted = "smorankar@bu\u{0130}ltin.bkesari.com";
+        foreach ([$dotted, "SONALIMORANKAR@BU\u{0130}LT\u{0130}N.BKESAR\u{0130}.COM", "smorankar@builtin.b\u{212A}esari.com"] as $email) {
+            $this->assertTrue(NotReservedEmail::isReserved($email), $email);
+        }
+
+        $school = $this->makeSchool();
+        $register = fn (string $admin, array $staff = []) => Volt::test('schools.register')
+            ->set('adminName', 'Squatter')
+            ->set('adminEmail', $admin)
+            ->set('adminPassword', 'Password123!')
+            ->set('adminPassword_confirmation', 'Password123!')
+            ->set('name', 'Squat School')
+            ->set('board', 'CBSE')
+            ->set('managementType', 'private')
+            ->set('stateId', (string) $school->state_id)
+            ->set('districtId', (string) $school->district_id)
+            ->set('address', '1 Street')
+            ->set('city', 'Pune')
+            ->set('pincode', '411001')
+            ->set('additionalStaff', $staff)
+            ->call('register');
+
+        $register($dotted)->assertHasErrors(['adminEmail']);
+        $register('squatter@example.com', [['name' => 'Staff', 'email' => $dotted, 'designation' => 'Operator']])
+            ->assertHasErrors(['additionalStaff.0.email']);
+        $this->assertSame(0, User::where('name', 'Squatter')->orWhere('name', 'Staff')->count());
+
+        Volt::actingAs($this->makeSchoolAdmin($school))->test('dashboards.school')
+            ->set('inviteEmail', $dotted)
+            ->set('inviteRole', 'parent')
+            ->call('sendInvite')
+            ->assertHasErrors(['inviteEmail']);
+        $this->assertSame(0, Invitation::count());
     }
 
     public function test_a_parent_cannot_add_a_child_with_a_reserved_address(): void

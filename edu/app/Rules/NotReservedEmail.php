@@ -16,9 +16,14 @@ class NotReservedEmail implements ValidationRule
 {
     public const DOMAIN = 'builtin.bkesari.com';
 
+    /**
+     * Lowercased the way PostgreSQL's citext compares (lower(): the simple Unicode
+     * mapping), not mb_strtolower's full one: under the simple mapping İ (U+0130)
+     * is a plain i, so "bu\u{0130}ltin.bkesari.com" is the reserved domain there.
+     */
     public static function isReserved(?string $email): bool
     {
-        return $email !== null && str_ends_with(mb_strtolower(trim($email)), '@'.self::DOMAIN);
+        return $email !== null && str_ends_with(mb_convert_case(trim($email), MB_CASE_LOWER_SIMPLE), '@'.self::DOMAIN);
     }
 
     public function validate(string $attribute, mixed $value, Closure $fail): void
