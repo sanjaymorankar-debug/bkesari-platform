@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AuditLog;
 use App\Models\FraudFlag;
 use App\Models\ParentSchoolRelationship;
 use App\Models\Setting;
@@ -60,7 +61,7 @@ new #[Layout('layouts.app')] class extends Component
         $role = Auth::user()->hasRole('parent') ? 'parent' : 'student';
         $anonymousRef = Auth::user()->anonymousRefFor(\App\Models\School::findOrFail($schoolId), $role);
 
-        TeacherFeedback::create([
+        $feedback = TeacherFeedback::create([
             'teacher_user_id' => $this->teacher->id,
             'school_id' => $schoolId,
             'anonymous_ref' => $anonymousRef,
@@ -68,6 +69,12 @@ new #[Layout('layouts.app')] class extends Component
             'dimension_scores' => $this->scores,
             'overall_comment' => $this->overallComment ?: null,
             'submitted_at' => now(),
+        ]);
+
+        AuditLog::recordAnonymous('teacher_feedback.submitted', $feedback, [
+            'anonymous_ref' => $anonymousRef,
+            'school_id' => $schoolId,
+            'rater_role' => $role,
         ]);
 
         app(TeacherEffectivenessIndexService::class)->recalculate($this->teacher);

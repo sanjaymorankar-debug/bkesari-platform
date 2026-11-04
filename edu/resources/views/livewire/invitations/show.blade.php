@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AuditLog;
 use App\Models\Invitation;
 use App\Models\ParentSchoolRelationship;
 use App\Models\StudentSchoolRelationship;
@@ -83,6 +84,15 @@ new #[Layout('layouts.guest')] class extends Component
             'status' => 'accepted',
             'accepted_by_user_id' => $user->id,
             'accepted_at' => now(),
+        ]);
+
+        // The invite itself is the vetting for these relationships (they are
+        // created already verified), so the acceptance is the decision point
+        // worth recording.
+        AuditLog::record('invitation.accepted', $user->id, $this->invitation, [
+            'school_id' => $this->invitation->school_id,
+            'role' => $this->invitation->role,
+            'invited_by_user_id' => $this->invitation->invited_by_user_id,
         ]);
 
         $this->invitation->invitedBy?->notify(new InvitationAccepted($this->invitation, $user));

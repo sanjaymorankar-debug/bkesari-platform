@@ -2,6 +2,7 @@
 
 use App\Models\AnonymousIdentity;
 use App\Models\Appeal;
+use App\Models\AuditLog;
 use App\Models\OfficerJurisdiction;
 use App\Notifications\AppealDecided;
 use Illuminate\Support\Facades\Auth;
@@ -55,6 +56,13 @@ new #[Layout('layouts.app')] class extends Component
         ]);
 
         $this->appeal->refresh();
+
+        AuditLog::record('appeal.decided', Auth::id(), $this->appeal, [
+            'decision' => $decision,
+            'complaint_id' => $this->appeal->complaint_id,
+            'state_id' => $this->appeal->state_id,
+        ]);
+
         $this->decisionNote = '';
 
         $submitter = AnonymousIdentity::where('anonymous_ref', $this->appeal->anonymous_ref)->first()?->user;
@@ -68,6 +76,10 @@ new #[Layout('layouts.app')] class extends Component
         if ($this->appeal->status === 'submitted') {
             $this->appeal->update(['status' => 'under_review']);
             $this->appeal->refresh();
+
+            AuditLog::record('appeal.review_started', Auth::id(), $this->appeal, [
+                'complaint_id' => $this->appeal->complaint_id,
+            ]);
         }
     }
 

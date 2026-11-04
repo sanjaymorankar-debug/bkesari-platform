@@ -21,6 +21,46 @@ This isn't a view or a hidden column — `complaints.anonymous_ref` and `school_
 
 The Complaint detail page's "Reveal Submitter Identity" panel (visible only to users who both pass the `review` policy and hold `access-protected-identity`) surfaces this as a required reason field, server-validated at a minimum of 10 characters before the reveal proceeds. What's **not yet built**: a dedicated admin screen for browsing/searching identity-access logs beyond the general audit log viewer at `/admin/audit-log`.
 
+## Audit trails (and why one of them records nobody)
+
+Four trails, each with its own table:
+
+| Trail | Table | Written by |
+|---|---|---|
+| General audit log | `audit_logs` | `AuditLog::record()` / `recordAnonymous()` |
+| Identity reveals | `identity_access_logs` | `IdentityResolutionService::resolve()` |
+| Health-record access | `health_access_logs` | `HealthAccessService::log()` |
+| Safeguarding case events | `safeguarding_events` | `SafeguardingService::log()` |
+
+Every **official decision** goes into `audit_logs` named against the person who
+took it: an officer verifying a school (`school.recognition_verified`), a School
+Admin approving or rejecting a parent/student/teacher link
+(`relationship.approved` / `relationship.rejected`), answering or proposing a
+resolution on a complaint, deciding an appeal, entering an academic record,
+sending or revoking an invitation, and enabling or disabling 2FA. The officer
+and school-side verification decisions are also stamped on the record itself
+(`schools.recognition_verified_by_user_id`, `*_school_relationships.decided_by_user_id`),
+and those columns are deliberately outside `$fillable` — `School::markRecognitionVerified()`
+and `RecordsVerificationDecision::recordDecision()` are the only ways to set
+them, so no mass-assigned update can forge a decision.
+
+**Submitter actions are logged with no actor and no IP.** Filing a complaint,
+rating a school or a teacher, reporting retaliation, filing an appeal and
+confirming a resolution all write an `audit_logs` row through
+`AuditLog::recordAnonymous()`, which never sets `user_id` or `ip_address`.
+This is not an oversight to tidy up later. `complaints` and `school_feedback`
+carry no `user_id` column precisely so that the link cannot be made (see above);
+writing "user 7 confirmed complaint 3" — or user 7's IP next to complaint 3 —
+into a table every System Admin can read at `/admin/audit-log` would rebuild
+that link and hand it over, bypassing `IdentityResolutionService` and its
+reason gate entirely. The row still records *that* the action happened, with
+the `anonymous_ref`, which is safe: it is already on the record itself and
+reversing it still goes through the audited service.
+
+`AuditLoggingTest` enforces this directly — if a future call site reaches for
+`record()` where it should have used `recordAnonymous()`,
+`test_no_audit_row_ever_names_a_user_alongside_a_complaint_or_feedback` fails.
+
 ## RBAC
 
 `spatie/laravel-permission`, 10 roles matching the spec (public/parent/student/teacher/school_admin/district_officer/state_officer/national_admin/researcher/system_admin). Authorization is enforced via Laravel Policies (`app/Policies/ComplaintPolicy.php`, `SchoolPolicy.php`), not just route middleware — e.g. a school_admin route-level check alone wouldn't stop them viewing another school's complaint; the policy checks their actual `school_staff` assignment.

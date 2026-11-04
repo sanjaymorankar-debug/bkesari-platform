@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AuditLog;
 use App\Models\Complaint;
 use App\Models\ComplaintCategory;
 use App\Models\ComplaintEvidence;
@@ -127,6 +128,15 @@ new #[Layout('layouts.app')] class extends Component
             'from_status' => null,
             'to_status' => 'submitted',
             'note' => 'Complaint submitted by verified '.$role.'.',
+        ]);
+
+        // Anonymous by design — see AuditLog::recordAnonymous(). The trail
+        // records that a complaint was filed, never by whom.
+        AuditLog::recordAnonymous('complaint.submitted', $complaint, [
+            'anonymous_ref' => $anonymousRef,
+            'school_id' => $school->id,
+            'submitted_role' => $role,
+            'severity' => $validated['severity'],
         ]);
 
         if ($this->evidenceFile) {

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\AnonymousIdentity;
+use App\Models\AuditLog;
 use App\Models\IdentityAccessLog;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
@@ -35,6 +36,17 @@ class IdentityResolutionService
             'anonymous_ref' => $anonymousRef,
             'action' => $action,
             'reason' => $reason,
+        ]);
+
+        // Also surfaced in the general trail so /admin/audit-log shows a
+        // reveal in sequence with everything else that happened to the
+        // record, rather than only on its own tab. Deliberately records the
+        // *officer* and the ref — never the identity that came back, which
+        // would turn the audit log itself into a deanonymisation table.
+        AuditLog::record('identity.revealed', $officer->id, null, [
+            'anonymous_ref' => $anonymousRef,
+            'context' => $action,
+            'resolved' => $identity !== null,
         ]);
 
         return $identity?->user;

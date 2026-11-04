@@ -35,7 +35,12 @@ This is a large spec built incrementally — see [`ROADMAP.md`](ROADMAP.md) for 
 - **Health & wellbeing** — consent-gated screenings with a follow-up lifecycle so a finding can't be quietly lost; teacher observations kept structurally apart from clinical notes, because teachers must never diagnose; and a counsellor tier where raw session notes stay with the counsellor and guardians see a summary written for them
 - **Student growth, career & life readiness** — a dated, multi-source record of what each child is doing well and where they need support (aligned to NEP 2020 / PARAKH's Holistic Progress Card), a shared teacher–parent growth plan, and exploratory career-interest and life-skills tracking. Deliberately carries no score, no ability label and no assigned career track; see [`STUDENT_GROWTH_FRAMEWORK.md`](STUDENT_GROWTH_FRAMEWORK.md)
 - **DPDP Act 2023 Section 9 consent layer** — per-child, per-purpose guardian consent, granted only by a school-verified guardian, withdrawable instantly without a reason. Nothing in the growth/career modules is collected or shown without it, and government roles have no path to an individual child's record at all
-- Full audit logging + identity-access logging
+- Audit logging of every official decision — school verification, parent/student/teacher link approvals and
+  rejections, complaint responses, appeal decisions, academic-record entry, invitations and 2FA changes — each
+  recorded against the person who took it, plus dedicated identity-access, health-access and safeguarding trails.
+  Submitter actions are logged too, but deliberately with **no actor and no IP** (see
+  [`SECURITY_PRIVACY.md`](SECURITY_PRIVACY.md)) — a trail that named who filed which complaint would undo the
+  anonymization everything else here is built around
 
 ## Quick start (local dev)
 

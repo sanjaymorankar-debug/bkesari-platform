@@ -17,7 +17,10 @@ class School extends Model
 {
     protected function casts(): array
     {
-        return ['udise_verified_at' => 'datetime'];
+        return [
+            'udise_verified_at' => 'datetime',
+            'recognition_verified_at' => 'datetime',
+        ];
     }
 
     /**
@@ -50,6 +53,30 @@ class School extends Model
             'udise_verified_at' => now(),
             'udise_verified_by_user_id' => $officer->id,
         ])->save();
+    }
+
+    /**
+     * Record that an officer accepted this school's registration.
+     *
+     * Moving a school to `verified` is what makes it visible in public search
+     * (see `schools.index`), so it is a government act and the record has to
+     * say who performed it. As with `markUdiseVerified()`, the attribution
+     * columns are outside `$fillable`: this method is the only way to set
+     * them, so no profile update can mass-assign an officer's name onto a
+     * verification they never made.
+     */
+    public function markRecognitionVerified(User $officer): void
+    {
+        $this->forceFill([
+            'recognition_status' => 'verified',
+            'recognition_verified_at' => now(),
+            'recognition_verified_by_user_id' => $officer->id,
+        ])->save();
+    }
+
+    public function recognitionVerifiedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'recognition_verified_by_user_id');
     }
 
     public function state(): BelongsTo

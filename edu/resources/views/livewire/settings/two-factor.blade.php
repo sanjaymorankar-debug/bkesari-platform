@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AuditLog;
 use App\Models\TwoFactorAuthentication;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
@@ -47,6 +48,11 @@ new #[Layout('layouts.app')] class extends Component
             'recovery_codes' => $codes,
         ]);
 
+        // A security-control change on a privileged account: worth a trail
+        // entry of its own, since losing or disabling 2FA is exactly what an
+        // account takeover would want to do quietly.
+        AuditLog::record('two_factor.enabled', Auth::id(), $this->twoFactor);
+
         $this->freshRecoveryCodes = $codes;
         $this->confirmCode = '';
     }
@@ -54,6 +60,9 @@ new #[Layout('layouts.app')] class extends Component
     public function disable(): void
     {
         TwoFactorAuthentication::where('user_id', Auth::id())->delete();
+
+        AuditLog::record('two_factor.disabled', Auth::id());
+
         $this->twoFactor = null;
         $this->freshRecoveryCodes = null;
     }

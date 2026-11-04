@@ -2,6 +2,7 @@
 
 use App\Livewire\Concerns\SendsMailSafely;
 use App\Mail\SchoolInvitationMail;
+use App\Models\AuditLog;
 use App\Models\Invitation;
 use App\Models\ParentSchoolRelationship;
 use App\Models\SchoolStaff;
@@ -48,6 +49,12 @@ new #[Layout('layouts.app')] class extends Component
             'status' => 'pending',
         ]);
 
+        AuditLog::record('invitation.created', Auth::id(), $invitation, [
+            'school_id' => $school->id,
+            'role' => $invitation->role,
+            'email' => $invitation->email,
+        ]);
+
         $this->inviteLink = route('invitations.show', $invitation->token);
         $this->tryMail($invitation->email, fn () => new SchoolInvitationMail($invitation->load('school'), $this->inviteLink));
 
@@ -62,6 +69,11 @@ new #[Layout('layouts.app')] class extends Component
         abort_unless($mySchoolIds->contains($invitation->school_id), 403);
 
         $invitation->update(['status' => 'revoked']);
+
+        AuditLog::record('invitation.revoked', Auth::id(), $invitation, [
+            'school_id' => $invitation->school_id,
+            'role' => $invitation->role,
+        ]);
     }
 
     private function myFirstSchool()
@@ -73,38 +85,57 @@ new #[Layout('layouts.app')] class extends Component
 
     public function approveParent(int $id): void
     {
-        $relationship = $this->authorizeRelationship(ParentSchoolRelationship::findOrFail($id));
-        $relationship->update(['status' => 'verified', 'verified_at' => now()]);
-        $relationship->user?->notify(new RelationshipApproved($relationship->school, 'parent'));
+        $this->decide(ParentSchoolRelationship::findOrFail($id), 'parent', 'verified');
     }
 
     public function rejectParent(int $id): void
     {
-        $this->authorizeRelationship(ParentSchoolRelationship::findOrFail($id))->update(['status' => 'rejected']);
+        $this->decide(ParentSchoolRelationship::findOrFail($id), 'parent', 'rejected');
     }
 
     public function approveStudent(int $id): void
     {
-        $relationship = $this->authorizeRelationship(StudentSchoolRelationship::findOrFail($id));
-        $relationship->update(['status' => 'verified', 'verified_at' => now()]);
-        $relationship->user?->notify(new RelationshipApproved($relationship->school, 'student'));
+        $this->decide(StudentSchoolRelationship::findOrFail($id), 'student', 'verified');
     }
 
     public function rejectStudent(int $id): void
     {
-        $this->authorizeRelationship(StudentSchoolRelationship::findOrFail($id))->update(['status' => 'rejected']);
+        $this->decide(StudentSchoolRelationship::findOrFail($id), 'student', 'rejected');
     }
 
     public function approveTeacher(int $id): void
     {
-        $relationship = $this->authorizeRelationship(TeacherSchoolRelationship::findOrFail($id));
-        $relationship->update(['status' => 'verified', 'verified_at' => now()]);
-        $relationship->user?->notify(new RelationshipApproved($relationship->school, 'teacher'));
+        $this->decide(TeacherSchoolRelationship::findOrFail($id), 'teacher', 'verified');
     }
 
     public function rejectTeacher(int $id): void
     {
-        $this->authorizeRelationship(TeacherSchoolRelationship::findOrFail($id))->update(['status' => 'rejected']);
+        $this->decide(TeacherSchoolRelationship::findOrFail($id), 'teacher', 'rejected');
+    }
+
+    /**
+     * The one path all six approve/reject buttons go through, so the
+     * jurisdiction check, the attribution, the audit entry and the
+     * notification can't drift apart between roles — which is how the
+     * rejections ended up with no record of who made them.
+     */
+    private function decide(
+        ParentSchoolRelationship|StudentSchoolRelationship|TeacherSchoolRelationship $relationship,
+        string $role,
+        string $status
+    ): void {
+        $relationship = $this->authorizeRelationship($relationship);
+        $relationship->recordDecision($status, Auth::user());
+
+        AuditLog::record('relationship.'.($status === 'verified' ? 'approved' : 'rejected'), Auth::id(), $relationship, [
+            'role' => $role,
+            'school_id' => $relationship->school_id,
+            'subject_user_id' => $relationship->user_id,
+        ]);
+
+        if ($status === 'verified') {
+            $relationship->user?->notify(new RelationshipApproved($relationship->school, $role));
+        }
     }
 
     /**

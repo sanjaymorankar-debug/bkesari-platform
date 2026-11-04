@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AuditLog;
 use App\Models\Complaint;
 use App\Models\ParentSchoolRelationship;
 use App\Models\RetaliationReport;
@@ -86,6 +87,12 @@ new #[Layout('layouts.app')] class extends Component
             'category' => $validated['category'],
             'description' => $validated['description'],
             'status' => 'submitted',
+        ]);
+
+        AuditLog::recordAnonymous('retaliation_report.submitted', $report, [
+            'anonymous_ref' => $anonymousRef,
+            'school_id' => $school->id,
+            'category' => $validated['category'],
         ]);
 
         $this->redirect(route('retaliation.show', $report), navigate: true);

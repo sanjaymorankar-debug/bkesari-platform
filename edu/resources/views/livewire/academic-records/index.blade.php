@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AuditLog;
 use App\Models\School;
 use App\Models\SchoolStaff;
 use App\Models\StudentAcademicRecord;
@@ -47,7 +48,7 @@ new #[Layout('layouts.app')] class extends Component
             ->where('school_id', $this->school->id)->where('status', 'verified')->exists();
         abort_unless($belongs, 422);
 
-        StudentAcademicRecord::create([
+        $record = StudentAcademicRecord::create([
             'student_user_id' => $validated['studentUserId'],
             'school_id' => $this->school->id,
             'subject' => $validated['subject'],
@@ -56,6 +57,16 @@ new #[Layout('layouts.app')] class extends Component
             'max_score' => $validated['maxScore'],
             'recorded_by_user_id' => Auth::id(),
             'recorded_at' => now(),
+        ]);
+
+        // These scores feed the value-add component of the Teacher
+        // Effectiveness Index, so who entered which score needs to be
+        // answerable from the trail and not just from the row itself.
+        AuditLog::record('academic_record.created', Auth::id(), $record, [
+            'school_id' => $this->school->id,
+            'student_user_id' => (int) $validated['studentUserId'],
+            'subject' => $validated['subject'],
+            'term' => $validated['term'],
         ]);
 
         $this->reset(['subject', 'term', 'score']);
