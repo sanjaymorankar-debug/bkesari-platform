@@ -36,10 +36,11 @@ IDLE="${PARITY_IDLE_SECONDS:-3}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASE="http://127.0.0.1:$PORT"
 U=parity; PW=parity-local-only; TOKEN=parity-local-token
-# The reads and writes go through TaskList with an account of its own (mobile +
-# OTP; APP_ENV=dev shows the code). Its session lives in the database, so it
-# outlives the hub's restart below.
-MOBILE=9876500998
+# The reads and writes go through TaskList, which stands behind the hub's access
+# gate (D-039): a bkesari ID signed in by email code (APP_ENV=dev shows the code)
+# with a TaskList grant. Its session lives in the database, so it outlives the
+# hub's restart below.
+EMAIL=parity@example.com
 
 if [ -z "$POOLED" ] || [ -z "$DIRECT" ]; then
   echo "Neon parity SKIPPED: set PARITY_POOLED_URL and PARITY_DIRECT_URL (TEST_SPEC.md, Neon parity)."
@@ -67,16 +68,21 @@ trap 'stop_hub; kill "$EDU" 2>/dev/null; rm -f "$LOG" "$JAR"' EXIT
 
 # json <key>: that key of the JSON object on stdin, or nothing.
 json() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const v=JSON.parse(s)[process.argv[1]];if(v!==undefined&&v!==null)console.log(v)}catch{}})' "$1"; }
-# TaskList's own sign-in, as a person does it: the session's CSRF token, a code
-# by SMS (shown on the dev tier), the code back. Leaves the cookie in $JAR.
+# TaskList through the bkesari ID (D-039), as a person gets there: the hub's
+# email code (shown on the dev tier), then a TaskList grant (written here, where
+# the admin's approval would put it). TaskList then takes the hub session and
+# its CSRF token. Leaves the cookie in $JAR.
 tl_sign_in() {
   local j='content-type: application/json' c otp
-  c=$(curl -s -c "$JAR" --max-time 20 "$BASE/tasklist/api/auth/session" | json csrf)
+  c=$(curl -s -c "$JAR" --max-time 20 "$BASE/account/api/auth/session" | json csrf)
   otp=$(curl -s -b "$JAR" -c "$JAR" --max-time 20 -H "$j" -H "x-csrf-token: $c" \
-    -d "{\"mobile\":\"$MOBILE\",\"purpose\":\"sign-up\"}" "$BASE/tasklist/api/auth/otp/send" | json devCode)
+    -d "{\"email\":\"$EMAIL\"}" "$BASE/account/api/auth/otp/send" | json devCode)
   CSRF=$(curl -s -b "$JAR" -c "$JAR" --max-time 20 -H "$j" -H "x-csrf-token: $c" \
-    -d "{\"mobile\":\"$MOBILE\",\"code\":\"$otp\",\"name\":\"Parity\"}" "$BASE/tasklist/api/auth/otp/verify" | json csrf)
-  [ -n "$CSRF" ]
+    -d "{\"email\":\"$EMAIL\",\"code\":\"$otp\",\"name\":\"Parity\"}" "$BASE/account/api/auth/otp/verify" | json csrf)
+  [ -n "$CSRF" ] || return 1
+  sql "INSERT INTO project_access (user_id, email, project_key, role, status, approved_by, approved_at)
+       SELECT id::text, email, 'tasklist', 'editor', 'active', 'neon-parity', now() FROM users WHERE email = '$EMAIL'
+       ON CONFLICT (user_id, project_key) DO UPDATE SET status = 'active', role = 'editor'" >/dev/null
 }
 tl_read()  { code -b "$JAR" "$BASE/tasklist/api/tasks"; }
 tl_write() { code -b "$JAR" -X POST -H 'content-type: application/json' -H "x-csrf-token: $CSRF" -d "{\"name\":\"$1\"}" "$BASE/tasklist/api/lists"; }
@@ -174,11 +180,12 @@ if out=$(bash "$ROOT/scripts/smoke-dev.sh" "$BASE" --env dev 2>&1); then
 else
   bad "scripts/smoke-dev.sh passes" "$(printf '%s\n' "$out" | grep -E 'FAIL' | sed 's/\x1b\[[0-9;]*m//g' | head -3 | tr '\n' ' ')"
 fi
-# This database is wiped anyway, and every run signs up the same mobile from 127.0.0.1. TaskList
-# allows 5 codes per mobile an hour (tests/tasklist.pg.test.js checks that), so without a fresh
-# count the sixth run inside an hour would be refused with a 429.
-sql "DELETE FROM tl_rate_limits" >/dev/null || bad "TaskList's rate-limit counters are reset for this run"
-tl_sign_in && ok "a TaskList account signs in through the pooler (mobile + OTP)" \
+# This database is wiped anyway, and every run signs in the same address from 127.0.0.1. The
+# bkesari ID and TaskList allow 5 codes per address an hour (tests/access.pg.test.js and
+# tasklist.pg.test.js check that), so without a fresh count the sixth run inside an hour would be
+# refused with a 429.
+sql "DELETE FROM tl_rate_limits; DELETE FROM hub_rate_limits" >/dev/null || bad "the rate-limit counters are reset for this run"
+tl_sign_in && ok "TaskList signs in through the pooler (the bkesari ID's email code and a TaskList grant)" \
   || bad "a TaskList account signs in through the pooler" "no session; is APP_ENV=dev showing the code? $(tail -3 "$LOG" | tr '\n' ' ')"
 c=$(tl_write "parity")
 [ "$c" = 201 ] && ok "a TaskList list is saved through the pooler (201)" || bad "a TaskList list is saved through the pooler" "answered $c"

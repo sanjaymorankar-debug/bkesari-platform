@@ -156,6 +156,8 @@ function createAccess({ db, id, env = process.env, notify = {}, log = console, p
 
   /* ---------- the person's side ---------- */
   async function requestAccess(user, key, role, note, req) {
+    // The admin decides on the address shown in the request: it must be the person's own, confirmed.
+    if (!user.email || !user.email_verified) throw new AccessError(403, 'unconfirmed', 'Confirm your email address before asking for a project.');
     const project = await projectByKey(key);
     if (!project || project.visibility !== 'approval') throw new AccessError(404, 'project', 'There is no such project to ask for.');
     if (!rolesOf(project).includes(role)) throw new AccessError(400, 'role', 'Choose one of the roles offered.');
@@ -295,7 +297,8 @@ function createAccess({ db, id, env = process.env, notify = {}, log = console, p
   }
 
   /* ---------- the gate (contract §3) ---------- */
-  const wantsJson = (req) => /\/api(\/|$)/.test(req.path) || /\bjson\b/.test(String(req.headers.accept || '')) || req.method !== 'GET';
+  // A HEAD asks about the page a GET would get, so it is answered the same way.
+  const wantsJson = (req) => /\/api(\/|$)/.test(req.path) || /\bjson\b/.test(String(req.headers.accept || '')) || !['GET', 'HEAD'].includes(req.method);
 
   function stripIdentity(req) { for (const h of IDENTITY_HEADERS) delete req.headers[h]; }
 
@@ -315,6 +318,13 @@ function createAccess({ db, id, env = process.env, notify = {}, log = console, p
       if (!user) {
         return wantsJson(req) ? res.status(401).json({ error: 'Sign in required', signIn: `/auth/sign-in?next=${encodeURIComponent(req.originalUrl)}` })
           : res.redirect(302, `/auth/sign-in?next=${encodeURIComponent(req.originalUrl)}`);
+      }
+      // Only a confirmed email is anyone's identity in a project: the projects
+      // link their own accounts by it (contract §3). An address added to an
+      // account without a code to that inbox opens nothing, grant or not.
+      if (!user.email || !user.email_verified) {
+        return wantsJson(req) ? res.status(403).json({ error: 'Confirm your email address first', code: 'unconfirmed', account: '/account' })
+          : res.redirect(302, '/account');
       }
       const g = await activeGrant(user, key);
       if (!g) {

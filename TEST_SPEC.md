@@ -295,10 +295,13 @@ test -f ladwani/apps/web/out/index.html && test -f ladwani/apps/api/dist/main.js
 throwaway settings, then `scripts/smoke-dev.sh` (what CI and the dev deploy run), then the probes
 it cannot make without an account, then the proxy with a throwaway upstream, then LadWani in the
 hub's process with its real API on the LadWani smoke database, then hubs on the test and production
-tiers, which must show no code or link anywhere (D-029). Since 3 Nov 2026 nothing sits in
-front of LadWani or Education: each signs its own people in, so the hub's own `server.js` is
-started every time (there is no signed-in stand-in any more). `/edu/` never leaves the machine:
-every hub here sends it to port 3111 (D-031).
+tiers, which must show no code or link anywhere (D-029). Since 17 Nov 2026 (D-039) the hub's
+access gate stands in front of TaskList, Education and LadWani, so the run signs in to the bkesari
+ID by email code (the dev tier shows it), as the admin (`smoke@example.com`, on
+`HUB_OWNER_EMAILS`) and as a member (`s5@example.com`) who asks for TaskList, is approved, and is
+then granted Education and LadWani; every project line goes through the gate with the member's
+session, which the smoke database keeps across the hub restarts. The hub's own `server.js` is
+started every time. `/edu/` never leaves the machine: every hub here sends it to port 3111 (D-031).
 
 ```bash
 export BASE=http://127.0.0.1:3101 U=smoke PW=smoke-local-only TOKEN=smoke-local-token
@@ -317,37 +320,50 @@ want() { local exp=$1; shift; local got; got=$(code "$@")
 has() { if printf '%s' "$1" | grep -qF -- "$2"; then echo "ok    has '$2'"; else echo "FAIL  missing '$2'"; F=$((F+1)); fi; }
 json() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const o=JSON.parse(s);console.log(process.argv[1].split(".").reduce((a,k)=>a&&a[k],o))})' "$1"; }
 J='content-type: application/json'
+# bk_in <jar> <email>: the bkesari ID's email code (D-039; the dev tier shows the code, as no mail is
+# set), the session left in <jar>. Prints the session's CSRF token, which TaskList takes too.
+bk_in() { local c otp; c=$(curl -s -c "$1" "$BASE/account/api/auth/session" | json csrf)
+  otp=$(curl -s -b "$1" -c "$1" -H "$J" -H "x-csrf-token: $c" -d "{\"email\":\"$2\"}" "$BASE/account/api/auth/otp/send" | json devCode)
+  curl -s -b "$1" -c "$1" -H "$J" -H "x-csrf-token: $c" -d "{\"email\":\"$2\",\"code\":\"$otp\",\"name\":\"S5\"}" "$BASE/account/api/auth/otp/verify" | json csrf; }
 
 node scripts/edu-standin.js 3111 >/dev/null & UP0=$!; sleep 0.5   # /edu/: CI's stand-in, never devedu (D-031)
 start_hub
 bash scripts/smoke-dev.sh "$BASE" --env dev || F=$((F+1))
 has "$(curl -sI "$BASE/" | tr -d '\r')" 'X-Bkesari-Env: dev'
 has "$(curl -s "$BASE/")" 'Driving Simulator';  has "$(curl -s -H 'cookie: k_lang=mr' "$BASE/")" 'lang="mr"'
-# TaskList: its own account, made with mobile + OTP (the dev tier shows the code), its own cookie.
-# The smoke database outlives the run, and the limits hold (CR-23, tested in tasklist.pg and hub.pg):
-# TaskList's 5 codes per mobile an hour, the admin's 10 sign-ins per 15 minutes. Each run signs both in
-# with the same mobile and address, so it starts their counters afresh; else a repeat run is a 429.
-psql "$SMOKE_DATABASE_URL" -XAq -c 'DELETE FROM tl_rate_limits' -c 'DELETE FROM hub_admin_rate_limits' \
+# The smoke database outlives the run, and the limits hold (CR-23, tested in tasklist.pg, hub.pg and
+# access.pg): the bkesari ID's and TaskList's 5 codes per address an hour, the admin's 10 sign-ins per
+# 15 minutes. Each run signs in with the same addresses, so it starts their counters afresh (else a
+# repeat run is a 429), and takes back the access its member was given the last time.
+psql "$SMOKE_DATABASE_URL" -XAq -c 'DELETE FROM tl_rate_limits' -c 'DELETE FROM hub_admin_rate_limits' -c 'DELETE FROM hub_rate_limits' \
+  -c "DELETE FROM project_access WHERE email = 's5@example.com'" -c "DELETE FROM access_requests WHERE email = 's5@example.com'" \
   || { echo "FAIL could not reset the sign-in rate limits"; F=$((F+1)); }
-TL=$(mktemp); C=$(curl -s -c $TL "$BASE/tasklist/api/auth/session" | json csrf)
-OTP=$(curl -s -b $TL -c $TL -H "$J" -H "x-csrf-token: $C" -d '{"mobile":"9876500999","purpose":"sign-up"}' "$BASE/tasklist/api/auth/otp/send" | json devCode)
-C=$(curl -s -b $TL -c $TL -H "$J" -H "x-csrf-token: $C" -d "{\"mobile\":\"9876500999\",\"code\":\"$OTP\",\"name\":\"S5\"}" "$BASE/tasklist/api/auth/otp/verify" | json csrf)
-has "$(awk '$6 == "tl_sid" { print "Path=" $3 }' $TL)" 'Path=/tasklist'   # the session cookie itself, not tl_sid_csrf
-# The sign-in page's first tab: email + code (D-029). Dev shows the code, as no mail is set.
-TE=$(mktemp); C2=$(curl -s -c $TE "$BASE/tasklist/api/auth/session" | json csrf)
-OTP=$(curl -s -b $TE -c $TE -H "$J" -H "x-csrf-token: $C2" -d '{"email":"s5@example.com","purpose":"sign-up"}' "$BASE/tasklist/api/auth/otp/send" | json devCode)
-has "$(curl -s -b $TE -c $TE -H "$J" -H "x-csrf-token: $C2" -d "{\"email\":\"s5@example.com\",\"code\":\"$OTP\",\"name\":\"S5 mail\"}" "$BASE/tasklist/api/auth/otp/verify")" '"email":"s5@example.com"'
-want 201 -b $TL -H "$J" -H "x-csrf-token: $C" -d '{"text":"S5 smoke tomorrow 5pm #s5"}' "$BASE/tasklist/api/quick-add"
+# The bkesari ID (D-039): one sign-in at the hub, its session cookie bk_sid on Path=/. The admin is
+# smoke@example.com (HUB_OWNER_EMAILS); s5@example.com is a member.
+BA=$(mktemp); CA=$(bk_in $BA smoke@example.com)
+TL=$(mktemp); C5=$(bk_in $TL s5@example.com)
+has "$(awk '$6 == "bk_sid" { print "Path=" $3 ";" }' $TL)" 'Path=/;'   # the session cookie itself, not bk_sid_csrf
+has "$(curl -s -b $BA "$BASE/hub/api/me")" '"admin":true'
+# TaskList is behind the gate: no access yet; the member asks, the admin approves (CSRF required), and
+# TaskList opens on the next request, on the bkesari ID's session and its CSRF token.
+has "$(curl -sI -b $TL "$BASE/tasklist/" | tr -d '\r')" 'Location: /access/request?project=tasklist'
+want 403 -b $TL "$BASE/tasklist/api/tasks"
+want 201 -b $TL -H "$J" -H "x-csrf-token: $C5" -d '{"project":"tasklist","role":"editor"}' "$BASE/hub/api/access/requests"
+RID=$(curl -s -b $BA "$BASE/hub/api/admin/access/requests?status=pending&project=tasklist" | json requests.0.id)
+want 403 -b $BA -H "$J" -d '{"role":"editor"}' "$BASE/hub/api/admin/access/requests/$RID/approve"
+want 200 -b $BA -H "$J" -H "x-csrf-token: $CA" -d '{"role":"editor"}' "$BASE/hub/api/admin/access/requests/$RID/approve"
+want 201 -b $TL -H "$J" -H "x-csrf-token: $C5" -d '{"text":"S5 smoke tomorrow 5pm #s5"}' "$BASE/tasklist/api/quick-add"
 has "$(curl -s -b $TL "$BASE/tasklist/api/tasks")" '"due_time":"17:00"'
 want 403 -b $TL -H "$J" -d '{"title":"no token"}' "$BASE/tasklist/api/tasks"
-want 401 -b $TL "$BASE/admin/api/state"          # TaskList's session is no one at the hub
+want 401 -b $TL "$BASE/admin/api/state"          # the bkesari ID is no one at the hub admin
 want 404 -b $TL "$BASE/ATIP/"
+U5=$(curl -s -b $TL "$BASE/hub/api/me" | json user.id)
 want 410 "$BASE/tasks/api/overview";  has "$(curl -sI "$BASE/tasks/" | tr -d '\r')" 'Location: /tasklist/'
 # The hub admin: its own login, Path=/ cookie, and the owner's ATIP.
 AD=$(mktemp); C=$(curl -s -c $AD "$BASE/admin/api/auth/session" | json csrf)
 want 401 -b $AD -H "$J" -H "x-csrf-token: $C" -d '{"identifier":"smoke@example.com","password":"wrong-one-1"}' "$BASE/admin/api/auth/sign-in"
 want 200 -b $AD -c $AD -H "$J" -H "x-csrf-token: $C" -d "{\"identifier\":\"smoke@example.com\",\"password\":\"$PW\"}" "$BASE/admin/api/auth/sign-in"
-want 401 -b $AD "$BASE/tasklist/api/tasks"       # the hub admin is no one in TaskList
+want 401 -b $AD "$BASE/tasklist/api/tasks"       # the hub admin is no one in TaskList (no bkesari ID: the gate)
 want 401 -H 'authorization: Bearer wrong' -H "$J" -d '{"html":"<html><body>x</body></html>"}' "$BASE/ATIP/api/snapshot"
 want 200 -H "authorization: Bearer $TOKEN" -H "$J" -d '{"html":"<html><body><p>S5 snapshot</p></body></html>","trade_date":"2026-10-24"}' "$BASE/ATIP/api/snapshot"
 want 404 "$BASE/ATIP/";  want 404 "$BASE/ATIP"
@@ -356,28 +372,37 @@ has "$V" "connect-src 'none'";  has "$V" 'S5 snapshot';  has "$V" 'class="ks-bar
 kill $HUB; wait $HUB 2>/dev/null; kill $UP0; wait $UP0 2>/dev/null; sleep 0.5
 
 # The proxy, with the real server.js: a throwaway upstream on 3111 that echoes what it got.
-# Nothing gates the tabs any more, and no hub token is ever forwarded, forged or not. Nor is the
-# hub admin's session (D-027): its two Path=/ cookies come off, the project's own pass as sent.
-# With #9a's export built, server.js serves /ladwani/ itself and ignores LADWANI_ORIGIN; the
-# Education lines are the proxy's. The app is told one visitor address, what req.ip resolves
-# with trust proxy at its default (loopback: curl here is a trusted hop, so a chain's last
-# entry), and the hub's secret; neither as the client sent it, also with Expect (D-038).
-node -e 'require("http").createServer((q,r)=>{let b="";q.on("data",c=>b+=c).on("end",()=>{r.setHeader("content-type","application/json");r.end(JSON.stringify({url:q.url,body:b,token:q.headers["x-bkesari-token"]||null,cookie:q.headers.cookie||null,xff:q.headers["x-forwarded-for"]||null,proxy:q.headers["x-bkesari-proxy"]||null}))})}).listen(3111,"127.0.0.1")' & UP=$!
+# Education is behind the gate (D-039): the admin grants the member Education, and every line goes
+# with the member's session. No hub token is ever forwarded, forged or not. Nor are the hub's
+# sessions (D-027, D-039): the admin's and the bkesari ID's Path=/ cookies come off, the project's
+# own pass as sent. Who the person is comes only from the gate, signed with HUB_PROXY_SECRET; a
+# client's own X-Bkesari-* headers never pass. With #9a's export built, server.js serves /ladwani/
+# itself and ignores LADWANI_ORIGIN; the Education lines are the proxy's. The app is told one
+# visitor address, what req.ip resolves with trust proxy at its default (loopback: curl here is a
+# trusted hop, so a chain's last entry), and the hub's secret; neither as the client sent it, also
+# with Expect (D-038).
+node -e 'require("http").createServer((q,r)=>{let b="";q.on("data",c=>b+=c).on("end",()=>{r.setHeader("content-type","application/json");r.end(JSON.stringify({url:q.url,body:b,token:q.headers["x-bkesari-token"]||null,cookie:q.headers.cookie||null,xff:q.headers["x-forwarded-for"]||null,proxy:q.headers["x-bkesari-proxy"]||null,idh:Object.fromEntries(Object.entries(q.headers).filter(([k])=>/^x-bkesari-(user|email|role|name|project|ts|sig)$/.test(k)))}))})}).listen(3111,"127.0.0.1")' & UP=$!
 sleep 0.5
 start_hub EDU_ORIGIN=http://127.0.0.1:3111 HUB_PROXY_SECRET=s5-local-only-proxy-secret
-has "$(curl -s "$BASE/edu/login")" '"url":"/login"'
-has "$(curl -s -H 'x-bkesari-token: forged' "$BASE/edu/login")" '"token":null'
+want 302 "$BASE/edu/login"                        # no bkesari ID: the gate, nothing reaches Education
+want 200 -b $BA -H "$J" -H "x-csrf-token: $CA" -d '{"project":"edu","role":"student"}' "$BASE/hub/api/admin/access/users/$U5/grant"
+has "$(curl -s -b $TL "$BASE/edu/login")" '"url":"/login"'
+has "$(curl -s -b $TL -H 'x-bkesari-token: forged' "$BASE/edu/login")" '"token":null'
 XC='x-forwarded-for: 198.51.100.7, 203.0.113.9'
-has "$(curl -s -H "$XC" -H 'x-bkesari-proxy: forged' "$BASE/edu/login")" '"xff":"203.0.113.9","proxy":"s5-local-only-proxy-secret"'
-has "$(curl -s -H "$XC" -H 'x-bkesari-proxy: forged' -H 'Expect: 100-continue' -H "$J" -d '{"qty":4}' "$BASE/edu/api/orders")" '"xff":"203.0.113.9","proxy":"s5-local-only-proxy-secret"'
+has "$(curl -s -b $TL -H "$XC" -H 'x-bkesari-proxy: forged' "$BASE/edu/login")" '"xff":"203.0.113.9","proxy":"s5-local-only-proxy-secret"'
+has "$(curl -s -b $TL -H "$XC" -H 'x-bkesari-proxy: forged' -H 'Expect: 100-continue' -H "$J" -d '{"qty":4}' "$BASE/edu/api/orders")" '"xff":"203.0.113.9","proxy":"s5-local-only-proxy-secret"'
+ID=$(curl -s -b $TL -H 'x-bkesari-user: 1' -H 'x-bkesari-role: admin' -H 'x-bkesari-email: smoke@example.com' -H 'x-bkesari-sig: forged' "$BASE/edu/login")
+has "$(printf '%s' "$ID" | node -e 'const{verifyIdentityHeaders:v}=require("./portal/access.js");let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const i=v("s5-local-only-proxy-secret",JSON.parse(s).idh,"edu");console.log(i?`signed: ${i.email} as ${i.role}`:"not signed")})')" 'signed: s5@example.com as student'
 want 200 -b $AD "$BASE/admin/api/state"           # the owner's jar is a live session on this hub...
-# ...and of its three Path=/ cookies Education gets only the shell's k_admin hint (not a secret).
-has "$(curl -s -b $AD "$BASE/edu/login")" '"cookie":"k_admin=1"'
-has "$(curl -s -H 'cookie: hub_admin_sid=s5; edu_sid=s5-edu; hub_admin_sid_csrf=s5; k_lang=mr' "$BASE/edu/login")" '"cookie":"edu_sid=s5-edu; k_lang=mr"'
-has "$(curl -s -H "$J" -d '{"qty":3}' "$BASE/edu/api/orders")" '"body":"{\"qty\":3}"'
+# ...and of the hub's Path=/ cookies (the admin's three, the bkesari ID's two) Education gets only
+# the shell's k_admin hint (not a secret).
+AB=$(mktemp); cat $AD $TL > $AB
+has "$(curl -s -b $AB "$BASE/edu/login")" '"cookie":"k_admin=1"'
+has "$(curl -s -H "cookie: bk_sid=$(awk '$6 == "bk_sid" { print $7 }' $TL); hub_admin_sid=s5; edu_sid=s5-edu; hub_admin_sid_csrf=s5; bk_sid_csrf=s5; k_lang=mr" "$BASE/edu/login")" '"cookie":"edu_sid=s5-edu; k_lang=mr"'
+has "$(curl -s -b $TL -H "$J" -d '{"qty":3}' "$BASE/edu/api/orders")" '"body":"{\"qty\":3}"'
 has "$(curl -sI "$BASE/education/sign-in" | tr -d '\r')" 'Location: /edu/sign-in'
 kill $UP; wait $UP 2>/dev/null; sleep 0.5
-E=$(curl -s "$BASE/edu/login"); has "$E" 'not responding'; has "$E" 'data-project="education"'
+E=$(curl -s -b $TL "$BASE/edu/login"); has "$E" 'not responding'; has "$E" 'data-project="education"'
 kill $HUB; wait $HUB 2>/dev/null
 
 # LadWani served by the hub itself (portal/ladwani.js), from #9a's export, with its real API in
@@ -390,16 +415,40 @@ start_hub LADWANI_DATABASE_URL="$LADWANI_SMOKE_DATABASE_URL"
 # The hub answers before LadWani's API has started (it is a 503 until then), so wait for its line.
 for i in $(seq 1 40); do grep -q 'LadWani API:' "$HUBLOG" && break; sleep 0.25; done
 has "$(cat "$HUBLOG")" 'LadWani API: ready (database engine: 2 worker threads; the server shows '
+# LadWani is behind the gate (D-039); its immutable build files are the one exemption. The admin
+# grants the member LadWani; without HUB_PROXY_SECRET LadWani believes no identity header, and its
+# own session API answers as before.
+want 200 -b $BA -H "$J" -H "x-csrf-token: $CA" -d '{"project":"ladwani","role":"member"}' "$BASE/hub/api/admin/access/users/$U5/grant"
 has "$(curl -sI "$BASE/ladwani/$A" | tr -d '\r')" 'Cache-Control: public, max-age=31536000, immutable'
-has "$(curl -sI "$BASE/ladwani?x=1" | tr -d '\r')" 'Location: /ladwani/?x=1'
-has "$(curl -s "$BASE/ladwani/")" 'app/page-'
-has "$(curl -s "$BASE/ladwani/sign-in/")" 'This is a separate account for LadWani.'
-has "$(curl -s "$BASE/ladwani/family/cmv7x2/")" 'app/family/%5Bid%5D/page-'
-has "$(curl -s "$BASE/ladwani/api/v1/health")" '"database":"ok"'
-has "$(curl -s "$BASE/ladwani/api/v1/auth/session")" '"user":null'
-want 404 -X POST "$BASE/ladwani/api/v1/auth/hub"          # the hub login is gone
-has "$(curl -s -H "$J" -H 'x-webhook-signature: s5' -d "{\"id\":\"evt_s5_$(date +%s%N)\",\"event\":\"payment.captured\"}" "$BASE/ladwani/api/v1/webhooks/payments")" '"received":true'
-want 404 --path-as-is "$BASE/ladwani/%2e%2e/%2e%2e/%2e%2e/package.json"
+has "$(curl -sI "$BASE/ladwani/" | tr -d '\r')" 'Location: /auth/sign-in?next=%2Fladwani%2F'
+has "$(curl -sI -b $TL "$BASE/ladwani?x=1" | tr -d '\r')" 'Location: /ladwani/?x=1'
+has "$(curl -s -b $TL "$BASE/ladwani/")" 'app/page-'
+has "$(curl -s -b $TL "$BASE/ladwani/sign-in/")" 'This is a separate account for LadWani.'
+has "$(curl -s -b $TL "$BASE/ladwani/family/cmv7x2/")" 'app/family/%5Bid%5D/page-'
+has "$(curl -s -b $TL "$BASE/ladwani/api/v1/health")" '"database":"ok"'
+has "$(curl -s -b $TL "$BASE/ladwani/api/v1/auth/session")" '"user":null'
+# POST /auth/hub is LadWani's sign-in from the gate's signed headers (D-039); the old hub token opens
+# nothing, and without HUB_PROXY_SECRET nothing at all is believed.
+has "$(curl -s -b $TL -X POST -H 'authorization: Bearer forged-hub-token' "$BASE/ladwani/api/v1/auth/hub")" '{"data":null}'
+has "$(curl -s -b $TL -H "$J" -H 'x-webhook-signature: s5' -d "{\"id\":\"evt_s5_$(date +%s%N)\",\"event\":\"payment.captured\"}" "$BASE/ladwani/api/v1/webhooks/payments")" '"received":true'
+# A caller with no bkesari ID (a payment gateway's own webhook) meets the gate (contract §3; see Known gaps).
+want 401 -H "$J" -H 'x-webhook-signature: s5' -d '{"id":"evt_s5_anon","event":"payment.captured"}' "$BASE/ladwani/api/v1/webhooks/payments"
+want 404 -b $TL --path-as-is "$BASE/ladwani/%2e%2e/%2e%2e/%2e%2e/package.json"
+kill $HUB; wait $HUB 2>/dev/null
+
+# LadWani's second step, with its real API (D-039): given HUB_PROXY_SECRET it signs the member in from
+# the gate's headers (POST /auth/hub, as its web app does on every load), links its account to the
+# hub id, and answers X-Bkesari-Project-State, which the hub stores on the grant (the member stays
+# "awaiting LadWani verification") and never passes to the browser.
+start_hub LADWANI_DATABASE_URL="$LADWANI_SMOKE_DATABASE_URL" HUB_PROXY_SECRET=s5-local-only-proxy-secret
+for i in $(seq 1 40); do grep -q 'LadWani API:' "$HUBLOG" && break; sleep 0.25; done
+psql "$SMOKE_DATABASE_URL" -XAq -c "UPDATE project_access SET project_state = NULL WHERE email = 's5@example.com' AND project_key = 'ladwani'"
+L=$(curl -s -D - -b $TL -X POST "$BASE/ladwani/api/v1/auth/hub" | tr -d '\r')
+has "$L" '"accessToken":'
+has "$(psql "$LADWANI_SMOKE_DATABASE_URL" -XAtc "SELECT 'linked ' || email FROM users WHERE hub_user_id = '$U5'")" 'linked s5@example.com'
+case "$L" in *[Pp]roject-[Ss]tate*) echo "FAIL  LadWani's project state reached the browser"; F=$((F+1));; *) echo "ok    LadWani's project state stays at the hub";; esac
+sleep 0.5; has "$(psql "$SMOKE_DATABASE_URL" -XAtc "SELECT 'state=' || project_state FROM project_access WHERE email = 's5@example.com' AND project_key = 'ladwani'")" 'state=pending'
+has "$(curl -s -b $TL "$BASE/hub/api/me")" '"state":"awaiting"'
 kill $HUB; wait $HUB 2>/dev/null
 
 # No code or link on test or production (D-029): the real server.js, with no mail and no SMS set, as
@@ -412,15 +461,20 @@ nolink() { local exp=$1; shift; local b c; b=$(curl -s -w '\n%{http_code}' --max
 for TIER in test prod; do
   start_hub APP_ENV=$TIER LADWANI_DATABASE_URL="$LADWANI_SMOKE_DATABASE_URL"   # /edu/ to 3111, where nothing listens now
   for i in $(seq 1 40); do grep -q 'LadWani API:' "$HUBLOG" && break; sleep 0.25; done
-  TT=$(mktemp); C=$(curl -s -c $TT "$BASE/tasklist/api/auth/session" | json csrf); N=$(date +%s%N)
-  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"email":"s5@example.com"}' "$BASE/tasklist/api/auth/otp/send"
-  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"mobile":"9876500999"}' "$BASE/tasklist/api/auth/otp/send"
-  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"email":"s5@example.com"}' "$BASE/tasklist/api/auth/password/forgot"
-  nolink 201 -b $TT -H "$J" -H "x-csrf-token: $C" -d "{\"name\":\"S5 $TIER\",\"email\":\"s5-$TIER-$N@example.com\",\"password\":\"s5-local-only-1\"}" "$BASE/tasklist/api/auth/sign-up"
+  # The bkesari ID's own codes and links, signed out.
+  TT=$(mktemp); C=$(curl -s -c $TT "$BASE/account/api/auth/session" | json csrf); N=$(date +%s%N)
+  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"email":"s5@example.com"}' "$BASE/account/api/auth/otp/send"
+  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"mobile":"9876500999"}' "$BASE/account/api/auth/otp/send"
+  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"email":"s5@example.com"}' "$BASE/account/api/auth/password/forgot"
+  # TaskList's and LadWani's own, through the gate with the member's session (the database keeps it).
+  nolink 503 -b $TL -H "$J" -H "x-csrf-token: $C5" -d '{"email":"s5@example.com"}' "$BASE/tasklist/api/auth/otp/send"
+  nolink 503 -b $TL -H "$J" -H "x-csrf-token: $C5" -d '{"mobile":"9876500999"}' "$BASE/tasklist/api/auth/otp/send"
+  nolink 503 -b $TL -H "$J" -H "x-csrf-token: $C5" -d '{"email":"s5@example.com"}' "$BASE/tasklist/api/auth/password/forgot"
+  nolink 201 -b $TL -H "$J" -H "x-csrf-token: $C5" -d "{\"name\":\"S5 $TIER\",\"email\":\"s5-$TIER-$N@example.com\",\"password\":\"s5-local-only-1\"}" "$BASE/tasklist/api/auth/sign-up"
   TA=$(mktemp); C=$(curl -s -c $TA "$BASE/admin/api/auth/session" | json csrf)
   nolink 503 -b $TA -H "$J" -H "x-csrf-token: $C" -d '{"email":"smoke@example.com"}' "$BASE/admin/api/auth/password/forgot"
-  nolink 503 -H "$J" -d "{\"firstName\":\"Sfive\",\"lastName\":\"Run\",\"email\":\"s5-$TIER-$N@example.com\",\"mobile\":\"9$(printf '%09d' $((N % 1000000000)))\"}" "$BASE/ladwani/api/v1/auth/register"
-  nolink 503 -H "$J" -d '{"email":"s5@example.com"}' "$BASE/ladwani/api/v1/auth/otp/send"
+  nolink 503 -b $TL -H "$J" -d "{\"firstName\":\"Sfive\",\"lastName\":\"Run\",\"email\":\"s5-$TIER-$N@example.com\",\"mobile\":\"9$(printf '%09d' $((N % 1000000000)))\"}" "$BASE/ladwani/api/v1/auth/register"
+  nolink 503 -b $TL -H "$J" -d '{"email":"s5@example.com"}' "$BASE/ladwani/api/v1/auth/otp/send"
   kill $HUB; wait $HUB 2>/dev/null; rm -f $TT $TA
 done
 echo "S5 failures: $F"
@@ -433,31 +487,36 @@ F=0; start_hub
 # No tracked secrets.
 git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.example$' && { echo "FAIL tracked .env"; F=$((F+1)); }
 git log --all --name-only --format= | grep -E '(^|/)\.env$' && { echo "FAIL .env in history"; F=$((F+1)); }
-# TaskList's app pages and API need TaskList's own session however the path is spelled.
+# TaskList's app pages and API need a bkesari ID session and a TaskList grant (D-039) however the
+# path is spelled; a forged or another project's cookie opens nothing.
 for p in /tasklist/ /tasklist/board /tasklist/api/tasks /tasklist/api/bootstrap '/%74asklist/api/tasks' '//tasklist/api/tasks' \
          '/./tasklist/api/tasks' '/shared/../tasklist/api/tasks' '/TASKLIST/api/tasks'; do
-  c=$(code --path-as-is -H 'cookie: tl_sid=forged-forged-forged-forged; hub_admin_sid=x' "$BASE$p")
+  c=$(code --path-as-is -H 'cookie: tl_sid=forged-forged-forged-forged; hub_admin_sid=x; bk_sid=forged-forged-forged-forged' "$BASE$p")
   case "$c" in 301|302|401|404) echo "ok    $c  $p";; *) echo "FAIL  $p answered $c"; F=$((F+1));; esac; done
-# A malformed body is a 400 that names no file, line or stack frame.
-for p in /tasklist/api/tasks /tasklist/api/auth/sign-in /admin/api/auth/sign-in /ATIP/api/snapshot; do
-  b=$(curl -s -o - -w '\n%{http_code}' -H "$J" -d '{bad' "$BASE$p")
+# A malformed body is a 400 that names no file, line or stack frame. With the member's session from
+# #10, so TaskList's routes are reached past the gate.
+for p in /tasklist/api/tasks /tasklist/api/auth/sign-in /admin/api/auth/sign-in /ATIP/api/snapshot /account/api/auth/sign-in /hub/api/access/requests; do
+  b=$(curl -s -o - -w '\n%{http_code}' -b $TL -H "$J" -d '{bad' "$BASE$p")
   case "$b" in *node_modules*|*'    at '*|*'&nbsp;at '*) echo "FAIL stack trace from $p"; F=$((F+1));; *) echo "ok    no stack trace from $p";; esac
   [ "${b##*$'\n'}" = 400 ] && echo "ok    400 from $p" || { echo "FAIL want 400 from $p, got ${b##*$'\n'}"; F=$((F+1)); }
 done
 # Security headers: the hub's strict CSP, nosniff, frame denial; ATIP keeps its own policy.
 H=$(curl -sI "$BASE/" | tr -d '\r')
 has "$H" "script-src 'self';";  has "$H" 'X-Content-Type-Options: nosniff';  has "$H" 'X-Frame-Options: DENY'
-# Cross-site sign-in attempts are refused before any password is checked.
-C=$(curl -s "$BASE/tasklist/api/auth/session" | json csrf)
-want 403 -H "$J" -H 'origin: https://evil.example' -H "x-csrf-token: $C" -d '{"identifier":"a@b.co","password":"x"}' "$BASE/tasklist/api/auth/sign-in"
+# Cross-site sign-in attempts are refused before any password is checked: the bkesari ID's, and
+# TaskList's own (behind the gate, with the member's session).
+XS=$(mktemp); C=$(curl -s -c $XS "$BASE/account/api/auth/session" | json csrf)
+want 403 -b $XS -H "$J" -H 'origin: https://evil.example' -H "x-csrf-token: $C" -d '{"identifier":"a@b.co","password":"x"}' "$BASE/account/api/auth/sign-in"
+want 403 -b $TL -H "$J" -H 'origin: https://evil.example' -H "x-csrf-token: $C5" -d '{"identifier":"a@b.co","password":"x"}' "$BASE/tasklist/api/auth/sign-in"
 # No certificate checks switched off, and no local CA baked into the app (Neon uses a public CA).
 grep -rnE "rejectUnauthorized: *false|NODE_TLS_REJECT_UNAUTHORIZED|/etc/neonlike|sslmode=no-verify" portal/ \
   | grep -vF "if (v === 'no-verify') return { rejectUnauthorized: false };" && { echo "FAIL TLS weakened"; F=$((F+1)); }
 # LadWani (portal/ladwani.js, #9a's export): no spelling reaches a file outside the export, and a
-# build-asset miss is a bare 404. (package.json has "name"; the export's 404 page has a <p>.)
+# build-asset miss is a bare 404. (package.json has "name"; the export's 404 page has a <p>.) With
+# the member's session, which holds a LadWani grant from #10, so the spellings get past the gate.
 for p in '/ladwani/%2e%2e/%2e%2e/package.json' '/ladwani/_next/static/missing.js' '/ladwani/_next/static/%2e%2e/%2e%2e/index.html' \
          '/ladwani/_next/static/../../login/' '/ladwani/_next/static/chunks/..%2f..%2f..%2findex.html' '/LADWANI/..%2f..%2fpackage.json'; do
-  b=$(curl -s --path-as-is -w '\n%{http_code}' --max-time 10 "$BASE$p")
+  b=$(curl -s --path-as-is -b $TL -w '\n%{http_code}' --max-time 10 "$BASE$p")
   case "$b" in *'"name":'*) echo "FAIL  $p reached a file outside the export"; F=$((F+1));;
     *) echo "ok    $p stays inside the export (${b##*$'\n'})";; esac; done
 kill $HUB; wait $HUB 2>/dev/null
