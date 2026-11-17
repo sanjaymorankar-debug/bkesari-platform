@@ -493,6 +493,31 @@ describe('the bkesari ID and project access on PostgreSQL', { skip }, () => {
     assert.match(webview.text, /id="si-send"/, 'the email code is still there');
   });
 
+  test('with Google on, the words follow the button: Google is named on the sign-in and home pages where its button is, and nowhere a WebView has none', async () => {
+    const agents = {
+      browser: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36',
+      app: 'Mozilla/5.0 (Linux; Android 14; wv) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36 bkesariApp/1.1.0 (android)',
+      webview: 'Mozilla/5.0 (Linux; Android 14; wv) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+      instagram: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 350.0.0.0.1',
+    };
+    for (const [kind, ua] of Object.entries(agents)) {
+      const get = async (p) => (await new Browser(base).fetch('GET', p, { headers: { ...html, 'user-agent': ua } })).text;
+      const signIn = await get('/auth/sign-in');
+      const home = await get('/');
+      if (kind === 'browser' || kind === 'app') {
+        assert.match(signIn, /hub-google/, kind);
+        assert.match(signIn, /Sign in once, with Google or a code sent to your email\./, `${kind}: the aside names Google beside its button`);
+        assert.match(home, /Sign in once with Google or an email code,/, `${kind}: so does the home page`);
+      } else {
+        assert.doesNotMatch(signIn, /hub-google/, kind);
+        assert.doesNotMatch(signIn, /Google/, `${kind}: no button, so no sentence offers Google`);
+        assert.match(signIn, /Sign in once, with a code sent to your email\./, kind);
+        assert.doesNotMatch(home, /Google/, `${kind}: the home page promises only what its sign-in page offers`);
+        assert.match(home, /Sign in once with a code sent to your email,/, kind);
+      }
+    }
+  });
+
   test('an address nobody confirmed is no one\'s identity in a project: an account made by SMS code that adds someone else\'s email opens nothing of theirs', async () => {
     // Someone's TaskList account from before D-039: a confirmed email, not yet linked to a hub user.
     const victim = await db.get("INSERT INTO tl_users (email, name, role, email_verified) VALUES ('victim.tl@example.com', 'Victim', 'member', TRUE) RETURNING id");

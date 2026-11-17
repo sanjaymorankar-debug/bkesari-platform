@@ -214,7 +214,8 @@ ${PUBLIC_PAGES.map((p) => `  <url><loc>${origin}${p}</loc></url>`).join('\n')}
       const c = await content();
       const user = id ? await id.currentUser(req) : null;
       const states = access ? await access.statusList(user) : [];
-      return { ...c, user, states, google: Boolean(id && id.googleEnabled) };
+      // Named only where the sign-in page shows its button: not while Google is off, nor in a WebView that gets none.
+      return { ...c, user, states, google: Boolean(id && id.googleEntry(req, '/')) };
     } }));
     app.get('/about', page('about.title', pages.about, { data: () => content() }));
     app.get('/privacy', page('privacy.title', pages.privacy));

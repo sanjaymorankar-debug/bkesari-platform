@@ -170,7 +170,7 @@ function langLinks(lang, next = '/') {
     .map((l) => `<a href="/lang/${l}?next=${encodeURIComponent(next)}" lang="${l}" hreflang="${l}" data-k-setlang="${l}">${LANG_NAMES[l]}</a>`).join(' <span aria-hidden="true">·</span> ')}</p>`;
 }
 
-/** How you sign in, in words: Google is named only while its button is on (bkesari-id.js googleEnabled). */
+/** How you sign in, in words: Google is named only where its button is shown (bkesari-id.js googleEntry). */
 const accountsBody = (lang, google) => t(lang, google ? 'home.accountsBody' : 'home.accountsBodyCode');
 
 function home({ lang, tiles, announcement, states = [], user = null, google = false }) {
