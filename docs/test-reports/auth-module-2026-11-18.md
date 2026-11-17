@@ -1,7 +1,7 @@
 # bkesari ID: test report
 
 **Central sign-in with Google and admin-approved project access (decision D-039)**
-Report date: 18 Nov 2026, 1:40 AM IST (production section added after the VPS deployment). All times are IST (UTC + 5:30).
+Report date: 18 Nov 2026, 1:50 AM IST (production section added after the VPS deployment, with the owner's confirmations). All times are IST (UTC + 5:30).
 
 ## 1. Summary
 
@@ -131,10 +131,16 @@ On the owner's instruction, the release was merged straight to `main` (12:03 AM,
 | gokesari.com, test.gokesari.com | 200 |
 | `scripts/smoke-dev.sh https://bkesari.com --env prod` | **32 passed, 0 failed, 0 warnings** (after the script learned about ATIP's own login on the VPS) |
 
+### Confirmed on production by the owner (18 Nov 2026, by 1:49 AM IST)
+
+| Check | Result |
+|---|---|
+| Built-in administrators | `BUILTIN_ADMIN_PASSWORD_HASH` (hub) and `BUILTIN_ADMIN_PASSWORD_BCRYPT` (Education) saved on the VPS. Both were typed at a hidden prompt and written straight to the files, never shown. **`smorankar` signs in at `/auth/sign-in`** as owner. |
+| Email-code sign-in | **agtcipl@gmail.com signed in with the emailed code.** This proves mail delivery from the VPS (code@agtci.com). |
+
 ### Still to do on production
 
-- The owner's own sign-in with the email code (it proves mail delivery from the VPS), then `/admin/access`.
-- Google sign-in, once the keys are set.
+- Google sign-in, once `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are set on the VPS and the redirect URI is added in Google Cloud Console.
 
 ## 8. Open items
 
@@ -142,11 +148,11 @@ On the owner's instruction, the release was merged straight to `main` (12:03 AM,
    - the VPS update;
    - the account linking;
    - `HUB_PROXY_SECRET` and `EDU_ORIGIN`;
-   - `/edu` through the gate (§7).
+   - `/edu` through the gate (§7);
+   - the built-in admins' password hashes; `smorankar`'s sign-in and the owner's email-code sign-in confirmed.
 2. **Settings the owner must set** in `/var/www/bkesari/platform/.env` on the VPS (then `sudo systemctl restart bkesari-platform`):
    - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (the GoKesari client);
-   - the redirect URI `https://bkesari.com/auth/google/callback` in Google Cloud Console;
-   - `BUILTIN_ADMIN_PASSWORD_HASH` for the hub and `BUILTIN_ADMIN_PASSWORD_BCRYPT` for Education, if they are not set yet.
+   - the redirect URI `https://bkesari.com/auth/google/callback` in Google Cloud Console.
 3. **Owner's decision before Razorpay goes live:** LadWani's payment webhook (`/ladwani/api/v1/webhooks/payments`) is behind the gate. It needs an exemption.
 4. **Owner's decisions from the LadWani work:**
    - "two operators" verification (today one is enough);
