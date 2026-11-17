@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { api, getAccessToken, setAccessToken, ApiError, API_BASE } from './api-client'
+import { loadProgress, saveProgress } from './sign-up-progress'
 
 export interface AuthUser {
   id: string
@@ -12,6 +13,11 @@ export interface AuthUser {
 export interface SessionResult {
   accessToken: string
   user: AuthUser
+}
+
+/** POST /auth/hub's answer: a session as /auth/login gives, and whether the LadWani account was made just now. */
+interface HubSessionResult extends SessionResult {
+  created?: boolean
 }
 
 /** Where a one-time code went: an email address (the default while SMS is on hold) or a mobile number. */
@@ -31,6 +37,12 @@ interface AuthContextValue {
   loginWithOtp: (target: CodeTarget, otp: string) => Promise<void>
   logout: () => Promise<void>
   setUser: (user: AuthUser | null) => void
+  /**
+   * Why the bkesari hub's sign-in (POST /auth/hub) refused the person on this
+   * load (403 or 409: a suspended account, or an email LadWani cannot join to
+   * their bkesari ID yet), for the sign-in page to show. Null otherwise.
+   */
+  hubNotice: string | null
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -55,13 +67,21 @@ function storeUser(user: AuthUser | null) {
 }
 
 /**
- * LadWani's own sign-in. The session lives in the lw_sid cookie (HttpOnly,
+ * LadWani's sign-in. The session lives in the lw_sid cookie (HttpOnly,
  * Path=/ladwani); the 15-minute access token is kept for API calls.
+ *
+ * On every load it first asks POST /auth/hub: inside bkesari.com the hub has
+ * already signed the person in, and its signed identity on that request
+ * becomes their LadWani session (ending anyone else's in this browser). The
+ * answer is { data: null } where there is no such identity (LadWani on its
+ * own, or the hub's secret not set here); then LadWani's own session cookie
+ * and sign-in page work as before.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUserState] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [smsLive, setSmsLive] = useState(false)
+  const [hubNotice, setHubNotice] = useState<string | null>(null)
 
   const setUser = useCallback((next: AuthUser | null) => {
     storeUser(next)
@@ -85,7 +105,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     async function restore() {
       try {
-        // Ask first whether the lw_sid cookie holds a session, without rotating
+        let viaHub: HubSessionResult | null = null
+        try {
+          viaHub = await api.post<HubSessionResult | null>('/auth/hub', {})
+        } catch (err) {
+          // Refused (suspended, or an email LadWani cannot join yet): the API has
+          // ended any session this browser held; say why on the sign-in page.
+          // Anything else (network trouble, an older API) goes on as before.
+          if (err instanceof ApiError && (err.status === 403 || err.status === 409) && !cancelled) setHubNotice(errorMessage(err))
+        }
+        if (cancelled) return
+        if (viaHub) {
+          adopt(viaHub)
+          // A LadWani account made just now: the rest of sign-up (profile, place,
+          // ID proof) is what LadWani's operators verify, so the dashboard asks
+          // for it and /sign-up carries on from step 2.
+          if (viaHub.created && !loadProgress()) saveProgress({ step: 2 })
+          return
+        }
+
+        // Ask whether the lw_sid cookie holds a session, without rotating
         // it. A visitor with none is told so (200, user null) and nothing else
         // is called; the shell may also have signed out since (its menu posts
         // /auth/logout).
@@ -134,7 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     forget()
   }, [forget])
 
-  return <AuthContext.Provider value={{ user, loading, smsLive, login, loginWithOtp, logout, setUser }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ user, loading, smsLive, login, loginWithOtp, logout, setUser, hubNotice }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth(): AuthContextValue {

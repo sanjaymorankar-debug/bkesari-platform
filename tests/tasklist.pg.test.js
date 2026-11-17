@@ -6,6 +6,12 @@
  * Needs TEST_DATABASE_URL (a database it may WIPE); works in a schema of its
  * own there (tests/support/pg.js). Skipped without it, which CI counts as a
  * failure.
+ *
+ * Since D-039 the site puts the hub's access gate in front of TaskList: a
+ * person reaches it only with a bkesari ID and an approved grant, and TaskList
+ * then trusts the hub's identity. These tests drive TaskList's own module on
+ * its own (`enforceAccess: false`); the gate and the hub identity in front of
+ * it are tests/access.pg.test.js.
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -34,7 +40,7 @@ describe('TaskList on PostgreSQL', { skip }, () => {
       sms: async (to, text) => { sent.sms.push({ to, text }); return true; },
       mail: async (to, subject, text) => { sent.mail.push({ to, subject, text }); return true; },
     });
-    const made = createApp(db, { notify, log: quiet });
+    const made = createApp(db, { notify, log: quiet, enforceAccess: false });
     hub = made.hub;
     await hub.bootstrapAdmin();
     server = await new Promise((r) => { const s = made.app.listen(0, '127.0.0.1', () => r(s)); });
@@ -163,7 +169,7 @@ describe('TaskList on PostgreSQL', { skip }, () => {
   });
 
   test('on test and production without a provider a code is refused, never shown on screen; only dev shows it', async (t) => {
-    const made = createApp(db, { notify: () => ({}), log: quiet });
+    const made = createApp(db, { notify: () => ({}), log: quiet, enforceAccess: false });
     const s2 = await new Promise((r) => { const s = made.app.listen(0, '127.0.0.1', () => r(s)); });
     t.after(() => new Promise((r) => s2.close(r)));
     const b = new Browser(`http://127.0.0.1:${s2.address().port}`);
@@ -212,7 +218,7 @@ describe('TaskList on PostgreSQL', { skip }, () => {
   test('on dev a mail provider that fails is "could not send": the code is shown only when no mail is set (D-029)', async (t) => {
     const failing = () => ({ mail: async () => { throw new Error('535 authentication failed'); } });
     const logged = [];
-    const made = createApp(db, { notify: failing, log: { ...quiet, error: (...a) => logged.push(a.join(' ')) } });
+    const made = createApp(db, { notify: failing, log: { ...quiet, error: (...a) => logged.push(a.join(' ')) }, enforceAccess: false });
     const s2 = await new Promise((r) => { const s = made.app.listen(0, '127.0.0.1', () => r(s)); });
     t.after(() => new Promise((r) => s2.close(r)));
     const b = new Browser(`http://127.0.0.1:${s2.address().port}`);
@@ -378,7 +384,7 @@ describe('TaskList on PostgreSQL', { skip }, () => {
     // sub-millisecond, and bcrypt's own time then spaces the requests out.
     const later = (fn) => async (...a) => { await new Promise((r) => setTimeout(r, 15)); return fn(...a); };
     const remote = { ...db, get: later(db.get), run: later(db.run), all: later(db.all) };
-    const made = createApp(remote, { notify: () => ({ sms: async () => true, mail: async () => true }), log: quiet });
+    const made = createApp(remote, { notify: () => ({ sms: async () => true, mail: async () => true }), log: quiet, enforceAccess: false });
     const s3 = await new Promise((r) => { const s = made.app.listen(0, '127.0.0.1', () => r(s)); });
     t.after(() => new Promise((r) => s3.close(r)));
     const at = `http://127.0.0.1:${s3.address().port}`;
