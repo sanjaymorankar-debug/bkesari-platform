@@ -1,5 +1,10 @@
 # Deploying dev.bkesari.com, test.bkesari.com, and bkesari.com
 
+> **Since 17 Nov 2026 bkesari.com runs on the VPS (`gk-db-1`, 189.72.155.162), not on
+> Hostinger's shared hosting.** A merge to `main` still builds the old shared-hosting copy,
+> which no longer serves the domain. To update the live site, see **Part 10** below. On
+> 18 Nov 2026 the owner set dev.bkesari.com and test.bkesari.com aside for releases.
+
 Nothing here can be done from this repo automatically; these are hPanel and SSH steps.
 Three tiers, each with its own site(s) and its own database — **never share a database across
 tiers**. Build and iterate on **dev first**, promote to **test**, check it, then promote to
@@ -1051,3 +1056,49 @@ It asks for the password twice and prints two lines:
 Unset or malformed, the built-in sign-in is off in that project. A wrong password counts
 like any other; tries are limited to 10 per address and 50 per name every 15 minutes in
 the hub process, and Education counts them with its own sign-in limits.
+
+---
+
+## Part 10: bkesari.com on the VPS (since 17 Nov 2026)
+
+bkesari.com, edu.bkesari.com, ladwani.bkesari.com and test.bkesari.com resolve to the
+Hostinger VPS **`gk-db-1` (189.72.155.162)**, which also runs GoKesari. The shared-hosting
+site still builds on every merge to `main`, but it no longer serves the domain. Nothing on
+the VPS watches this repository: the live site changes only when someone runs the update below.
+
+| What | Where on the VPS |
+|---|---|
+| Web server | Caddy, `/etc/caddy/sites/bkesari.caddy`: `/atip` → 127.0.0.1:8100, `/edu` → Education (127.0.0.1:8200), everything else → the platform (127.0.0.1:3200); edu./ladwani./test.bkesari.com redirect to bkesari.com |
+| The code | `/var/www/bkesari/platform`, owned by user `bkesari`; **a copy, not a git checkout** (`.deployed-commit` says which commit) |
+| Hub, TaskList, LadWani | `bkesari-platform.service` (`node portal/start.js`, settings in `platform/.env`) |
+| Education | `php8.3-fpm`, pool `bkesari`; settings in `platform/edu/.env`, files and logs in `platform/edu/storage` |
+| ATIP | `bkesari-atip.service` (127.0.0.1:8100) |
+| Databases | PostgreSQL 18, cluster `18-bkesari` on 127.0.0.1:5434: `bk_portal`, `bk_tasklist`, `bk_ladwani`, `bk_edu`, `atip` |
+
+**Logging in.** SSH works only through the WireGuard tunnel (set up for GoKesari on 16 Nov;
+the GoKesari repository's `docs/neon-to-vps-2026-11/RUNBOOK.md`). Public port 22 is closed
+and root cannot log in. On the owner's Mac: switch on the `gokesari-db` tunnel in the
+WireGuard app, then `ssh -i ~/.ssh/gokesari_db_admin gkadmin@10.66.0.1`.
+
+**Updating** with [`scripts/vps/update-bkesari.sh`](scripts/vps/update-bkesari.sh), on the
+VPS, with `<commit>` the full commit of `main` to deploy:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sanjaymorankar-debug/bkesari-platform/<commit>/scripts/vps/update-bkesari.sh -o /tmp/update-bkesari.sh
+sudo bash /tmp/update-bkesari.sh check <commit>      # the plan; changes nothing
+sudo bash /tmp/update-bkesari.sh prepare <commit>    # download + build BESIDE the live copy (~2 min, low priority)
+sudo bash /tmp/update-bkesari.sh switch <commit>     # Education's migration, swap, restart, checks (seconds)
+sudo bash /tmp/update-bkesari.sh rollback            # if needed: back to the copy before the switch
+```
+
+- `prepare` copies the server-only parts into the new copy: `.env`, `.home`,
+  `node_modules`, LadWani's packages, `edu/.env` and `edu/vendor`.
+- `switch` moves `edu/storage` across and keeps the old copy as
+  `/var/www/bkesari/platform-prev-<commit>-<time>`; remove it after a few days.
+- It touches nothing of GoKesari's. It was rehearsed on 18 Nov 2026 on a copy of this layout:
+  check, prepare, switch, rollback and switch again, and link with and without `--apply`.
+
+**The bkesari ID's day-one linking** (Part 9), once, after the first switch to the bkesari ID
+release: `sudo bash /tmp/update-bkesari.sh link`, which is a dry run, then `... link --apply`.
+It reads the hub, TaskList and LadWani databases from `platform/.env`, and Education's from
+`platform/edu/.env`, without putting any address or password on a command line.
