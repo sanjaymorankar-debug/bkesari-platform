@@ -1,7 +1,7 @@
 # bkesari ID: test report
 
 **Central sign-in with Google and admin-approved project access (decision D-039)**
-Report date: 18 Nov 2026, 12:30 AM IST. All times are IST (UTC + 5:30).
+Report date: 18 Nov 2026, 1:40 AM IST (production section added after the VPS deployment). All times are IST (UTC + 5:30).
 
 ## 1. Summary
 
@@ -11,7 +11,7 @@ Report date: 18 Nov 2026, 12:30 AM IST. All times are IST (UTC + 5:30).
 | Code tested | `bkesari-platform` `7cf16c0` → `6e48919` / `625474e` (branch `claude/gracious-lamport-xdf1en`) |
 | On `main` | `a07c2db` (18 Nov 2026, 12:16 AM IST): PR #34 → #35 (release) and #36 → #37 (fixes) |
 | Defects found by the testers | 3 product defects (1 security), all fixed and on `main`; 7 spec and test defects, all fixed |
-| Production (bkesari.com) | **Not updated yet.** bkesari.com runs on the Hostinger VPS (189.72.155.162). The Git auto-deploy feeds the shared-hosting copy, which is no longer the live site. At 12:21 AM IST, bkesari.com still served the 4 Nov release. |
+| Production (bkesari.com) | **Live since 18 Nov 2026, 1:18 AM IST** on the VPS (`gk-db-1`), commit `eb6598f`, through `scripts/vps/update-bkesari.sh`. Accounts were linked at 1:23 AM. `HUB_PROXY_SECRET` and `EDU_ORIGIN` were set at 1:25 AM. `/edu` has gone through the hub's gate since 1:30 AM. Production smoke check: 32 passed, 0 failed (§7). |
 | dev.bkesari.com, test.bkesari.com | Skipped on the owner's instruction (18 Nov 2026) |
 
 ## 2. What was tested
@@ -102,31 +102,51 @@ edu, ladwani and test all passed:
 | P-D4, P-D5, P-D6 | Spec and test | The S5/S6 smoke commands and the parity script predated the gate; a comment in the schema file was misplaced. | Rewritten or fixed (`6e48919`, `625474e`). |
 | E-D1 to E-D4 | Spec and test | Education spec counts; an interim S5 step; a stronger two-factor test; a template count. | `b6f1082`, `947af5b`. |
 
-## 7. Production testing
+## 7. Production deployment and testing (18 Nov 2026, IST)
 
-**Not yet possible.** On the owner's instruction, the release was merged straight to `main` (12:03 AM IST, and the fixes at 12:16 AM IST). The Hostinger Git build for bkesari.com completed in 1 min 26 s (12:06 AM IST).
+### How it got there
 
-That build went to the shared-hosting copy. bkesari.com and test.bkesari.com resolve to the VPS, and the VPS does not pull `main` by itself. A 15-minute watch found no change. At 12:21 AM IST, `https://bkesari.com/auth/sign-in` was still "Choose a project to sign in" (the 4 Nov release).
+On the owner's instruction, the release was merged straight to `main` (12:03 AM, fixes at 12:16 AM). The Hostinger Git build (12:06 AM) went to the shared-hosting copy, which no longer serves the domain. bkesari.com runs on the VPS `gk-db-1`, which does not watch the repository. So the release went out with `scripts/vps/update-bkesari.sh` (DEPLOY.md Part 10), which was first rehearsed here on a copy of the server's layout. The owner ran each step over the WireGuard tunnel:
 
-Production checks to run once the VPS is updated:
-- `scripts/smoke-dev.sh https://bkesari.com --env prod`;
-- `/auth/sign-in` is the bkesari ID's page;
-- `/tasklist/`, `/edu/` and `/ladwani/` send a visitor to sign-in;
-- the email code reaches a real inbox;
-- the admin approves a request;
-- `link_accounts_to_hub.mjs`: a dry run, then `--apply`.
+| Time | Step | Result |
+|---|---|---|
+| ~1:10 AM | `check` | Plan correct: live `4aaa7fd`, new `eb6598f`; Node 24, PHP 8.3 |
+| ~1:14 AM | `prepare` | Built beside the live copy; the live site was untouched |
+| 1:18 AM | `switch` | Education migration (`hub_role`) done; hub restarted; checks: the bkesari ID's sign-in page, Education answers 200. The previous copy is kept as `platform-prev-4aaa7fd-20261118-0118` |
+| 1:23 AM | `link`, then `link --apply` | 2 bkesari IDs, 2 LadWani grants (the owner as admin, the QA account as karta), 0 left alone |
+| 1:25 AM | `HUB_PROXY_SECRET` (hub + Education, same random value, never printed), `EDU_ORIGIN=http://127.0.0.1:8200` | Hub restarted; `/edu/ -> http://127.0.0.1:8200` |
+| 1:30 AM | Caddy: `/edu` through the hub (the old direct route removed; validated, graceful reload) | `/edu/` now sends visitors to the bkesari ID sign-in. gokesari.com and test.gokesari.com answer 200, unchanged |
+
+### Live checks from outside (1:20–1:35 AM)
+
+| Check | Result |
+|---|---|
+| `/auth/sign-in` | 200, the bkesari ID's page |
+| `/tasklist/`, `/ladwani/`, `/edu/`, `/edu/login`, `/account`, `/admin/access` (signed out) | 302 to `/auth/sign-in?next=…` |
+| `/edu/dashboard` with forged `X-Bkesari-Role` / `X-Bkesari-User` | 302 to sign-in: forged headers open nothing |
+| `/hub/api/me` (signed out) | Every project needing approval shows `signin`; open projects show `open` |
+| `/auth/google/start` | 404: Google is off until `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are set |
+| `/education/` | 301 to `/edu/` |
+| `/atip/` | Its own login page (the full ATIP app); its upload refuses a POST |
+| gokesari.com, test.gokesari.com | 200 |
+| `scripts/smoke-dev.sh https://bkesari.com --env prod` | **32 passed, 0 failed, 0 warnings** (after the script learned about ATIP's own login on the VPS) |
+
+### Still to do on production
+
+- The owner's own sign-in with the email code (it proves mail delivery from the VPS), then `/admin/access`.
+- Google sign-in, once the keys are set.
 
 ## 8. Open items
 
-1. **Update the VPS:**
-   - pull `main`, run `npm ci && npm run build:hostinger`, and restart the hub;
-   - for Education, pull and run `php artisan migrate`;
-   - run the linking: `node --env-file=.env tools/link_accounts_to_hub.mjs`, then `--apply`.
-2. **Settings the owner must set** (server environment only):
+1. **Done on 18 Nov:**
+   - the VPS update;
+   - the account linking;
+   - `HUB_PROXY_SECRET` and `EDU_ORIGIN`;
+   - `/edu` through the gate (§7).
+2. **Settings the owner must set** in `/var/www/bkesari/platform/.env` on the VPS (then `sudo systemctl restart bkesari-platform`):
    - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (the GoKesari client);
    - the redirect URI `https://bkesari.com/auth/google/callback` in Google Cloud Console;
-   - `HUB_PROXY_SECRET`, with the same value in the hub and in Education's `.env`;
-   - `BUILTIN_ADMIN_PASSWORD_HASH` for the hub and `BUILTIN_ADMIN_PASSWORD_BCRYPT` for Education.
+   - `BUILTIN_ADMIN_PASSWORD_HASH` for the hub and `BUILTIN_ADMIN_PASSWORD_BCRYPT` for Education, if they are not set yet.
 3. **Owner's decision before Razorpay goes live:** LadWani's payment webhook (`/ladwani/api/v1/webhooks/payments`) is behind the gate. It needs an exemption.
 4. **Owner's decisions from the LadWani work:**
    - "two operators" verification (today one is enough);
