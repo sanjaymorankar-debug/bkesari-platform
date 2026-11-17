@@ -136,6 +136,17 @@ describe('the hub on PostgreSQL', { skip }, () => {
     assert.match((await html(new Browser(base), '/')).text, /<a href="\/lang\/mr\?next=%2F" lang="mr" hreflang="mr" data-k-setlang="mr">मराठी<\/a>/);
   });
 
+  test('robots.txt closes dev and test; the sitemap lists the public pages', async () => {
+    const r = await html(new Browser(base), '/robots.txt');
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type'), /text\/plain/);
+    assert.equal(r.text, 'User-agent: *\nDisallow: /\n', 'this suite runs as a non-production tier');
+    const map = await html(new Browser(base), '/sitemap.xml');
+    assert.match(map.headers.get('content-type'), /application\/xml/);
+    for (const p of ['/', '/driving-simulator/', '/environment/', '/ladwani/', '/edu/']) assert.match(map.text, new RegExp(`<loc>https://[^<]+${p.replace(/\//g, '\\/')}</loc>`));
+    assert.doesNotMatch(map.text, /admin|account|ATIP/i);
+  });
+
   test('the contact form takes its topic from the page that sends people there', async () => {
     const r = await html(new Browser(base), '/contact?topic=driving');
     assert.match(r.text, /<option value="driving" selected>Driving Simulator<\/option>/);

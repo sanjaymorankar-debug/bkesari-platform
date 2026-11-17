@@ -194,6 +194,25 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
     // The old key set: nothing verifies hub tokens any more.
     app.get('/.well-known/jwks.json', (req, res) => res.status(410).json({ keys: [], note: 'retired 3 Nov 2026' }));
 
+    // Search engines: production lists its public pages; dev and test are
+    // closed (they also send X-Robots-Tag: noindex on every page).
+    const PUBLIC_PAGES = ['/', '/about', '/contact', '/privacy', '/terms', '/driving-simulator/', '/environment/', '/ladwani/', '/edu/', '/tasklist/'];
+    app.get('/robots.txt', (req, res) => {
+      res.type('text/plain').set('Cache-Control', 'public, max-age=3600');
+      if (envName(req) !== 'prod') return res.send('User-agent: *\nDisallow: /\n');
+      res.send(['User-agent: *', 'Allow: /',
+        ...['/admin', '/account', '/ATIP/', '/atip/', '/tasklist/api/', '/ladwani/api/', '/edu/dashboard', '/lang/', '/styleguide/'].map((p) => `Disallow: ${p}`),
+        `Sitemap: https://${req.hostname}/sitemap.xml`, ''].join('\n'));
+    });
+    app.get('/sitemap.xml', (req, res) => {
+      const origin = `https://${req.hostname}`;
+      res.type('application/xml').set('Cache-Control', 'public, max-age=3600').send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${PUBLIC_PAGES.map((p) => `  <url><loc>${origin}${p}</loc></url>`).join('\n')}
+</urlset>
+`);
+    });
+
     app.get('/', page('home.title', pages.home, { data: () => content() }));
     app.get('/about', page('about.title', pages.about, { data: () => content() }));
     app.get('/privacy', page('privacy.title', pages.privacy));
