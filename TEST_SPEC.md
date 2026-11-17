@@ -3,7 +3,7 @@
 The hub is the Node.js (Express) app behind **bkesari.com**, `test.bkesari.com` and
 `dev.bkesari.com`: the hub's own pages (home with the project tiles, about, contact, privacy,
 terms, the project chooser at `/auth/sign-in`, branded 404/500), the hub admin at `/admin` with
-its own login, the **Kesari** design system (`packages/kesari-ui`, served at `/kesari-ui/1.0.0/`)
+its own login, the **Kesari** design system (`packages/kesari-ui`, served at `/kesari-ui/1.1.0/`)
 and the app shell every project includes (`portal/public/shared/menu.js`), the static Global
 Warming and Driving Simulator pages, **TaskList** at `/tasklist/` with its own accounts
 (`portal/tasklist.js`, `portal/project-auth.js`), the read-only **ATIP viewer** at `/ATIP/` (and `/atip/`), the
@@ -31,7 +31,7 @@ portal-tester agent".
 | Per-project sign-in (TaskList, hub admin) | `portal/project-auth.js`, `portal/notify.js` | Node 22, bcryptjs |
 | The built-in administrators (D-036): names, reserved domain, scrypt hash, and the script that makes it | `portal/builtin-admins.js`, `scripts/hash-builtin-admin-password.js` (LadWani's port: `ladwani/apps/api/src/auth/builtin-admins.ts`) | Node 22 `crypto.scrypt`, bcryptjs |
 | TaskList | `portal/tasklist.js`, `portal/public/tasklist/**` | Node 22; browser JS |
-| Kesari design system | `packages/kesari-ui/**` (built to `portal/public/kesari-ui/1.0.0/`) | CSS, browser JS, esbuild |
+| Kesari design system | `packages/kesari-ui/**` (built to `portal/public/kesari-ui/1.1.0/`) | CSS, browser JS, esbuild |
 | The shared-ID migration | `tools/migrate_shared_id.mjs` | Node ESM, pg |
 | Mobile shells | `mobile/**` (Capacitor configs; not built here) | JSON, HTML |
 | Database layer and schema | `portal/db.js`, `portal/sql/schema.sql`, `database/portal/01_portal_schema.sql` | node-postgres 8, PostgreSQL 16 |

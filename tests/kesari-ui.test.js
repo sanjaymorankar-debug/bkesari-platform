@@ -78,6 +78,47 @@ test('light: every text pair is AA (4.5:1) on the surfaces it is used on', () =>
   assert.ok(ratio('#C2560A', light['k-page']) < 4.5);
 });
 
+test('every project accent, light and dark: its text is AA on the page, the surface and its own tint, and its buttons\' text is AA on it', () => {
+  // The pairs the 1.1.0 components draw: links and eyebrows (ink on page or
+  // surface), soft buttons and project icons (ink on tint), solid buttons
+  // (on-accent on accent).
+  const lightBlocks = [...src.matchAll(/^\[data-project="([a-z]+)"\]\{([^}]+)\}/gm)];
+  const darkBlocks = [...src.matchAll(/^:root\[data-theme="dark"\]\[data-project="([a-z]+)"\][^{]*\{([^}]+)\}/gm)];
+  const projects = ['ladwani', 'education', 'tasklist', 'environment', 'driving', 'atip', 'home'];
+  assert.deepEqual(lightBlocks.map((m) => m[1]).sort(), [...projects].sort(), 'one light accent block per project');
+  assert.deepEqual(darkBlocks.map((m) => m[1]).sort(), [...projects].sort(), 'one dark accent block per project');
+  for (const [m, base] of [...lightBlocks.map((x) => [x, light]), ...darkBlocks.map((x) => [x, dark])]) {
+    const t = { ...base, ...tokens(m[2]) };
+    const where = `${m[1]} (${base === light ? 'light' : 'dark'})`;
+    for (const bg of ['k-page', 'k-surface', 'k-accent-tint']) {
+      assert.ok(ratio(t['k-accent-ink'], t[bg]) >= 4.5, `${where}: accent-ink on ${bg} ${ratio(t['k-accent-ink'], t[bg]).toFixed(2)}`);
+    }
+    assert.ok(ratio(t['k-on-accent'], t['k-accent']) >= 4.5, `${where}: on-accent on accent ${ratio(t['k-on-accent'], t['k-accent']).toFixed(2)}`);
+  }
+  // The system's dark choice and the pinned dark theme give each project the same accent.
+  const sysDark = [...src.matchAll(/:root:not\(\[data-theme="light"\]\) \[data-project="([a-z]+)"\][^{]*\{([^}]+)\}/g)];
+  for (const m of sysDark) assert.deepEqual(tokens(m[2]), tokens(darkBlocks.find((d) => d[1] === m[1])[2]), `${m[1]}: system dark = pinned dark`);
+  assert.equal(sysDark.length, projects.length);
+});
+
+test('the icon set: the sprite and files are built from icons.json, and the shell\'s inline copies are identical to it', async () => {
+  const { build, icons } = await import('../packages/kesari-ui/build.mjs');
+  const { sprite, files } = build();
+  assert.equal(fs.readFileSync(path.join(dist, 'icons.svg'), 'utf8'), sprite, 'run npm run build:kesari and commit');
+  const set = icons();
+  for (const name of ['home', 'ladwani', 'education', 'tasklist', 'driving', 'environment', 'atip']) {
+    assert.ok(set[name], `the set has a ${name} project icon`);
+  }
+  for (const [name, body] of Object.entries(set)) {
+    assert.equal(fs.readFileSync(path.join(dist, 'icons', `${name}.svg`), 'utf8'), files[name]);
+    assert.match(sprite, new RegExp(`<symbol id="k-i-${name}" `));
+    assert.doesNotMatch(body, /fill="(?!none)|style=|<script|on\w+=/i, `${name}: strokes in currentColor only`);
+  }
+  const menu = require('../portal/public/shared/menu.js');
+  for (const [name, body] of Object.entries(menu.ICONS)) assert.equal(body, set[name], `menu.js icon ${name} differs from icons.json`);
+  for (const tab of menu.TABS) assert.ok(set[tab.icon], `${tab.key} uses an icon from the set`);
+});
+
 test('dark: every text pair is AA on the dark surfaces', () => {
   const pairs = [
     ['k-ink', 'k-surface'], ['k-ink', 'k-page'], ['k-muted', 'k-surface'], ['k-muted', 'k-page'], ['k-faint', 'k-surface'],

@@ -56,14 +56,14 @@ describe('the hub on PostgreSQL', { skip }, () => {
   test('the home page is rendered on the server: six tiles with status chips, no shared sign-in', async () => {
     const r = await html(new Browser(base), '/');
     assert.equal(r.status, 200);
-    const tiles = [...r.text.matchAll(/<h3 class="k-tile__name">([^<]+)/g)].map((m) => m[1].trim());
+    const tiles = [...r.text.matchAll(/<h3 class="k-pcard__name">([^<]+)/g)].map((m) => m[1].trim());
     assert.deepEqual(tiles, ['LadWani', 'Education', 'TaskList', 'ATIP', 'Driving Simulator', 'Global Warming']);
     for (const chip of ['Live', 'Beta', 'Coming soon', 'Private']) assert.match(r.text, new RegExp(`class="k-chip[^"]*">${chip}<`));
     assert.match(r.text, /href="\/ATIP\/"[^>]*target="_blank" rel="noopener"/, 'ATIP only links out');
     assert.match(r.text, /href="\/tasklist\/"/);
     assert.doesNotMatch(r.text, /One bkesari ID|\/hub\/api\/me/, 'nothing of the shared sign-in is left');
     assert.match(r.text, /<html lang="en"/);
-    assert.match(r.text, /\/kesari-ui\/1\.0\.0\/kesari\.css/);
+    assert.match(r.text, /\/kesari-ui\/1\.1\.0\/kesari\.css/);
     assert.match(r.text, /<header class="ks-bar/, 'the shell header is in the page, not added by script');
     assert.match(r.text, /href="\/privacy">Privacy</, 'the footer carries the privacy notice');
   });
@@ -92,6 +92,55 @@ describe('the hub on PostgreSQL', { skip }, () => {
     for (const p of ['/hub/api/me', '/hub/api/admin/requests', '/.well-known/jwks.json']) assert.equal((await b.fetch('GET', p)).status, 410, p);
     assert.equal((await html(b, '/education/sign-in')).location, '/edu/sign-in');
     assert.equal((await html(b, '/education')).location, '/edu');
+  });
+
+  test('request access: step 1 chooses a project (no scripts needed), step 2 says what it asks, then hands over to its own sign-up', async () => {
+    const b = new Browser(base);
+    const one = await html(b, '/request-access');
+    assert.equal(one.status, 200);
+    assert.match(one.text, /<form class="hub-req" method="get" action="\/request-access"/);
+    for (const key of ['ladwani', 'education', 'tasklist']) assert.match(one.text, new RegExp(`<input type="radio" name="project" value="${key}" required>`));
+    assert.doesNotMatch(one.text, /value="atip"/, 'ATIP has no request path');
+    assert.match(one.text, /aria-current="step">Choose a project</);
+    const none = await html(b, '/request-access?step=2');
+    assert.equal(none.status, 400, 'continuing without a project says so');
+    assert.match(none.text, /role="alert">Choose a project to continue\./);
+    const lw = await html(b, '/request-access?project=ladwani&step=2');
+    assert.equal(lw.status, 200);
+    assert.match(lw.text, /Joining LadWani: what happens next/);
+    assert.match(lw.text, /An operator verifies you/, 'LadWani keeps its operator verification');
+    assert.match(lw.text, /href="\/ladwani\/sign-up\/">Continue to LadWani/);
+    assert.match((await html(b, '/request-access?project=tasklist')).text, /No approval needed/);
+    assert.match((await html(b, '/request-access?project=atip')).text, /Request access to a project/, 'an unknown project is step 1 again');
+  });
+
+  test('My projects asks each project itself, from the browser; the hub sends no one\'s details', async () => {
+    const r = await html(new Browser(base), '/account');
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('x-robots-tag'), 'noindex');
+    for (const me of ['/ladwani/api/v1/auth/session', '/edu/shell/me', '/tasklist/api/auth/me']) assert.ok(r.text.includes(`data-me="${me}"`), me);
+    assert.match(r.text, /<script src="\/shared\/account\.js" defer><\/script>/);
+    assert.match(r.text, /data-words="\{&quot;checking&quot;/, 'its words travel as data, not an inline script');
+    assert.doesNotMatch(r.text, /data-project="atip"/, 'ATIP\'s row is only for the owner');
+    assert.match(r.text, /<noscript>/);
+  });
+
+  test('read in another language without scripts: /lang/xx sets k_lang and goes back to a path on this site only', async () => {
+    const b = new Browser(base);
+    const r = await html(b, '/lang/mr?next=/about');
+    assert.equal(r.status, 303);
+    assert.equal(r.location, '/about');
+    assert.match(r.headers.get('set-cookie'), /k_lang=mr; Path=\/; Max-Age=31536000; SameSite=Lax/);
+    for (const next of ['//evil.example/', 'https://evil.example/', '/\\evil.example']) assert.equal((await html(b, `/lang/hi?next=${encodeURIComponent(next)}`)).location, '/', next);
+    assert.match((await html(b, '/lang/xx')).headers.get('set-cookie'), /k_lang=en;/);
+    assert.match((await html(new Browser(base), '/')).text, /<a href="\/lang\/mr\?next=%2F" lang="mr" hreflang="mr" data-k-setlang="mr">मराठी<\/a>/);
+  });
+
+  test('the contact form takes its topic from the page that sends people there', async () => {
+    const r = await html(new Browser(base), '/contact?topic=driving');
+    assert.match(r.text, /<option value="driving" selected>Driving Simulator<\/option>/);
+    const topicSelect = (text) => text.match(/<select class="k-select" id="topic"[\s\S]*?<\/select>/)[0];
+    assert.doesNotMatch(topicSelect((await html(new Browser(base), '/contact?topic=<x>')).text), /selected/, 'an unknown topic chooses nothing');
   });
 
   test('the contact form stores a real message, and keeps out forged, robotic and repeated ones', async () => {
@@ -158,7 +207,7 @@ describe('the hub on PostgreSQL', { skip }, () => {
     const banner = await admin.fetch('PUT', '/admin/api/announcement', { json: { message_en: 'TaskList is open for everyone.', message_mr: 'टास्कलिस्ट सर्वांसाठी खुली.', kind: 'success', active: true, link: '/tasklist/' }, csrf: admin.csrf });
     assert.equal(banner.status, 200, banner.text);
     const home = await html(new Browser(base), '/');
-    const names = [...home.text.matchAll(/<h3 class="k-tile__name">([^<]+)/g)].map((m) => m[1].trim());
+    const names = [...home.text.matchAll(/<h3 class="k-pcard__name">([^<]+)/g)].map((m) => m[1].trim());
     assert.equal(names[0], 'Driving Simulator', 'the new order shows straight away');
     assert.match(home.text, /Book a practice session\./);
     assert.match(home.text, /TaskList is open for everyone\./);
@@ -223,7 +272,7 @@ describe('the hub on PostgreSQL', { skip }, () => {
     assert.equal(home.headers.get('strict-transport-security'), null, 'HSTS only over https');
     const https = await html(b, '/', { 'x-forwarded-proto': 'https' });
     assert.equal(https.headers.get('strict-transport-security'), 'max-age=31536000');
-    assert.match((await html(b, '/kesari-ui/1.0.0/kesari.css')).headers.get('cache-control'), /immutable/);
+    assert.match((await html(b, '/kesari-ui/1.1.0/kesari.css')).headers.get('cache-control'), /immutable/);
     // 127.0.0.1 is the dev tier: the style guide is there, and not on production.
     assert.equal((await html(b, '/styleguide/')).status, 200);
     process.env.APP_ENV = 'prod';

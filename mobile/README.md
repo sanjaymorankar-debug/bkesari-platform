@@ -16,7 +16,25 @@ reached. Everything else, the Kesari design, the three languages, the screens
 and TaskList's offline queue, comes from the site, so a deploy reaches the apps
 without a store release.
 
-## Status (3 Nov 2026)
+## Status (17 Nov 2026): Kesari 1.1.0
+
+The apps show the new design with no store release: the screens, the icon set,
+the "Back to bkesari home" link, the project switcher and the footer all come
+from the site. What lives in the apps themselves was updated for 1.1.0:
+
+| What | Where | Made from |
+|---|---|---|
+| App icon (iOS; Android adaptive foreground + background) | `apps/<app>/assets/icon-only.png`, `icon-foreground.png`, `icon-background.png` | the project's icon from the Kesari icon set, white on its accent; the iOS icon carries the bkesari "b" |
+| Splash (light, dark) | `apps/<app>/assets/splash.png`, `splash-dark.png` | the project icon tile, its name and bkesari.com |
+| Offline screen | `apps/<app>/www/index.html` | Kesari 1.1.0 values, the project icon, "Try again" and "Back to bkesari home" |
+| Splash settings | `capacitor.config.json` → `SplashScreen` | page background `#FAF8F5`, no spinner |
+
+`node mobile/tools/render-assets.js` (from the repository root, needs Playwright)
+redraws the PNGs from `packages/kesari-ui/src/icons.json`; `tests/mobile.test.js`
+checks every app has them. `npm run assets` (below) turns them into every
+Android density and iOS size.
+
+### Status (3 Nov 2026)
 
 **Not built yet.** This repository's cloud session has no Android SDK (Google's
 download host is blocked there), no emulator (no KVM) and no macOS/Xcode, and
@@ -29,6 +47,7 @@ cd mobile
 npm install
 npm run add:android    # needs Android Studio (SDK 35) and JDK 17
 npm run add:ios        # needs Xcode 16 and CocoaPods
+npm run assets         # every icon and splash size, from apps/<app>/assets (@capacitor/assets)
 npm run sync
 ```
 

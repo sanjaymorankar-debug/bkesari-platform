@@ -30,3 +30,17 @@ test('one app per project, each opening that project and nothing else', () => {
     assert.match(offline, /min-height:48px/);
   }
 });
+
+test('each app ships its icon and splash sources, drawn from the Kesari icon set, and its offline screen leads home', () => {
+  for (const app of Object.keys(APPS)) {
+    for (const f of ['icon-only.png', 'icon-foreground.png', 'icon-background.png', 'splash.png', 'splash-dark.png']) {
+      const file = path.join(dir, app, 'assets', f);
+      assert.ok(fs.existsSync(file), `${app}/assets/${f} is missing: run node mobile/tools/render-assets.js`);
+      assert.equal(fs.readFileSync(file).subarray(1, 4).toString(), 'PNG');
+    }
+    const offline = fs.readFileSync(path.join(dir, app, 'www', 'index.html'), 'utf8');
+    assert.match(offline, /href="https:\/\/bkesari\.com\/">.*Back to bkesari home<\/a>/);
+    const set = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'packages/kesari-ui/src/icons.json'), 'utf8'));
+    assert.ok(offline.includes(set.project[app]), `${app}'s offline screen draws its icon from the set`);
+  }
+});

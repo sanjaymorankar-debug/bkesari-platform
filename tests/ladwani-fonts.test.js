@@ -1,7 +1,7 @@
 'use strict';
 
 // LadWani's text is set in Kesari's fonts: layout.tsx links the hub's
-// /kesari-ui/1.0.0/kesari.css, whose @font-face rules (packages/kesari-ui/src/
+// /kesari-ui/1.1.0/kesari.css, whose @font-face rules (packages/kesari-ui/src/
 // tokens.css) load the Mukta subsets in packages/kesari-ui/fonts, and
 // globals.css uses only Kesari's font tokens. LadWani bundles no fonts of its
 // own any more (it had Fraunces, Work Sans and IBM Plex Mono until 2026-11).
@@ -129,10 +129,10 @@ test('LadWani bundles no fonts of its own and loads Kesari\'s', () => {
   assert.equal(fs.existsSync(path.join(APP, 'fonts')), false, 'apps/web/src/app/fonts is gone');
   const layout = fs.readFileSync(path.join(APP, 'layout.tsx'), 'utf8');
   assert.doesNotMatch(layout, /next\/font/, 'layout.tsx loads no next/font');
-  assert.match(layout, /\/kesari-ui\/1\.0\.0/, 'layout.tsx links the pinned Kesari build');
+  assert.match(layout, /\/kesari-ui\/1\.1\.0/, 'layout.tsx links the pinned Kesari build');
   assert.match(layout, /kesari\.css/);
   const version = JSON.parse(fs.readFileSync(path.join(KESARI, 'package.json'), 'utf8')).version;
-  assert.equal(version, '1.0.0', 'layout.tsx pins the version kesari-ui builds');
+  assert.equal(version, '1.1.0', 'layout.tsx pins the version kesari-ui builds');
 });
 
 test('globals.css names no font family: only Kesari\'s tokens', () => {

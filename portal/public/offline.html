@@ -5,19 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Offline — bkesari</title>
 <meta name="theme-color" content="#C2560A">
+<!-- Served by the service worker with no network: everything it needs is inline (Kesari 1.1.0 values). -->
 <style>
-  :root{--bg:#F6F4EF;--ink:#1B1D24;--soft:#57534E;--accent:#C2560A}
-  @media (prefers-color-scheme:dark){:root{--bg:#111315;--ink:#ECEDEE;--soft:#B9BFC6;--accent:#F08A3C}}
-  body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:16px/1.5 'Mukta',system-ui,sans-serif;padding:16px;box-sizing:border-box;text-align:center}
-  h1{font-size:24px;margin:0 0 8px}p{color:var(--soft);margin:0 0 20px}
-  .retry{display:inline-flex;align-items:center;min-height:48px;padding:0 20px;border-radius:10px;background:#C2560A;color:#fff;font-weight:600;text-decoration:none}
+  :root{--page:#FAF8F5;--surface:#FFFFFF;--ink:#1C1917;--muted:#57534E;--border:#E7E5E4;--brand:#C2560A;--brand-ink:#A64808;--tint:#FDF1E8;--focus:#C2560A}
+  @media (prefers-color-scheme:dark){:root{--page:#141110;--surface:#1F1B19;--ink:#F5F5F4;--muted:#C9C4BF;--border:#3A3532;--brand:#F08A3C;--brand-ink:#F5A869;--tint:#3A2312;--focus:#F5A869}}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--page);color:var(--ink);font:16px/1.6 'Mukta',system-ui,-apple-system,'Segoe UI',sans-serif;padding:16px;text-align:center}
+  main{max-width:420px}
+  .mark{width:56px;height:56px;margin:0 auto 20px;border-radius:16px;background:var(--brand);color:#fff;display:grid;place-items:center;font-size:30px;font-weight:800}
+  .art{width:120px;height:96px;margin:0 auto 8px;color:var(--brand-ink)}
+  h1{font-size:26px;line-height:1.2;margin:0 0 8px}
+  p{color:var(--muted);margin:0 0 24px}
+  .retry{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 24px;border-radius:8px;background:#C2560A;color:#fff;font-weight:600;text-decoration:none}
+  .home{display:inline-flex;align-items:center;min-height:48px;margin-top:8px;color:var(--brand-ink);font-weight:600}
+  :focus-visible{outline:3px solid var(--focus);outline-offset:2px}
 </style>
 </head>
 <body>
 <main>
+  <div class="mark" aria-hidden="true">b</div>
+  <svg class="art" viewBox="0 0 120 96" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M24 44a52 52 0 0 1 72 0M36 56a34 34 0 0 1 48 0M48 68a16 16 0 0 1 24 0"/><circle cx="60" cy="80" r="3" fill="currentColor"/><path d="M20 20l80 64" stroke-opacity=".6"/></svg>
   <h1>You are offline</h1>
-  <p>bkesari needs a connection for this page. Check your network and try again.</p>
-  <a class="retry" href="">Try again</a>
+  <p>bkesari needs a connection for this page. Check your network or mobile data, then try again. Anything you saved in TaskList while offline is kept and sent when you are back.</p>
+  <a class="retry" href="">Try again</a><br>
+  <a class="home" href="/">Back to bkesari home</a>
 </main>
 </body>
 </html>

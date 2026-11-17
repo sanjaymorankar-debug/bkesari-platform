@@ -7,8 +7,9 @@
  * tests/kesari-ui.test.js, so a token edited here cannot quietly fall below.
  *
  * A project adds its accent by setting data-project on <html> (or any
- * ancestor): ladwani | education | tasklist. The brand saffron stays the
- * same everywhere; the accent tells people which project they are in.
+ * ancestor): ladwani | education | tasklist | environment | driving | atip.
+ * The brand saffron stays the same everywhere (and is the hub's own accent);
+ * the accent tells people which project they are in.
  *
  * Dark mode is chosen, not inverted: every token has its own dark value. It
  * follows prefers-color-scheme unless data-theme="light|dark" pins it.
@@ -63,7 +64,15 @@
   --k-shadow-2:0 4px 12px rgba(28,25,23,.08),0 2px 4px rgba(28,25,23,.06);
   --k-shadow-3:0 16px 40px rgba(28,25,23,.16),0 4px 12px rgba(28,25,23,.08);
 
-  --k-target:48px; --k-content:1120px; --k-motion:160ms;
+  --k-target:48px; --k-content:1120px;
+  /* Motion: three durations and two curves. Everything stops under
+     prefers-reduced-motion (base.css). */
+  --k-motion-fast:120ms; --k-motion:160ms; --k-motion-slow:280ms;
+  --k-ease:cubic-bezier(.2,0,0,1); --k-ease-out:cubic-bezier(0,0,.2,1);
+  /* Display size for heroes (fluid, 2rem at 360px to 3.052rem at 1440px) */
+  --k-text-4xl:3.052rem;
+  /* Layout breakpoints (documented; CSS cannot read variables in @media):
+     sm 360 · md 768 · lg 1024 · xl 1440. Mobile first: min-width queries. */
   color-scheme:light;
 }
 
@@ -74,7 +83,10 @@
 [data-project="ladwani"]{--k-accent-ink:#7C2D12;--k-accent:#7C2D12;--k-accent-hover:#5F220D;--k-accent-tint:#FBEDE7}
 [data-project="education"]{--k-accent-ink:#0F766E;--k-accent:#0F766E;--k-accent-hover:#0B5C56;--k-accent-tint:#E0F5F2}
 [data-project="tasklist"]{--k-accent-ink:#4338CA;--k-accent:#4338CA;--k-accent-hover:#3730A3;--k-accent-tint:#EBEBFC}
-[data-project="environment"]{--k-accent-ink:#15803D;--k-accent:#15803D;--k-accent-hover:#116632;--k-accent-tint:#E3F6E9}
+[data-project="environment"]{--k-accent-ink:#166534;--k-accent:#15803D;--k-accent-hover:#116632;--k-accent-tint:#E3F6E9}
+[data-project="driving"]{--k-accent-ink:#0369A1;--k-accent:#0369A1;--k-accent-hover:#075985;--k-accent-tint:#E0F2FE}
+[data-project="atip"]{--k-accent-ink:#475569;--k-accent:#475569;--k-accent-hover:#334155;--k-accent-tint:#EEF1F5}
+[data-project="home"]{--k-accent-ink:#A64808;--k-accent:#C2560A;--k-accent-hover:#A64808;--k-accent-tint:#FDF1E8}
 
 /* Dark values, used by the system setting unless the page is pinned light, and
    by data-theme="dark" always. The two blocks must stay identical. */
@@ -93,6 +105,9 @@
   :root:not([data-theme="light"]) [data-project="education"],:root[data-project="education"]:not([data-theme="light"]){--k-accent-ink:#5EEAD4;--k-accent:#5EEAD4;--k-accent-hover:#99F6E4;--k-accent-tint:#0E3532}
   :root:not([data-theme="light"]) [data-project="tasklist"],:root[data-project="tasklist"]:not([data-theme="light"]){--k-accent-ink:#A5B4FC;--k-accent:#A5B4FC;--k-accent-hover:#C7D2FE;--k-accent-tint:#23234A}
   :root:not([data-theme="light"]) [data-project="environment"],:root[data-project="environment"]:not([data-theme="light"]){--k-accent-ink:#4ADE80;--k-accent:#4ADE80;--k-accent-hover:#86EFAC;--k-accent-tint:#123A22}
+  :root:not([data-theme="light"]) [data-project="driving"],:root[data-project="driving"]:not([data-theme="light"]){--k-accent-ink:#7DD3FC;--k-accent:#7DD3FC;--k-accent-hover:#BAE6FD;--k-accent-tint:#0C2A3D}
+  :root:not([data-theme="light"]) [data-project="atip"],:root[data-project="atip"]:not([data-theme="light"]){--k-accent-ink:#CBD5E1;--k-accent:#CBD5E1;--k-accent-hover:#E2E8F0;--k-accent-tint:#1E2632}
+  :root:not([data-theme="light"]) [data-project="home"],:root[data-project="home"]:not([data-theme="light"]){--k-accent-ink:#F5A869;--k-accent:#F08A3C;--k-accent-hover:#F5A869;--k-accent-tint:#3A2312}
 }
 :root[data-theme="dark"]{
   --k-brand:#F08A3C; --k-brand-hover:#F5A869; --k-brand-tint:#3A2312; --k-on-brand:#1C1917;
@@ -108,3 +123,6 @@
 :root[data-theme="dark"][data-project="education"],:root[data-theme="dark"] [data-project="education"]{--k-accent-ink:#5EEAD4;--k-accent:#5EEAD4;--k-accent-hover:#99F6E4;--k-accent-tint:#0E3532}
 :root[data-theme="dark"][data-project="tasklist"],:root[data-theme="dark"] [data-project="tasklist"]{--k-accent-ink:#A5B4FC;--k-accent:#A5B4FC;--k-accent-hover:#C7D2FE;--k-accent-tint:#23234A}
 :root[data-theme="dark"][data-project="environment"],:root[data-theme="dark"] [data-project="environment"]{--k-accent-ink:#4ADE80;--k-accent:#4ADE80;--k-accent-hover:#86EFAC;--k-accent-tint:#123A22}
+:root[data-theme="dark"][data-project="driving"],:root[data-theme="dark"] [data-project="driving"]{--k-accent-ink:#7DD3FC;--k-accent:#7DD3FC;--k-accent-hover:#BAE6FD;--k-accent-tint:#0C2A3D}
+:root[data-theme="dark"][data-project="atip"],:root[data-theme="dark"] [data-project="atip"]{--k-accent-ink:#CBD5E1;--k-accent:#CBD5E1;--k-accent-hover:#E2E8F0;--k-accent-tint:#1E2632}
+:root[data-theme="dark"][data-project="home"],:root[data-theme="dark"] [data-project="home"]{--k-accent-ink:#F5A869;--k-accent:#F08A3C;--k-accent-hover:#F5A869;--k-accent-tint:#3A2312}

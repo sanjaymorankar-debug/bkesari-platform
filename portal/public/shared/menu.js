@@ -43,17 +43,22 @@
   /** Apex domain. Tiers are subdomains of it: dev., test., and bare for production. */
   const DOMAIN = 'bkesari.com';
 
+  /** Inline copies from the Kesari icon set (packages/kesari-ui/src/icons.json);
+   *  tests/kesari-ui.test.js keeps them identical to it. */
   const ICONS = {
-    ladwani: '<path d="M12 3v6m0 0-5 4m5-4 5 4M7 13v4m10-4v4M5 21h4m6 0h4M12 9v12"/><circle cx="12" cy="3" r="1.5"/>',
-    atip: '<path d="M3 20h18M5 16l4-5 4 3 6-8"/><path d="M15 6h4v4"/>',
-    education: '<path d="m2 9 10-5 10 5-10 5z"/><path d="M6 11v5c3 2.5 9 2.5 12 0v-5M22 9v6"/>',
-    tasklist: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m8 12 3 3 5-6"/>',
-    driving: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M3.5 10.5h6M14.5 10.5h6M12 14.5V21"/>',
-    environment: '<path d="M5 19c8 0 14-6 14-15C10 4 5 9 5 15c0 1.5.4 3 1 4"/><path d="M5 19c2-5 5-8 9-10"/>',
+    home: '<path d="M3.5 10.5 12 3.5l8.5 7"/><path d="M5.5 9v10.5a1 1 0 0 0 1 1H10v-5.5h4v5.5h3.5a1 1 0 0 0 1-1V9"/>',
+    ladwani: '<circle cx="12" cy="4.75" r="2.25"/><circle cx="5" cy="19" r="2.25"/><circle cx="12" cy="19" r="2.25"/><circle cx="19" cy="19" r="2.25"/><path d="M12 7v9.75M5 16.75V13.5A1.5 1.5 0 0 1 6.5 12h11a1.5 1.5 0 0 1 1.5 1.5v3.25"/>',
+    atip: '<path d="M3.5 20.5h17"/><path d="m5 15.5 4.5-5 3.5 3 6-7"/><path d="M15.5 6.5H19V10"/>',
+    education: '<path d="m2.5 9 9.5-4.5L21.5 9 12 13.5z"/><path d="M6.5 11v4.75c1.5 1.5 3.5 2.25 5.5 2.25s4-.75 5.5-2.25V11"/><path d="M21.5 9v5.5"/>',
+    tasklist: '<rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="m8 12.25 2.75 2.75L16 9.5"/>',
+    driving: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.5"/><path d="M3.5 11h6M14.5 11h6M12 14.5v6"/>',
+    environment: '<path d="M20 4c-9.5 0-15.5 5-15.5 11.5 0 1.6.4 3 1 4 1 .3 2.1.5 3.2.5C15.5 20 20 14.5 20 4z"/><path d="M4 20.5c3.2-4.7 7-7.7 11-9.5"/>',
     grid: '<rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/>',
     theme: '<path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/>',
     globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
     external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+    'arrow-left': '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+    user: '<circle cx="12" cy="8" r="4"/><path d="M4 20.5c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5"/>',
   };
 
   /**
@@ -65,11 +70,11 @@
    */
   const TABS = [
     { key: 'ladwani',     name: 'LadWani',                  path: '/ladwani/',           icon: 'ladwani',     accent: '#7C2D12', tagline: 'Family trees and community, for every village' },
-    { key: 'atip',        name: 'ATIP',                     path: '/ATIP/',              icon: 'atip',        accent: '#C2560A', tagline: 'Trading intelligence, view only', ownerOnly: true, external: true },
+    { key: 'atip',        name: 'ATIP',                     path: '/ATIP/',              icon: 'atip',        accent: '#475569', tagline: 'Trading intelligence, view only', ownerOnly: true, external: true },
     { key: 'education',   name: 'Education',                path: '/edu/',               icon: 'education',   accent: '#0F766E', tagline: 'Learning, progress and school life in one place' },
     { key: 'tasklist',    name: 'TaskList',                 path: '/tasklist/',          icon: 'tasklist',    accent: '#4338CA', tagline: 'Capture a task in two taps; see today at a glance' },
-    { key: 'driving',     name: 'Driving Simulator',        path: '/driving-simulator/', icon: 'driving',     accent: '#C2560A', tagline: 'Practise safe driving before the road' },
-    { key: 'environment', name: 'Environmental Activities', path: '/environment/',       icon: 'environment', accent: '#15803D', tagline: 'Climate facts and what we can do locally' },
+    { key: 'driving',     name: 'Driving Simulator',        path: '/driving-simulator/', icon: 'driving',     accent: '#0369A1', short: 'Driving', tagline: 'Practise safe driving before the road' },
+    { key: 'environment', name: 'Environmental Activities', path: '/environment/',       icon: 'environment', accent: '#15803D', short: 'Environment', tagline: 'Climate facts and what we can do locally' },
   ];
 
   /** Shell strings. English is the source; Marathi and Hindi follow it key for key. */
@@ -79,8 +84,10 @@
       language: 'Language', theme: 'Theme', signIn: 'Sign in', signOut: 'Sign out',
       account: 'Account', signedInTo: 'Signed in to {project}', separate: 'This is a separate account for {project}.',
       about: 'About', privacy: 'Privacy', terms: 'Terms', contact: 'Contact', footerNote: 'Each project keeps its own account and data.',
+      backHome: 'Back to bkesari home', home: 'bkesari home', homeSub: 'Every project, in one place', myProjects: 'My projects and access',
+      footerTag: 'One home for our community\'s projects.', footerProjects: 'Projects', footerSite: 'bkesari.com',
       'tag.ladwani': 'Family trees and community, for every village',
-      'tag.atip': 'Trading intelligence, view only',
+      'tag.atip': 'Private: the owner\'s view-only trading dashboard',
       'tag.education': 'Learning, progress and school life in one place',
       'tag.tasklist': 'Capture a task in two taps; see today at a glance',
       'tag.driving': 'Practise safe driving before the road',
@@ -91,8 +98,10 @@
       language: 'भाषा', theme: 'थीम', signIn: 'साइन इन', signOut: 'साइन आउट',
       account: 'खाते', signedInTo: '{project} मध्ये साइन इन', separate: 'हे {project} साठी स्वतंत्र खाते आहे.',
       about: 'आमच्याविषयी', privacy: 'गोपनीयता', terms: 'अटी', contact: 'संपर्क', footerNote: 'प्रत्येक प्रकल्पाचे खाते आणि माहिती स्वतंत्र असते.',
+      backHome: 'bkesari मुख्यपृष्ठावर परत जा', home: 'bkesari मुख्यपृष्ठ', homeSub: 'सर्व प्रकल्प, एकाच ठिकाणी', myProjects: 'माझे प्रकल्प आणि प्रवेश',
+      footerTag: 'आपल्या समाजाच्या प्रकल्पांचे एक घर.', footerProjects: 'प्रकल्प', footerSite: 'bkesari.com',
       'tag.ladwani': 'प्रत्येक गावासाठी वंशवृक्ष आणि समाज',
-      'tag.atip': 'ट्रेडिंग माहिती, फक्त पाहण्यासाठी',
+      'tag.atip': 'खासगी: मालकाचा फक्त पाहण्यासाठीचा ट्रेडिंग डॅशबोर्ड',
       'tag.education': 'शिक्षण, प्रगती आणि शाळेचे जीवन एकाच ठिकाणी',
       'tag.tasklist': 'दोन टॅपमध्ये काम नोंदवा; आजचे काम एका नजरेत',
       'tag.driving': 'रस्त्यावर जाण्यापूर्वी सुरक्षित ड्रायव्हिंगचा सराव',
@@ -103,8 +112,10 @@
       language: 'भाषा', theme: 'थीम', signIn: 'साइन इन', signOut: 'साइन आउट',
       account: 'खाता', signedInTo: '{project} में साइन इन', separate: 'यह {project} के लिए अलग खाता है।',
       about: 'हमारे बारे में', privacy: 'गोपनीयता', terms: 'शर्तें', contact: 'संपर्क', footerNote: 'हर प्रोजेक्ट का खाता और डेटा अलग रहता है।',
+      backHome: 'bkesari मुखपृष्ठ पर वापस जाएँ', home: 'bkesari मुखपृष्ठ', homeSub: 'सभी प्रोजेक्ट, एक ही जगह', myProjects: 'मेरे प्रोजेक्ट और पहुँच',
+      footerTag: 'हमारे समाज के प्रोजेक्टों का एक घर।', footerProjects: 'प्रोजेक्ट', footerSite: 'bkesari.com',
       'tag.ladwani': 'हर गाँव के लिए वंशवृक्ष और समुदाय',
-      'tag.atip': 'ट्रेडिंग जानकारी, केवल देखने के लिए',
+      'tag.atip': 'निजी: मालिक का केवल देखने वाला ट्रेडिंग डैशबोर्ड',
       'tag.education': 'पढ़ाई, प्रगति और स्कूल जीवन एक ही जगह',
       'tag.tasklist': 'दो टैप में काम लिखें; आज का काम एक नज़र में',
       'tag.driving': 'सड़क पर जाने से पहले सुरक्षित ड्राइविंग का अभ्यास',
@@ -126,7 +137,7 @@
   }
 
   function icon(name, cls) {
-    return `<svg class="${cls || 'ks-ico'}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICONS[name] || ''}</svg>`;
+    return `<svg class="${cls || 'ks-ico'}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICONS[name] || ''}</svg>`;
   }
 
   /**
@@ -183,14 +194,17 @@
   background:var(--ks-surface);color:var(--ks-ink);line-height:1.4}
 .ks-bar[data-project=ladwani]{--ks-accent:#7C2D12}.ks-bar[data-project=education]{--ks-accent:#0F766E}
 .ks-bar[data-project=tasklist]{--ks-accent:#4338CA}.ks-bar[data-project=environment]{--ks-accent:#15803D}
+.ks-bar[data-project=driving]{--ks-accent:#0369A1}.ks-bar[data-project=atip]{--ks-accent:#475569}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]) .ks-bar,:root:not([data-theme=light]) .ks-foot{--ks-surface:#1F1B19;--ks-ink:#F5F5F4;
   --ks-muted:#C9C4BF;--ks-line:#3A3532;--ks-brand:#F08A3C;--ks-tint:#3A2312;--ks-accent:#F08A3C;--ks-focus:#F5A869}
   :root:not([data-theme=light]) .ks-bar[data-project=ladwani]{--ks-accent:#F4A68C}:root:not([data-theme=light]) .ks-bar[data-project=education]{--ks-accent:#5EEAD4}
-  :root:not([data-theme=light]) .ks-bar[data-project=tasklist]{--ks-accent:#A5B4FC}:root:not([data-theme=light]) .ks-bar[data-project=environment]{--ks-accent:#4ADE80}}
+  :root:not([data-theme=light]) .ks-bar[data-project=tasklist]{--ks-accent:#A5B4FC}:root:not([data-theme=light]) .ks-bar[data-project=environment]{--ks-accent:#4ADE80}
+  :root:not([data-theme=light]) .ks-bar[data-project=driving]{--ks-accent:#7DD3FC}:root:not([data-theme=light]) .ks-bar[data-project=atip]{--ks-accent:#CBD5E1}}
 :root[data-theme=dark] .ks-bar,:root[data-theme=dark] .ks-foot{--ks-surface:#1F1B19;--ks-ink:#F5F5F4;--ks-muted:#C9C4BF;--ks-line:#3A3532;
   --ks-brand:#F08A3C;--ks-tint:#3A2312;--ks-accent:#F08A3C;--ks-focus:#F5A869}
 :root[data-theme=dark] .ks-bar[data-project=ladwani]{--ks-accent:#F4A68C}:root[data-theme=dark] .ks-bar[data-project=education]{--ks-accent:#5EEAD4}
 :root[data-theme=dark] .ks-bar[data-project=tasklist]{--ks-accent:#A5B4FC}:root[data-theme=dark] .ks-bar[data-project=environment]{--ks-accent:#4ADE80}
+:root[data-theme=dark] .ks-bar[data-project=driving]{--ks-accent:#7DD3FC}:root[data-theme=dark] .ks-bar[data-project=atip]{--ks-accent:#CBD5E1}
 .ks-bar *,.ks-foot *{box-sizing:border-box}
 .ks-bar{position:sticky;top:0;z-index:9000;border-bottom:1px solid var(--ks-line);border-top:3px solid var(--ks-accent)}
 .ks-bar a,.ks-foot a{color:inherit}
@@ -201,10 +215,14 @@
 .ks-in{max-width:1120px;margin:0 auto;padding:6px 12px;display:flex;align-items:center;gap:4px;min-height:60px}
 .ks-brand{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:19px;text-decoration:none;min-height:48px;padding:0 6px;border-radius:8px;flex:none}
 .ks-mark{width:26px;height:26px;border-radius:8px;background:var(--ks-brand);display:grid;place-items:center;color:#fff;font-size:15px;font-weight:800;flex:none}
+/* Inside a project the logo is the way back: an arrow says so, and the link's name is "Back to bkesari home". */
+.ks-back .ks-ico{width:20px;height:20px;color:var(--ks-muted);margin-right:-2px;transition:transform 160ms cubic-bezier(.2,0,0,1)}
+.ks-back:hover{background:var(--ks-tint)}.ks-back:hover .ks-ico{transform:translateX(-2px);color:var(--ks-ink)}
 .ks-env{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:var(--ks-tint);color:var(--ks-ink);padding:2px 8px;border-radius:20px}
 .ks-bar .ks-proj{display:inline-flex;align-items:center;gap:6px;min-height:48px;padding:0 8px;color:var(--ks-accent);font-weight:700;font-size:17px;
   text-decoration:none;flex:0 1 auto;min-width:4.5em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ks-bar .ks-proj::before{content:"/";color:var(--ks-muted);font-weight:400;margin-right:2px}
+.ks-proj-short{display:none}
 .ks-tools{margin-left:auto;display:flex;align-items:center;gap:2px;flex:none}
 .ks-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:48px;min-height:48px;padding:0 10px;border:0;border-radius:10px;
   background:transparent;color:var(--ks-ink);font:inherit;font-weight:600;cursor:pointer;text-decoration:none;list-style:none}
@@ -226,7 +244,10 @@
 .ks-dot{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;flex:none;color:#fff}
 .ks-dot .ks-ico{width:20px;height:20px}
 .ks-item small{display:block;color:var(--ks-muted);font-size:13px;line-height:1.3}
-.ks-all{display:flex;justify-content:center;align-items:center;min-height:48px;margin-top:4px;border-top:1px solid var(--ks-line);font-weight:700;text-decoration:none;color:var(--ks-brand)!important}
+.ks-all{display:flex;justify-content:center;align-items:center;gap:8px;min-height:48px;margin-top:4px;border-top:1px solid var(--ks-line);font-weight:700;text-decoration:none;color:var(--ks-ink)!important}
+.ks-all:hover{background:var(--ks-tint);border-radius:0 0 10px 10px}
+.ks-panel a.ks-homeitem{border-bottom:1px solid var(--ks-line);border-radius:10px 10px 0 0;margin-bottom:4px}
+.ks-homeitem .ks-dot{background:var(--ks-brand)}
 .ks-avatar{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--ks-accent);color:#fff;font-weight:700;font-size:14px;flex:none}
 .ks-acct-head{padding:8px 10px 10px;border-bottom:1px solid var(--ks-line);margin-bottom:6px}
 .ks-acct-head strong{display:block}.ks-acct-head small{color:var(--ks-muted)}
@@ -242,27 +263,50 @@
 /* Phones: inside a project the logo alone stands for bkesari, so the
    project's own name always fits beside it. */
 @media (max-width:480px){.ks-bar[data-project] .ks-brand-name{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-  .ks-bar[data-project] .ks-brand{padding:0 4px}.ks-bar .ks-proj{min-width:3.5em}.ks-env{font-size:10px;padding:1px 5px}
+  .ks-bar[data-project] .ks-brand{padding:0 4px;gap:4px}.ks-bar .ks-proj{min-width:3.5em}.ks-env{font-size:10px;padding:1px 5px}
+  .ks-proj-full{display:none}.ks-proj-short{display:inline}.ks-back .ks-ico{width:18px;height:18px}
   /* Signed out, every project page carries its own sign-in; the header link would not fit. */
   .ks-account .ks-signin{display:none}}
-.ks-foot{border-top:1px solid var(--ks-line);color:var(--ks-muted);font-size:14px;padding:20px 16px;margin-top:auto}
+.ks-foot{border-top:1px solid var(--ks-line);color:var(--ks-muted);font-size:14px;padding:24px 16px 20px;margin-top:auto}
 .ks-foot-in{max-width:1120px;margin:0 auto;display:flex;flex-wrap:wrap;gap:8px 24px;align-items:center;justify-content:space-between}
+.ks-foot-top{max-width:1120px;margin:0 auto 8px;padding-bottom:12px;border-bottom:1px solid var(--ks-line);display:flex;flex-wrap:wrap;gap:8px 32px;align-items:center;justify-content:space-between}
+.ks-foot-brand{display:flex;align-items:center;gap:10px;color:var(--ks-ink)}
+.ks-foot-brand a{color:var(--ks-ink);font-weight:700;font-size:16px;text-decoration:none;gap:8px}
+.ks-foot-brand span.ks-foot-tag{color:var(--ks-muted)}
 .ks-foot ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:0 16px}
 .ks-foot a{display:inline-flex;align-items:center;min-height:44px;color:var(--ks-muted)}
 .ks-foot a:hover{color:var(--ks-ink)}
 .ks-foot p{margin:0}
+.ks-foot .ks-mark{width:22px;height:22px;font-size:13px;border-radius:6px}
 @media print{.ks-bar,.ks-foot{display:none}}
 </style>`;
   }
 
   function projectList(opts, lang, activePath) {
-    return TABS.filter((tab) => !tab.ownerOnly || opts.isOwner).map((tab) => {
+    // Every project is listed, ATIP included (the owner's brief, 17 Nov 2026):
+    // its entry says it is private and opens /ATIP/ unchanged, which asks for
+    // the owner's sign-in itself. opts.isOwner is kept for callers; the list no longer depends on it.
+    return TABS.map((tab) => {
       const current = tab.path === activePath ? ' aria-current="page"' : '';
       const ext = tab.external ? ` target="_blank" rel="noopener"` : '';
       return `<li><a class="ks-item" href="${escapeHtml(tab.path)}"${current}${ext}>` +
         `<span class="ks-dot" style="background:${escapeHtml(tab.accent)}">${icon(tab.icon)}</span>` +
         `<span>${escapeHtml(tab.name)}${tab.external ? ' ↗' : ''}<small>${escapeHtml(s(lang, `tag.${tab.key}`))}</small></span></a></li>`;
     }).join('');
+  }
+
+  /**
+   * Inside a project the logo is the way home. Its name comes from its content
+   * ("Back to" and "home" are there for screen readers only, around the visible
+   * word "bkesari"), so what people see is part of what is announced (WCAG 2.5.3)
+   * in every language, and the tier badge stays outside the link.
+   */
+  function backLink(lang) {
+    const whole = s(lang, 'backHome');
+    const at = whole.indexOf('bkesari');
+    const sr = (text) => (text.trim() ? `<span class="ks-sr">${escapeHtml(text)}</span>` : '');
+    return `<a class="ks-brand ks-back" href="/" title="${escapeHtml(whole)}">${icon('arrow-left')}<span class="ks-mark" aria-hidden="true">b</span>` +
+      `${sr(whole.slice(0, at))}<span class="ks-brand-name">bkesari</span>${sr(whole.slice(at + 7))}</a>`;
   }
 
   /**
@@ -278,8 +322,12 @@
     const tab = isHome ? null : TABS.find((t) => t.path === active);
     const envPill = env === 'prod' ? '' : ` <span class="ks-env">${escapeHtml(env)}</span>`;
     const projectAttr = tab ? ` data-project="${escapeHtml(tab.key)}"` : '';
+    // Long names have a short form for phones (one of the two is display:none, so
+    // the link's name is always exactly the words on screen).
     const projectName = tab
-      ? `<a class="ks-proj" href="${escapeHtml(tab.path)}">${escapeHtml(tab.name)}</a>`
+      ? `<a class="ks-proj" href="${escapeHtml(tab.path)}">${tab.short
+        ? `<span class="ks-proj-full">${escapeHtml(tab.name)}</span><span class="ks-proj-short">${escapeHtml(tab.short)}</span>`
+        : escapeHtml(tab.name)}</a>`
       : '';
     const langOptions = LANGS.map(([code, label]) => `<option value="${code}"${code === lang ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
 
@@ -287,13 +335,16 @@
 <header class="ks-bar bk-menu"${projectAttr}>
   <a class="ks-skip" href="#main">${escapeHtml(s(lang, 'skip'))}</a>
   <nav class="ks-in" aria-label="bkesari">
-    <a class="ks-brand" href="/"${isHome ? ' aria-current="page"' : ''}><span class="ks-mark" aria-hidden="true">b</span><span class="ks-brand-name">bkesari</span>${envPill}</a>
+    ${isHome
+    ? `<a class="ks-brand" href="/" aria-current="page"><span class="ks-mark" aria-hidden="true">b</span><span class="ks-brand-name">bkesari</span>${envPill}</a>`
+    : backLink(lang) + envPill}
     ${projectName}
     <div class="ks-tools">
       <details class="ks-pop ks-switch">
         <summary class="ks-btn" aria-label="${escapeHtml(s(lang, 'projects'))}" title="${escapeHtml(s(lang, 'projects'))}">${icon('grid')}<span class="ks-label ks-hide-sm">${escapeHtml(s(lang, 'projects'))}</span></summary>
-        <div class="ks-panel"><ul>${projectList(opts, lang, active)}</ul>
-          <a class="ks-all" href="/#projects">${escapeHtml(s(lang, 'projectsHub'))}</a></div>
+        <div class="ks-panel"><a class="ks-item ks-homeitem" href="/"${isHome ? ' aria-current="page"' : ''}><span class="ks-dot">${icon('home')}</span><span>${escapeHtml(isHome ? s(lang, 'home') : s(lang, 'backHome'))}<small>${escapeHtml(s(lang, 'homeSub'))}</small></span></a>
+          <ul>${projectList(opts, lang, active)}</ul>
+          <a class="ks-all" href="/account">${icon('user')}${escapeHtml(s(lang, 'myProjects'))}</a></div>
       </details>
       <label class="ks-lang" hidden data-ks-js>${icon('globe')}<select data-k-lang aria-label="${escapeHtml(s(lang, 'language'))}">${langOptions}</select></label>
       <button class="ks-btn" type="button" data-k-theme hidden data-ks-js aria-label="${escapeHtml(s(lang, 'theme'))}">${icon('theme')}</button>
@@ -308,7 +359,13 @@
     const opts = options || {};
     const lang = STRINGS[opts.lang] ? opts.lang : 'en';
     const year = opts.year || new Date().getFullYear();
+    const projects = TABS.filter((tab) => !tab.ownerOnly)
+      .map((tab) => `<li><a href="${escapeHtml(tab.path)}">${escapeHtml(tab.name)}</a></li>`).join('');
     return `<footer class="ks-foot k-footer" data-ks-footer data-ks-lang="${lang}">
+  <div class="ks-foot-top">
+    <p class="ks-foot-brand"><a href="/"><span class="ks-mark" aria-hidden="true">b</span>bkesari</a><span class="ks-foot-tag">${escapeHtml(s(lang, 'footerTag'))}</span></p>
+    <nav aria-label="${escapeHtml(s(lang, 'footerProjects'))}"><ul>${projects}</ul></nav>
+  </div>
   <div class="ks-foot-in">
     <nav aria-label="${escapeHtml(s(lang, 'about'))}"><ul>
       <li><a href="/about">${escapeHtml(s(lang, 'about'))}</a></li>
@@ -377,6 +434,15 @@
       d.querySelectorAll('.ks-bar details[open]').forEach((det) => { det.removeAttribute('open'); const sm = det.querySelector('summary'); if (sm) sm.focus(); });
     });
     d.querySelectorAll('.ks-bar [data-ks-js]').forEach((el) => { el.hidden = false; });
+    // "Read in मराठी" links on a page: switch in place when the runtime is here;
+    // without it the link's own address (/lang/xx) sets the language on the server.
+    d.querySelectorAll('[data-k-setlang]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        if (!win.Kesari || typeof win.Kesari.setLang !== 'function') return;
+        e.preventDefault();
+        win.Kesari.setLang(el.getAttribute('data-k-setlang'));
+      });
+    });
     if (win.Kesari) { win.Kesari.wire(d.querySelector('.ks-bar')); return; }
     // Without the Kesari runtime the shell drives its own two controls.
     const sel = d.querySelector('.ks-bar select[data-k-lang]');

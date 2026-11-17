@@ -21,8 +21,11 @@
   },
   "plugins": {
     "SplashScreen": {
-      "backgroundColor": "#7C2D12",
-      "launchShowDuration": 600
+      "backgroundColor": "#FAF8F5",
+      "launchShowDuration": 600,
+      "showSpinner": false,
+      "androidScaleType": "CENTER_CROP",
+      "splashFullScreen": false
     }
   }
 }

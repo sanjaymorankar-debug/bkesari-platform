@@ -120,8 +120,8 @@ fi
 group "The hub"
 status / "the welcome page is served" 200
 contains / '/shared/menu.js' "the welcome page includes the shared menu"
-contains / '/kesari-ui/1.0.0/kesari.css' "the welcome page uses the pinned Kesari design system"
-status /kesari-ui/1.0.0/kesari.css "the Kesari stylesheet is served" 200
+contains / '/kesari-ui/1.1.0/kesari.css' "the welcome page uses the pinned Kesari design system"
+status /kesari-ui/1.1.0/kesari.css "the Kesari stylesheet is served" 200
 # The home page is rendered on the server, tiles included, so every project is
 # reachable without JavaScript.
 contains / 'Driving Simulator' "the home page lists the projects without JavaScript"

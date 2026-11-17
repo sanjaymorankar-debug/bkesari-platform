@@ -162,6 +162,26 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
     return { values, errors };
   }
 
+  /**
+   * Who approves access, project by project. Each project keeps its own
+   * accounts and its own queue (no project reads another's), so the hub admin
+   * sees where each queue is and opens it with that project's own account.
+   */
+  const APPROVALS_PANEL = `<section class="k-card hub-approvals" aria-labelledby="appr-h">
+<h2 id="appr-h">Access approvals</h2>
+<p class="k-muted">Each project approves its own people, in its own queue, with its own administrator account. Open a queue to approve or decline.</p>
+<ul class="k-statuslist" role="list">
+<li class="k-statusrow" data-project="ladwani">${pages.ico('ladwani', 'k-icon hub-appr-ico')}<div><h3>LadWani: new members</h3><div class="k-statusrow__meta"><span class="k-chip k-chip--soon">Operator verification</span></div>
+<p>An operator or administrator checks each new member's details before they can see family records.</p></div>
+<div class="k-statusrow__action"><a class="k-btn k-btn--soft" href="/ladwani/approvals/">Open LadWani's queue</a></div></li>
+<li class="k-statusrow" data-project="education">${pages.ico('education', 'k-icon hub-appr-ico')}<div><h3>Education: schools and their people</h3><div class="k-statusrow__meta"><span class="k-chip k-chip--soon">School and officer approval</span></div>
+<p>A school's administrator approves its parents, students and teachers; district officers verify new schools.</p></div>
+<div class="k-statusrow__action"><a class="k-btn k-btn--soft" href="/edu/verification">Open Education's queue</a></div></li>
+<li class="k-statusrow" data-project="tasklist">${pages.ico('tasklist', 'k-icon hub-appr-ico')}<div><h3>TaskList</h3><div class="k-statusrow__meta"><span class="k-chip k-chip--live">Open sign-up</span></div>
+<p>Anyone may create an account; nothing to approve.</p></div>
+<div class="k-statusrow__action"><a class="k-btn k-btn--secondary" href="/tasklist/">Open TaskList</a></div></li>
+</ul></section>`;
+
   function mount(app) {
     // Old shared sign-in and access pages: everyone lands on the chooser.
     app.get(['/auth', '/auth/*', '/access/request', '/access', '/access/*'], (req, res, next) => {
@@ -180,11 +200,43 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
     app.get('/terms', page('terms.title', pages.terms));
     app.get('/auth/sign-in', page('chooser.title', pages.chooser));
 
+    // Request access: step 1 picks a project, step 2 (?project=) says what
+    // that project asks and who approves, then hands over to its own sign-up.
+    app.get('/request-access', wrap(async (req, res) => {
+      const lang = pages.langOf(req);
+      const project = pages.SIGN_IN.some((p) => p.key === req.query.project) ? req.query.project : null;
+      const error = !project && req.query.step === '2';
+      send(req, res, { title: `${pages.t(lang, 'request.title')} — bkesari`, status: error ? 400 : 200,
+        body: (l) => pages.requestAccess({ lang: l, project, error }), isOwner: await isOwner(req) });
+    }));
+
+    // My projects and access: each project is asked from the browser (/shared/account.js).
+    app.get('/account', wrap(async (req, res) => {
+      const lang = pages.langOf(req);
+      const owner = await isOwner(req);
+      res.set('X-Robots-Tag', 'noindex');
+      send(req, res, { title: `${pages.t(lang, 'account.title')} — bkesari`, body: (l) => pages.account({ lang: l, isOwner: owner }),
+        isOwner: owner, scripts: ['/shared/account.js'] });
+    }));
+
+    // Read the site in another language without scripts: set k_lang, go back.
+    // Only a path on this site is followed, never another host.
+    app.get('/lang/:code', (req, res) => {
+      const code = pages.LANGS.includes(req.params.code) ? req.params.code : 'en';
+      const next = String(req.query.next || '/');
+      const safe = /^\/(?![/\\])[^\s]*$/.test(next) ? next : '/';
+      res.set('Cache-Control', 'no-store');
+      res.append('Set-Cookie', `k_lang=${code}; Path=/; Max-Age=31536000; SameSite=Lax${req.secure ? '; Secure' : ''}`);
+      res.redirect(303, safe);
+    });
+
     app.get('/contact', wrap(async (req, res) => {
       const lang = pages.langOf(req);
       const sent = req.query.sent === '1';
       const tokens = contactTokens(req, res);
-      send(req, res, { title: `${pages.t(lang, 'contact.title')} — bkesari`, body: (l) => pages.contact({ lang: l, ...tokens, sent }), isOwner: await isOwner(req) });
+      // A page that sends people here may choose the topic (/contact?topic=driving).
+      const values = pages.TOPICS.includes(req.query.topic) ? { topic: req.query.topic } : {};
+      send(req, res, { title: `${pages.t(lang, 'contact.title')} — bkesari`, body: (l) => pages.contact({ lang: l, ...tokens, sent, values }), isOwner: await isOwner(req) });
     }));
 
     app.post('/contact', express.urlencoded({ extended: false, limit: '20kb' }), wrap(async (req, res) => {
@@ -239,6 +291,7 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
       send(req, res, {
         title: `${pages.t(lang, 'admin.title')} — bkesari`, pathname: '/admin', isOwner: s.user.role === 'owner', scripts: ['/shared/admin.js'],
         body: () => `<div class="hub-admin" data-admin-app><h1>Hub admin</h1><p class="k-muted">Signed in as ${escapeHtml(s.user.email || '')} (${escapeHtml(s.user.role)}).</p>
+${APPROVALS_PANEL}
 <div class="hub-admin-grid" id="admin-root"><div class="k-skel k-skel--card"></div><div class="k-skel k-skel--card"></div></div></div>`,
       });
     }));
