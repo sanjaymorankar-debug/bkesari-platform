@@ -125,6 +125,9 @@ export function TopBar() {
 
   if (!user) return null
   const hrefOf = (item: NavItem) => (item.href === '/family' ? familyHref : item.href)
+  // Your own profile page is "Profile", not "Search" (which every other /members/ page is).
+  const ownProfile = !!user.memberId && path === `/members/${user.memberId}`
+  const current = (item: NavItem) => (ownProfile ? item.href === '/profile/edit' : isCurrent(path, item))
   const visible = NAV_ITEMS.filter((item) => !item.show || item.show(user.roles))
 
   return (
@@ -133,7 +136,7 @@ export function TopBar() {
         <ul>
           {visible.map((item) => (
             <li key={item.href}>
-              <Link href={hrefOf(item)} aria-current={isCurrent(path, item) ? 'page' : undefined}>
+              <Link href={hrefOf(item)} aria-current={current(item) ? 'page' : undefined}>
                 <Icon name={item.icon} />
                 <span>{t(item.label)}</span>
                 {item.href === '/notifications' && unread > 0 && (
@@ -154,7 +157,7 @@ export function TopBar() {
       </nav>
       <nav className="k-bottomnav" aria-label={t('nav.label')}>
         {PHONE_ITEMS.map((item) => (
-          <Link key={item.href} href={hrefOf(item)} aria-current={isCurrent(path, item) ? 'page' : undefined}>
+          <Link key={item.href} href={hrefOf(item)} aria-current={current(item) ? 'page' : undefined}>
             <Icon name={item.icon} />
             <span>{t(item.label)}</span>
           </Link>
