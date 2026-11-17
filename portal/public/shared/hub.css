@@ -169,7 +169,10 @@
 .hub-auth__aside{border-top:4px solid var(--k-brand)}
 .hub-auth__aside h2{font-size:var(--k-text-lg);margin-top:0}
 .hub-auth__projects{list-style:none;margin:var(--k-4) 0 0;padding:0;display:grid;gap:var(--k-2)}
-.hub-auth__projects li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--k-3);align-items:center;min-height:44px;font-weight:600}
+/* Wraps instead of squeezing: a long name keeps its words whole and the chip moves to the next line. */
+.hub-auth__projects li{display:flex;flex-wrap:wrap;align-items:center;column-gap:var(--k-3);row-gap:var(--k-1);min-height:44px;font-weight:600}
+.hub-auth__pname{flex:1 1 auto}
+.hub-auth__projects .k-chip{margin-inline-start:auto}
 .hub-google{gap:var(--k-3);min-height:52px;font-size:var(--k-text-md)}
 .hub-or{display:flex;align-items:center;gap:var(--k-3);margin:var(--k-4) 0;font-size:var(--k-text-sm)}
 .hub-or::before,.hub-or::after{content:"";flex:1;border-top:1px solid var(--k-border)}

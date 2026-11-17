@@ -57,6 +57,30 @@ test('a page is the Kesari layout: language, pinned design system, the shell, no
   assert.doesNotMatch(html.replace(/<script src="[^"]+"( defer)?><\/script>/g, ''), /<script/, 'only external scripts');
 });
 
+test('sign-in wording follows Google: named only while its button is on, in every language', () => {
+  for (const lang of ['en', 'mr', 'hi']) {
+    const off = pages.signIn({ lang });
+    const on = pages.signIn({ lang, google: '/auth/google/start?next=%2F' });
+    assert.doesNotMatch(off, /Google/, `${lang}: Google is neither offered nor named while it is off`);
+    assert.ok(off.includes(pages.t(lang, 'id.asideCode')) && off.includes(pages.t(lang, 'home.accountsBodyCode')), `${lang}: the email code only`);
+    assert.match(on, /hub-google/, lang);
+    assert.ok(on.includes(pages.t(lang, 'id.aside')) && on.includes(pages.t(lang, 'home.accountsBody')), `${lang}: Google named beside its button`);
+    const homeOff = pages.home({ lang, tiles: [], announcement: null });
+    assert.ok(homeOff.includes(pages.t(lang, 'home.accountsBodyCode')), `${lang}: home, the email code only`);
+    assert.doesNotMatch(homeOff, /Google/, `${lang}: home does not name Google while it is off`);
+    assert.ok(pages.home({ lang, tiles: [], announcement: null, google: true }).includes(pages.t(lang, 'home.accountsBody')), `${lang}: home with Google`);
+  }
+});
+
+test('sign-in: each project row keeps its name whole and lets the chip wrap (no squeezed grid column)', () => {
+  const css = read('portal/public/shared/hub.css');
+  const row = css.match(/\.hub-auth__projects li\{([^}]*)\}/)[1];
+  assert.match(row, /display:flex/);
+  assert.match(row, /flex-wrap:wrap/);
+  assert.doesNotMatch(row, /minmax\(0/, 'a 0-wide minimum let "Environmental" break mid-word at 360 px');
+  assert.match(pages.signIn({ lang: 'en' }), /<span class="hub-auth__pname">Environmental activities<\/span>/);
+});
+
 test('the owner list defaults to agtcipl@gmail.com and is configurable', () => {
   assert.deepEqual([...ownerEmails({})], ['agtcipl@gmail.com']);
   assert.deepEqual([...ownerEmails({ HUB_OWNER_EMAILS: 'A@x.com, b@y.com' })], ['a@x.com', 'b@y.com']);

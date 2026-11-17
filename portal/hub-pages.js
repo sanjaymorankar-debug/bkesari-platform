@@ -170,7 +170,10 @@ function langLinks(lang, next = '/') {
     .map((l) => `<a href="/lang/${l}?next=${encodeURIComponent(next)}" lang="${l}" hreflang="${l}" data-k-setlang="${l}">${LANG_NAMES[l]}</a>`).join(' <span aria-hidden="true">·</span> ')}</p>`;
 }
 
-function home({ lang, tiles, announcement, states = [], user = null }) {
+/** How you sign in, in words: Google is named only where its button is shown (bkesari-id.js googleEntry). */
+const accountsBody = (lang, google) => t(lang, google ? 'home.accountsBody' : 'home.accountsBodyCode');
+
+function home({ lang, tiles, announcement, states = [], user = null, google = false }) {
   const stateOf = (tile) => states.find((x) => x.key === (TILE_PROJECT[tile.key] || tile.key));
   return `${announcementHtml(announcement, lang)}
 <section class="k-hero hub-hero" aria-labelledby="hero-h">
@@ -199,7 +202,7 @@ function home({ lang, tiles, announcement, states = [], user = null }) {
     <li class="k-feature">${picon('globe', 'hub-vicon')}<h3>${esc(t(lang, 'home.v1t'))}</h3><p>${esc(t(lang, 'home.v1'))}</p></li>
     <li class="k-feature">${picon('phone', 'hub-vicon')}<h3>${esc(t(lang, 'home.v2t'))}</h3><p>${esc(t(lang, 'home.v2'))}</p></li>
     <li class="k-feature">${picon('shield', 'hub-vicon')}<h3>${esc(t(lang, 'home.v3t'))}</h3><p>${esc(t(lang, 'home.v3'))}</p></li>
-    <li class="k-feature">${picon('lock', 'hub-vicon')}<h3>${esc(t(lang, 'home.accountsTitle'))}</h3><p>${esc(t(lang, 'home.accountsBody'))}</p>
+    <li class="k-feature">${picon('lock', 'hub-vicon')}<h3>${esc(t(lang, 'home.accountsTitle'))}</h3><p>${esc(accountsBody(lang, google))}</p>
       ${user ? `<a class="k-link-arrow" href="/account">${esc(t(lang, 'account.title'))}${arrow()}</a>` : `<a class="k-link-arrow" href="/auth/sign-in">${esc(t(lang, 'home.signInHelp'))}${arrow()}</a>`}</li>
   </ul>
 </section>`;
@@ -240,13 +243,13 @@ ${google ? `<a class="k-btn k-btn--brand k-btn--block hub-google" href="${esc(go
 <p class="k-error" id="si-err" role="alert"></p>
 <p class="k-banner k-banner--warning" id="si-dev" role="status" hidden></p>
 </div>
-<p class="k-small k-muted hub-auth__note">${ico('lock', 'k-icon k-icon--sm')}<span>${esc(t(lang, 'home.accountsBody'))}</span></p>
+<p class="k-small k-muted hub-auth__note">${ico('lock', 'k-icon k-icon--sm')}<span>${esc(accountsBody(lang, google))}</span></p>
 </section>
 <aside class="k-card hub-auth__aside" aria-labelledby="id-aside-h">
 <h2 id="id-aside-h">${esc(t(lang, 'id.asideT'))}</h2>
-<p class="k-muted">${esc(t(lang, 'id.aside'))}</p>
+<p class="k-muted">${esc(t(lang, google ? 'id.aside' : 'id.asideCode'))}</p>
 <ul class="hub-auth__projects" role="list">
-${projects.map(([key, name, approval]) => `<li${projectAttr(key)}>${picon(key, 'k-picon--sm')}<span>${esc(name)}</span><span class="k-chip ${approval ? 'k-chip--soon' : 'k-chip--live'}">${esc(t(lang, approval ? 'id.chipApproval' : 'id.chipOpen'))}</span></li>`).join('\n')}
+${projects.map(([key, name, approval]) => `<li${projectAttr(key)}>${picon(key, 'k-picon--sm')}<span class="hub-auth__pname">${esc(name)}</span><span class="k-chip ${approval ? 'k-chip--soon' : 'k-chip--live'}">${esc(t(lang, approval ? 'id.chipApproval' : 'id.chipOpen'))}</span></li>`).join('\n')}
 </ul>
 </aside>
 </div>`;

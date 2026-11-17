@@ -5,7 +5,10 @@ Every in-scope screen, where it lives, the states it shows, and its before/after
 production (bkesari.com) on 17 Nov 2026 for public pages; for the bkesari ID's screens (sign-in,
 request access, My projects, the admin queue, the signed-in home) it is `main` at 2d03d98 run
 locally, since production had not yet been updated to it; for LadWani's and Education's signed-in
-screens it is `main` at 4aaa7fd run locally with the same data.
+screens it is `main` at 4aaa7fd run locally with the same data. `after-prod/` holds the public
+screens captured on bkesari.com itself after the release went live (18 Nov 2026, 02:25 AM IST,
+`main` 1e80125): home, about, contact, privacy, sign-in, Driving Simulator, Environment, 404,
+offline and the admin sign-in.
 Status values follow the product tracker: Not started / In progress / Done / Blocked.
 
 Design system: [design-system.md](design-system.md). Decisions: [decisions.md](decisions.md) D-039 (the bkesari ID) and D-040 onward (this redesign).
