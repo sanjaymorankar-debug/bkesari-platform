@@ -54,6 +54,14 @@ export function builtinEmail(username: BuiltinUsername): string {
   return `${username}@${BUILTIN_EMAIL_DOMAIN}`
 }
 
+/** The built-in administrator whose LadWani address this is (<name>@builtin.bkesari.com), or null. */
+export function builtinUsernameOf(email: unknown): BuiltinUsername | null {
+  if (typeof email !== 'string') return null
+  const address = email.trim().toLowerCase()
+  const username = normalizeBuiltinUsername(address.split('@')[0])
+  return username && builtinEmail(username) === address ? username : null
+}
+
 /** True for an address on the reserved domain, however it is typed. */
 export function isReservedEmail(email: unknown): boolean {
   return typeof email === 'string' && email.trim().toLowerCase().endsWith(`@${BUILTIN_EMAIL_DOMAIN}`)

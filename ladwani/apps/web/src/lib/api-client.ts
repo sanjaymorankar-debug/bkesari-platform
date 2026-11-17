@@ -19,7 +19,7 @@ export const API_BASE = `${BASE_PATH}/api/v1`
 let accessToken: string | null = null
 
 /** Their 401 means "wrong code/password" or "no session", never "access token expired". */
-const SIGN_IN_ROUTES = /^\/auth\/(refresh|login|logout|register|verify-otp|session|otp\/|password\/)/
+const SIGN_IN_ROUTES = /^\/auth\/(refresh|login|logout|register|verify-otp|session|hub|otp\/|password\/)/
 
 export function setAccessToken(token: string | null) {
   accessToken = token

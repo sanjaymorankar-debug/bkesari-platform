@@ -11,8 +11,11 @@ return [
         'asset_origin' => rtrim((string) env('HUB_ASSET_ORIGIN', ''), '/'),
         // A request carrying this value in X-Bkesari-Proxy came through the
         // hub, and only its forwarded headers are believed
-        // (App\Http\Middleware\TrustHubProxy, D-038). The hub reads the same
-        // HUB_PROXY_SECRET. Unset: every proxy is trusted, as before.
+        // (App\Http\Middleware\TrustHubProxy, D-038). It is also the key of
+        // the hub's signed X-Bkesari-* identity headers
+        // (App\Http\Middleware\HubIdentitySignIn, D-039). The hub reads the
+        // same HUB_PROXY_SECRET. Unset: every proxy is trusted, as before,
+        // and the identity headers are ignored (Education's own sign-in only).
         'proxy_secret' => (string) env('HUB_PROXY_SECRET', ''),
     ],
 

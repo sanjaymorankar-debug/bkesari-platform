@@ -17,12 +17,18 @@ const crypto = require('crypto');
  *   - The API is LadWani's NestJS app (ladwani/apps/api), initialised here
  *     without listen() and mounted at /ladwani/api/v1.
  *
- * LadWani signs its own people in (its users table, in its own database; its
- * session cookie lw_sid on Path=/ladwani). The hub puts no gate in front of it
- * and forwards nothing about who anyone is: since 3 Nov 2026 there is no
- * shared bkesari ID. The one thing the hub tells LadWani is the visitor's
- * address as the hub saw it (VISITOR_HEADER, trust-proxy aware), so LadWani's
- * rate limits count per visitor rather than per proxy.
+ * Who the person is comes from the bkesari ID (D-039, docs/design/bkesari-id.md):
+ * the hub's access gate (portal/access.js, mounted in server.js before this)
+ * signs the person in, checks their LadWani grant, removes any X-Bkesari-*
+ * header the browser sent and sets the signed ones (HUB_PROXY_SECRET), which
+ * LadWani's API verifies (ladwani/apps/api/src/auth/hub-identity.ts) to open
+ * its own session (lw_sid on Path=/ladwani) for that account. LadWani answers
+ * with X-Bkesari-Project-State (its own verification, the second step); the
+ * gate stores it on the grant and removes it before the response leaves.
+ * Without HUB_PROXY_SECRET LadWani ignores the headers and its own sign-in
+ * works as before. The hub also tells LadWani the visitor's address as the
+ * hub saw it (VISITOR_HEADER, trust-proxy aware), so LadWani's rate limits
+ * count per visitor rather than per proxy.
  *
  * LadWani's settings carry a LADWANI_ prefix so they cannot collide with the
  * hub's: LADWANI_DATABASE_URL (required for the API) and LADWANI_JWT_SECRET.

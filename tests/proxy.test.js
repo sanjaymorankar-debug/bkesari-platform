@@ -617,7 +617,8 @@ test("the hub admin's session cookie never reaches a project app; the project's 
     assert.equal(await get('/edu/', 'hub_admin_sid=secret;hub_admin_sid_csrf=pair'), 200);
     assert.equal(await get('/edu/', 'edu_sid=mine'), 200);
     assert.equal(await get('/edu/'), 200);
-    assert.deepEqual(seen, ['edu_sid=mine; k_lang=mr; k_admin=1', null, 'edu_sid=mine', null]);
+    assert.equal(await get('/edu/', 'bk_sid=hub-id-token; edu_sid=mine; bk_sid_csrf=pair'), 200, 'the bkesari ID session (D-039) stays at the hub too');
+    assert.deepEqual(seen, ['edu_sid=mine; k_lang=mr; k_admin=1', null, 'edu_sid=mine', null, 'edu_sid=mine']);
   } finally {
     await close(hub.server);
     await close(upstream.server);

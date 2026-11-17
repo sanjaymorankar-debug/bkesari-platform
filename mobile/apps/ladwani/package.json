@@ -1,0 +1,12 @@
+{
+  "name": "bkesari-ladwani-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LadWani (com.bkesari.ladwani): a Capacitor shell around its project on bkesari.com. Installed from ../../package.json (npm ci in mobile/); this file lets the Capacitor CLI run here (npx cap add/sync) and lists the plugins the app uses. See ../../README.md.",
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/ios": "^8.6.2",
+    "@capacitor/splash-screen": "^8.0.2"
+  }
+}

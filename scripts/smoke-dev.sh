@@ -139,14 +139,18 @@ case "$CT" in
 esac
 
 # --- Access control --------------------------------------------------------
-# Since 3 Nov 2026 every project signs its own people in. TaskList's pages send
-# a visitor to TaskList's own sign-in page, and its API answers 401; a 200 from
-# the API without a session would mean anyone can read and edit its tasks.
+# Since 17 Nov 2026 (D-039) the hub's access gate stands in front of every
+# project: a visitor is sent to the bkesari ID's sign-in page (/auth/sign-in),
+# and a project's API answers 401; a 200 from the API without a session would
+# mean anyone can read and edit its tasks. (A hub from before D-039 sends the
+# visitor to TaskList's own sign-in page, which also passes.)
 group "Access control"
 fetch /tasklist/
 case "$STATUS" in
   200)
-    if grep -q 'id="otp-send"' "$BODY"; then
+    if grep -q 'data-signin' "$BODY"; then
+      ok "TaskList sends a visitor to the bkesari ID's sign-in page"
+    elif grep -q 'id="otp-send"' "$BODY"; then
       ok "TaskList sends a visitor to its own sign-in page"
     else
       bad "TASKLIST IS OPEN TO THE INTERNET" "/tasklist/ answered 200 with the app, not its sign-in page."
@@ -165,8 +169,8 @@ case "$STATUS" in
   200) bad "THE HUB ADMIN API IS OPEN TO THE INTERNET" "/admin/api/state answered 200 with no session." ;;
   *)   caution "/admin/api/state answered $STATUS" "expected 401" ;;
 esac
-# The old shared sign-in is retired: its address is the project chooser.
-contains /auth/sign-in 'Choose a project' "the old shared sign-in address shows the project chooser"
+# /auth/sign-in is the bkesari ID's sign-in page again (D-039).
+contains /auth/sign-in 'data-signin' "/auth/sign-in is the bkesari ID's sign-in page"
 fetch /tasks/api/overview
 case "$STATUS" in
   410) ok "the old Task Tracker API is gone (410)" ;;
@@ -326,7 +330,11 @@ done
 # and posts there, so getting it wrong means nobody can sign in while the page
 # itself looks completely healthy. A status code cannot see any of this.
 fetch /edu/
-if [ "$STATUS" = 200 ]; then
+if [ "$STATUS" = 200 ] && grep -q 'data-signin' "$BODY"; then
+  # The access gate answered (D-039): Education's own pages need a bkesari ID
+  # with Education access, so its markup cannot be checked from here.
+  ok "/edu/ is behind the bkesari ID: a visitor is sent to /auth/sign-in"
+elif [ "$STATUS" = 200 ]; then
   if grep -qF 'data-update-uri="/edu/livewire/update"' "$BODY"; then
     ok "/edu/ points Livewire at its own endpoint, so the sign-in form can post"
   elif grep -qF 'data-update-uri="/livewire/update"' "$BODY"; then

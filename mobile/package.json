@@ -1,20 +1,26 @@
 {
   "name": "bkesari-mobile",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "Android and iOS apps for LadWani, Education and TaskList: each project's own site (and its own sign-in) in a Capacitor shell. See README.md.",
+  "description": "Android and iOS apps for bkesari.com: the bkesari app (one bkesari ID with Google sign-in, D-039) and the earlier per-project shells for LadWani, Education and TaskList. See README.md.",
   "scripts": {
+    "test": "node --test test/*.test.js",
+    "vendor": "node scripts/vendor.mjs",
+    "sync:bkesari": "node scripts/vendor.mjs && cd bkesari && npx cap sync",
+    "android:debug:bkesari": "cd bkesari/android && ./gradlew assembleDebug",
     "add:android": "for a in ladwani education tasklist; do (cd apps/$a && npx cap add android); done",
     "add:ios": "for a in ladwani education tasklist; do (cd apps/$a && npx cap add ios); done",
     "sync": "for a in ladwani education tasklist; do (cd apps/$a && npx cap sync); done"
   },
   "dependencies": {
-    "@capacitor/core": "^8.0.0",
-    "@capacitor/android": "^8.0.0",
-    "@capacitor/ios": "^8.0.0",
-    "@capacitor/splash-screen": "^8.0.0"
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/browser": "^8.0.5",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/ios": "^8.6.2",
+    "@capacitor/splash-screen": "^8.0.2"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.0.0"
+    "@capacitor/cli": "^8.6.2"
   }
 }
