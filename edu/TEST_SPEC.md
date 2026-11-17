@@ -178,7 +178,7 @@ Run in order, from `edu/`. Each row's command is literal; the "passes when" colu
 | 10 | S3c | the SQL load, below | every file exit 0; `compare_schema.py` prints `schemas match` (it refuses a dump with no `CREATE TABLE`, so a failed `pg_dump` cannot pass); re-running 02 and 03 exits 0; `migrate --pretend` says `Nothing to migrate` |
 | 11 | S3d | the incremental scripts, below | every file exit 0; `compare_schema.py` prints `schemas match` |
 | 12 | S4 | `npm ci && rm -rf /tmp/edu-build && npx vite build --outDir /tmp/edu-build --emptyOutDir && diff -r /tmp/edu-build public/build` | `diff` prints nothing: the committed build is exactly what the sources produce |
-| 13 | S5 | the smoke run, below | `http smoke: N passed, 0 failed` and `browser smoke: N passed, 0 failed` (60 and 21 at baseline) |
+| 13 | S5 | the smoke run, below | `http smoke: N passed, 0 failed` and `browser smoke: N passed, 0 failed` (65 and 21 at baseline) |
 | 14 | S6 | the hygiene checks, below | each as stated |
 | 15 | S7 | the Neon parity checks, below | each as stated |
 
@@ -521,7 +521,8 @@ a Kelvin sign a plain k there, and so `bu\u{0130}ltin.bkesari.com` is the reserv
 that mapping equals `lower()` at every code point; `Str::lower` differs at U+0130 only. `EmailSignIn::normalize()`
 lowercases the same way, so the emailed-code form refuses the dotted form too (edu-tester D1). S5 ran with
 `HUB_PROXY_SECRET` on both sides. Same container type and versions (PHP 8.3.6 with libpq 16.15, PostgreSQL
-16.15, PgBouncer 1.22.0, Node 22.23, Chromium via Playwright 1.63). These are now the floor:
+16.15, PgBouncer 1.22.0, Node 22.23, Chromium via Playwright 1.63). These were the floor until the 17 Nov 2026
+re-measure below:
 
 | # | Level | Result |
 |---|---|---|
@@ -536,6 +537,34 @@ lowercases the same way, so the emailed-code form refuses the dotted form too (e
 | 13 | S5 | with `HUB_PROXY_SECRET` on both sides: http 60 passed (3 s), browser 21 passed (9 s), with `KILL_URL` through PgBouncer |
 | 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 0; `npm audit` 5 dev-only, 0 with `--omit=dev` |
 | 15 | S7.1 | 544 passed through the pooler, 44 s; 7.2/7.3/7.5/7.8 as specified |
+
+**Re-measured 2026-11-17, D-039 and Kesari 1.1.0** (edu-tester, commit `a7de01d`, whose `edu/` is as at `6a7ba25`,
+plus its fix in the working tree). `main` brought D-039, the hub's signed identity (`HubIdentitySignIn`,
+`HubIdentity`, `users.hub_role` in migration 69, `HubIdentitySignInTest`), measured there at 574 tests; this branch
+merged it into Education's screens on Kesari 1.1.0 (the landing and school search, the school profile, the five
+dashboards, the profile, sign-in, sign-up and onboarding, Education's own 404, 403 and 419 pages), and `/shell/me`
+now also returns the account's role names. Every test on `main` is still there, with as many assertions. A stored
+value put into a translated sentence is now translated too (edu-tester D1: on a Marathi or Hindi page a confidence
+level and an open complaint's status stayed in English). S5 ran with `HUB_PROXY_SECRET` on both sides and the hub's
+`edu` row set to `open` (see S5); the identity path through the hub was checked by hand (22 checks: the hub's
+sign-in, an `edu` grant as parent, then teacher, then revoked; `/edu/shell/me` gives role names only; forged,
+stale, early and other-project headers are ignored at the app; an unconfirmed email is not adopted). Same container
+type and versions (PHP 8.3.6 with libpq 16.15, PostgreSQL 16.15, PgBouncer 1.22.0, Node 22.23, Chromium via
+Playwright 1.63). These are now the floor:
+
+| # | Level | Result |
+|---|---|---|
+| 2 | S1 php -l | 390 files, 0 errors (377 + D-039's 4 on `main`, then 9 here: `KesariScreensTest.php`, four components, three error pages, the pager) |
+| 3 | S1 routes, views | 81 routes, views compile |
+| 4 | S1 Pint | the same 14 |
+| 7 | S3a SQLite | 583 tests: 578 passed, 5 skipped (the same 5), 4,954 assertions, 26 s. 39 tests added since PR #29: D-039's 30 on `main` (`HubIdentitySignInTest` 29, `HandRunSchemaTest` +1), then `KesariScreensTest` 8 (6, then 2 for edu-tester D1) and `OwnAccountTest` +1 |
+| 8 | S3a PostgreSQL | 583 tests: 583 passed, 4,962 assertions, 46 s |
+| 9 | S3b | `74\|69\|289\|20\|100\|citext`; 85 s |
+| 10–11 | S3c, S3d | schemas match (5,565 lines, 70 CHECKs); migrations logs identical; 04 twice gives one row, `system_admin`; S3d's last `migrate` runs 4 migrations |
+| 12 | S4 | byte-identical (`app-BxNgkcy_.css`) |
+| 13 | S5 | with `HUB_PROXY_SECRET` on both sides and the `edu` row `open`: http 65 passed (3 s), browser 21 passed (8 s), with `KILL_URL` through PgBouncer |
+| 14 | S6 | 57 guest routes refused; both hosted-database runs refused; `composer audit` 7 advisories in 4 packages (report-only: `laravel/framework` 13.38.0, `symfony/http-foundation`, `symfony/http-kernel`, `symfony/routing` 7.4.21, reported 4 and 13 Nov 2026 against the lock file `main` has too); `npm audit` 17 dev-only, 0 with `--omit=dev` |
+| 15 | S7.1 | 583 passed through the pooler, 34 s; 7.2/7.3/7.5/7.8 as specified |
 
 Pint's baseline list (14 files since 17 Nov 2026, when `bootstrap/app.php` was made clean with the
 hub identity sign-in): `app/Routing/BasePathRedirector.php`,

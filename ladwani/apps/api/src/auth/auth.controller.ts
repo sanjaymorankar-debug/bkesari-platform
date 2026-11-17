@@ -3,6 +3,7 @@ import { Throttle } from '@nestjs/throttler'
 import type { Request, Response } from 'express'
 import { AuthService, HubSignInResult, LoginResult, OTP_TTL_MINUTES } from './auth.service'
 import { CodeDeliveryService } from './code-delivery.service'
+import { SignUpService } from './sign-up.service'
 import { langOf } from './code-email'
 import { RegisterDto } from './dto/register.dto'
 import { LoginDto } from './dto/login.dto'
@@ -47,6 +48,7 @@ export class AuthController {
   constructor(
     private auth: AuthService,
     private delivery: CodeDeliveryService,
+    private signUp: SignUpService,
     private states: ProjectStateService,
   ) {}
 
@@ -203,7 +205,12 @@ export class AuthController {
   /**
    * For the bkesari app shell's account menu (portal/public/shared/menu.js):
    * who is signed in to LadWani, read from the session cookie without rotating
-   * it. Not wrapped in { data }: the shell reads this shape as it is.
+   * it. Not wrapped in { data }: the shell reads this shape as it is. The user
+   * also carries its role codes, its account status (PENDING = email or mobile
+   * not confirmed yet) and `verification`, where the operator's check of its ID
+   * proof stands (SignUpService.status, as the /pending screen shows it:
+   * NOT_SUBMITTED, UNDER_REVIEW, VERIFIED or NEEDS_ATTENTION). The hub's "My
+   * projects and access" page shows the access level from them.
    * Also, for LadWani's own sign-in screens, which code channels have a
    * provider: mailLive (MAIL_HOST is set) and smsLive (false while SMS is on
    * hold; the screens offer mobile codes only when it is true).
@@ -214,13 +221,15 @@ export class AuthController {
     res.set('Cache-Control', 'no-store')
     const base = appBase()
     const live = { mailLive: this.delivery.live('email'), smsLive: this.delivery.live('sms') }
-    const person = await this.auth.sessionPerson(readSessionCookie(req), hubOnly(req))
+    // Under the hub, another person's LadWani session counts as none (D-039).
+    const owner = await this.auth.sessionOwner(readSessionCookie(req), hubOnly(req))
     // Signed out is an answer, not an error: a 401 here would be logged to the
     // browser's console on every page a visitor opens.
-    if (!person) return { user: null, signInUrl: `${base}/sign-in/`, ...live }
+    if (!owner) return { user: null, signInUrl: `${base}/sign-in/`, ...live }
     const lang = langFrom(req)
+    const verification = (await this.signUp.status(owner.userId)).idProof.state
     return {
-      user: person,
+      user: { ...owner.person, verification },
       signOut: { url: `${base}/api/v1/auth/logout`, next: `${base}/sign-in` },
       links: [{ label: PROFILE_LABEL[lang] ?? PROFILE_LABEL.en, href: `${base}/profile/edit/` }],
       ...live,

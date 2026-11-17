@@ -4,11 +4,12 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type PointerE
 import Link from 'next/link'
 import { useRouteParams } from '@/lib/route-params'
 import { api } from '../../../../lib/api-client'
-import { errorMessage } from '../../../../lib/auth-context'
+import { errorText } from '../../../../lib/errors'
 import { hasMessage, useT, type Translate } from '../../../../lib/i18n'
 import { formatDate, kesari } from '../../../../lib/kesari'
 import { branchIds, buildFamilyTree, countMembers, fullName, isExpired, type TreeEdge, type TreeNode, type TreeUnit } from '../../../../lib/tree-layout'
-import { EmptyState, ErrorState, ListSkeleton, RequireAuth, Shell, StatusPill, TopBar } from '../../../../components/ui'
+import { EmptyState, ErrorState, ListSkeleton, PageHeader, RequireAuth, Shell, StatusPill, TopBar } from '../../../../components/ui'
+import { relationLabel } from '../../../../lib/labels'
 import { Tabs, tabPanelProps } from '../../../../components/auth-ui'
 import { Icon } from '../../../../components/icons'
 
@@ -42,7 +43,8 @@ function FamilyTree() {
   const t = useT()
   const { id } = useRouteParams<{ id: string }>('/family/[id]/tree')
   const [tree, setTree] = useState<TreeResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // The raw failure: put in words when shown, so it follows the language.
+  const [error, setError] = useState<unknown>(null)
   const [view, setView] = useState<View>('chart')
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -55,7 +57,7 @@ function FamilyTree() {
     api
       .get<TreeResponse>(`/families/${id}/tree`)
       .then(setTree)
-      .catch((err) => setError(errorMessage(err)))
+      .catch((err) => setError(err ?? new Error()))
   }, [id])
   useEffect(load, [load])
 
@@ -74,8 +76,9 @@ function FamilyTree() {
   const describeRelation = (memberId: string) => {
     const r = relationOf.get(memberId)
     const other = r && tree?.nodes.find((n) => n.id === r.of)
-    return r && other ? t('tree.relationOf', { relation: r.label, name: fullName(other) }) : undefined
+    return r && other ? t('tree.relationOf', { relation: relationLabel(t, r.code), name: fullName(other) }) : undefined
   }
+  const generations = useMemo(() => forest.reduce((most, root) => Math.max(most, depth(root)), 0), [forest])
   const toggle = useCallback(
     (memberId: string) =>
       setCollapsed((prev) => {
@@ -89,15 +92,20 @@ function FamilyTree() {
 
   return (
     <>
-      <div className="k-row k-row--between">
-        <h1>{tree ? t('tree.titleOf', { family: tree.familyName }) : t('tree.title')}</h1>
-        <Link href={`/family/${id}`} className="k-btn k-btn--secondary k-btn--sm">
-          {t('tree.back')}
-        </Link>
-      </div>
+      <PageHeader
+        crumbs={[{ href: `/family/${id}`, label: tree?.familyName ?? t('tree.back') }, { label: t('tree.title') }]}
+        title={tree ? t('tree.titleOf', { family: tree.familyName }) : t('tree.title')}
+        meta={
+          tree && tree.nodes.length > 0 ? (
+            <span className="k-muted">
+              {t('tree.members', { count: tree.nodes.length })} · {t('tree.generations', { count: generations })}
+            </span>
+          ) : undefined
+        }
+      />
 
-      {error && <ErrorState message={error} onRetry={load} />}
-      {!tree && !error && <ListSkeleton rows={4} />}
+      {error != null && <ErrorState message={errorText(error, t)} onRetry={load} />}
+      {!tree && error == null && <ListSkeleton rows={4} />}
       {tree && tree.nodes.length === 0 && (
         <EmptyState
           title={t('tree.emptyTitle')}
@@ -129,17 +137,38 @@ function FamilyTree() {
               </label>
               <input id={`${tabsId}-search`} className="k-input" type="search" placeholder={t('tree.search')} value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
-            <button type="button" className="k-btn k-btn--ghost k-btn--sm" onClick={() => setCollapsed(new Set())}>
-              {t('tree.expandAll')}
-            </button>
-            <button type="button" className="k-btn k-btn--ghost k-btn--sm" onClick={() => setCollapsed(new Set(branchIds(forest)))}>
-              {t('tree.collapseAll')}
-            </button>
-            <button type="button" className="k-btn k-btn--ghost k-btn--sm k-noprint" onClick={() => window.print()}>
-              {t('tree.print')}
-            </button>
+            <div className="lw-tree-tools__actions">
+              <button type="button" className="k-btn k-btn--ghost k-btn--sm" onClick={() => setCollapsed(new Set())}>
+                {t('tree.expandAll')}
+              </button>
+              <button type="button" className="k-btn k-btn--ghost k-btn--sm" onClick={() => setCollapsed(new Set(branchIds(forest)))}>
+                {t('tree.collapseAll')}
+              </button>
+              <button type="button" className="k-btn k-btn--ghost k-btn--sm k-noprint" onClick={() => window.print()}>
+                {t('tree.print')}
+              </button>
+            </div>
           </div>
-          <p className="k-muted k-small">{t('tree.legend')}</p>
+          <div className="lw-legend">
+            <h2 className="k-sr-only">{t('tree.legendTitle')}</h2>
+            <ul className="lw-legend__keys">
+              <li>
+                <span className="lw-legend__swatch lw-legend__swatch--karta" aria-hidden="true" />
+                {t('tree.legendKarta')}
+              </li>
+              <li>
+                <span className="lw-legend__swatch lw-legend__swatch--spouse" aria-hidden="true" />
+                {t('tree.legendSpouse')}
+              </li>
+              <li>
+                <span className="lw-legend__swatch lw-legend__swatch--expired" aria-hidden="true">
+                  †
+                </span>
+                {t('tree.legendDeceased')}
+              </li>
+            </ul>
+            <p className="k-muted k-small">{t('tree.tapHint')}</p>
+          </div>
 
           {view === 'chart' ? (
             <>
@@ -165,10 +194,15 @@ function FamilyTree() {
 }
 
 /** "Wife of Ramesh", "Son of Sunita": the first edge naming each member, for the list and the sheet. */
-function relationLabels(edges: TreeEdge[]): Map<string, { label: string; of: string }> {
-  const out = new Map<string, { label: string; of: string }>()
-  for (const e of edges) if (e.relationshipLabel && !out.has(e.fromMemberId)) out.set(e.fromMemberId, { label: e.relationshipLabel, of: e.toMemberId })
+function relationLabels(edges: TreeEdge[]): Map<string, { code: string; of: string }> {
+  const out = new Map<string, { code: string; of: string }>()
+  for (const e of edges) if (e.relationshipCode && !out.has(e.fromMemberId)) out.set(e.fromMemberId, { code: e.relationshipCode, of: e.toMemberId })
   return out
+}
+
+/** How many generations a branch spans. */
+function depth(u: TreeUnit): number {
+  return 1 + u.children.reduce((most, c) => Math.max(most, depth(c)), 0)
 }
 
 interface UnitProps {

@@ -314,21 +314,37 @@ body {
 }
 
 /* ---- Sign-in screens ---------------------------------------------------- */
+.lw-auth__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--k-3);
+  margin: 0 0 var(--k-5);
+}
+
 .lw-wordmark {
-  margin: 0 0 var(--k-2);
-  color: var(--k-accent);
+  color: var(--k-accent-ink);
   font-size: var(--k-text-xl);
   font-weight: 700;
   letter-spacing: -0.01em;
 }
 
-.lw-separate {
-  margin: var(--k-3) 0 var(--k-5);
-  padding-left: var(--k-3);
-  border-left: 3px solid var(--k-accent);
+/* "This is a separate account for LadWani", with the lock. */
+.lw-lock-note {
+  display: flex;
+  gap: var(--k-2);
+  align-items: flex-start;
+  margin: var(--k-4) 0 0;
   color: var(--k-muted);
   font-size: var(--k-text-sm);
-  font-weight: 600;
+}
+
+.lw-lock-note .k-icon {
+  margin-top: 2px;
+  color: var(--k-accent-ink);
+}
+
+.lw-auth__separate {
+  justify-content: center;
 }
 
 .lw-auth__card .k-tabs {
@@ -387,14 +403,93 @@ body {
   margin-top: var(--k-2);
 }
 
-.lw-next {
-  padding-left: var(--k-5);
+.lw-pending__summary {
+  margin: 0 0 var(--k-2);
 }
 
-.lw-next li {
-  min-height: var(--k-target);
-  display: list-item;
-  padding: var(--k-2) 0;
+/* The sign-up steps, the operator's check among them: one dot per step, joined by a line. */
+.lw-timeline {
+  list-style: none;
+  margin: var(--k-5) 0 var(--k-6);
+  padding: 0;
+}
+
+.lw-timeline__step {
+  position: relative;
+  display: flex;
+  gap: var(--k-3);
+  padding-bottom: var(--k-4);
+}
+
+.lw-timeline__step:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 34px;
+  bottom: 2px;
+  width: 2px;
+  background: var(--k-border);
+}
+
+.lw-timeline__step[data-state='done']:not(:last-child)::before {
+  background: var(--k-accent);
+}
+
+.lw-timeline__dot {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--k-border-strong);
+  border-radius: 50%;
+  background: var(--k-surface);
+  color: var(--k-muted);
+}
+
+[data-state='done'] > .lw-timeline__dot {
+  border-color: var(--k-accent);
+  background: var(--k-accent);
+  color: var(--k-on-accent);
+}
+
+[data-state='now'] > .lw-timeline__dot {
+  border-color: var(--k-warning);
+  background: var(--k-warning-tint);
+  color: var(--k-warning);
+}
+
+[data-state='todo'] > .lw-timeline__dot {
+  border-color: var(--k-accent);
+  color: var(--k-accent-ink);
+}
+
+[data-state='attention'] > .lw-timeline__dot {
+  border-color: var(--k-danger);
+  background: var(--k-danger-tint);
+  color: var(--k-danger);
+}
+
+.lw-timeline__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-top: 3px;
+}
+
+.lw-timeline__title {
+  font-weight: 600;
+}
+
+.lw-timeline__state {
+  color: var(--k-muted);
+  font-size: var(--k-text-sm);
+}
+
+.lw-links {
+  list-style: none;
+  margin: var(--k-3) 0 0;
+  padding: 0;
 }
 
 .lw-note {
@@ -406,31 +501,117 @@ body {
 }
 
 /* ---- Landing ------------------------------------------------------------ */
-.lw-hero {
-  padding: var(--k-6) 0 var(--k-4);
-  max-width: 720px;
+.lw-landing .k-hero {
+  padding-top: 0;
 }
 
-.lw-hero .k-row {
-  margin-top: var(--k-5);
+/* The hero's tree, in shapes only: it follows the theme through the tokens. */
+.lw-art {
+  display: block;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.lw-art__bg {
+  fill: var(--k-surface);
+  stroke: var(--k-border);
+}
+
+.lw-art__line {
+  fill: none;
+  stroke: var(--k-border-strong);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.lw-art__ring-line {
+  stroke: var(--k-accent);
+  stroke-width: 2;
+}
+
+.lw-art__ring {
+  fill: var(--k-surface);
+  stroke: var(--k-accent);
+  stroke-width: 2.5;
+}
+
+.lw-art__node {
+  fill: var(--k-surface);
+  stroke: var(--k-border-strong);
+  stroke-width: 1.5;
+}
+
+.lw-art__node--karta {
+  stroke: var(--k-accent);
+  stroke-width: 3;
+}
+
+.lw-art__node--gone {
+  fill: var(--k-surface-2);
+  stroke-dasharray: 6 4;
+}
+
+.lw-art__face {
+  fill: var(--k-accent-tint);
+  stroke: var(--k-accent);
+  stroke-width: 1.5;
+}
+
+.lw-art__text {
+  fill: var(--k-border);
 }
 
 .lw-trust {
-  max-width: 760px;
+  padding: var(--k-6) var(--k-5);
+  background: var(--k-surface);
+  border: 1px solid var(--k-border);
+  border-radius: var(--k-radius-lg);
+}
+
+.lw-trust__head {
+  display: flex;
+  align-items: center;
+  gap: var(--k-4);
+  margin: 0 0 var(--k-5);
+}
+
+.lw-trust__head h2 {
+  margin: 0;
 }
 
 .lw-checks {
-  padding-left: var(--k-5);
+  display: grid;
+  gap: var(--k-3) var(--k-6);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  list-style: none;
+  margin: 0 0 var(--k-4);
+  padding: 0;
 }
 
 .lw-checks li {
-  margin: var(--k-2) 0;
+  display: flex;
+  gap: var(--k-3);
+  align-items: flex-start;
+}
+
+.lw-checks .k-icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--k-success);
 }
 
 /* ---- Family tree (family/[id]/tree) -------------------------------------- */
 .lw-tree-tools {
   align-items: flex-end;
-  margin-bottom: var(--k-2);
+  gap: var(--k-3);
+  margin-bottom: var(--k-3);
+}
+
+.lw-tree-tools__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-1);
 }
 
 .lw-tree-tools .k-tabs {
@@ -440,8 +621,75 @@ body {
 
 .lw-tree-tools .lw-tree-search {
   margin: 0;
-  flex: 1 1 200px;
-  max-width: 280px;
+  flex: 1 1 14rem;
+}
+
+@media (min-width: 768px) {
+  .lw-tree-tools .lw-tree-search {
+    max-width: 22rem;
+  }
+}
+
+/* What the node styles mean, drawn the same way. */
+.lw-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-2) var(--k-6);
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 var(--k-3);
+}
+
+.lw-legend p {
+  margin: 0;
+}
+
+.lw-legend__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-2) var(--k-5);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--k-text-sm);
+}
+
+.lw-legend__keys li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--k-2);
+}
+
+.lw-legend__swatch {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 20px;
+  border: 1.5px solid var(--k-border-strong);
+  border-radius: 6px;
+  background: var(--k-surface);
+  color: var(--k-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.lw-legend__swatch--karta {
+  box-shadow: 0 0 0 2px var(--k-accent);
+}
+
+.lw-legend__swatch--spouse {
+  border: 3px double var(--k-accent);
+}
+
+.lw-legend__swatch--expired {
+  border-style: dashed;
+  background: var(--k-surface-2);
+}
+
+/* A spouse who has passed away keeps the dashed outline (Kesari's double border would hide it). */
+.k-node.k-node--spouse.k-node--expired {
+  border-style: dashed;
+  border-width: 2px;
 }
 
 /* A member who has passed away: quiet, with the dagger, never red (docs/20 §7). */
@@ -747,6 +995,584 @@ button.lw-list__name:hover {
   display: flex;
   flex-wrap: wrap;
   gap: var(--k-2);
+}
+
+/* ---- Shared page pieces -------------------------------------------------- */
+/* The column beside the side nav may shrink below its content's width (a wide
+   family tree scrolls inside its own viewport, never the page sideways). */
+.lw-layout > .k-main {
+  min-width: 0;
+}
+
+/* 44px touch targets in LadWani's pages: Kesari's small button is 40px. */
+.k-main .k-btn--sm {
+  min-height: 44px;
+}
+
+.lw-pagehead {
+  margin: 0 0 var(--k-6);
+}
+
+.lw-pagehead__main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-4) var(--k-6);
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.lw-pagehead__text {
+  flex: 1 1 20rem;
+  min-width: 0;
+}
+
+.lw-pagehead h1 {
+  margin: 0;
+}
+
+.lw-pagehead__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-2) var(--k-3);
+  align-items: center;
+  margin-top: var(--k-3);
+}
+
+.lw-pagehead__lead {
+  margin: var(--k-3) 0 0;
+  color: var(--k-muted);
+}
+
+.lw-pagehead__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-3);
+  align-items: center;
+}
+
+.lw-section-tight {
+  margin: var(--k-6) 0;
+}
+
+.lw-count {
+  font-size: var(--k-text-md);
+  font-weight: 400;
+}
+
+.lw-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lw-facts dt .k-icon {
+  margin-right: var(--k-1);
+  color: var(--k-accent-ink);
+}
+
+/* Loading rows: the shape of the list that is coming. */
+.lw-rows-skel {
+  display: grid;
+  gap: var(--k-3);
+}
+
+.lw-rows-skel__row {
+  display: flex;
+  gap: var(--k-4);
+  align-items: center;
+  padding: var(--k-4) var(--k-5);
+  background: var(--k-surface);
+  border: 1px solid var(--k-border);
+  border-radius: var(--k-radius);
+}
+
+.lw-rows-skel__row--tall {
+  align-items: flex-start;
+  min-height: 180px;
+}
+
+.lw-rows-skel__avatar {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.lw-rows-skel__lines {
+  flex: 1;
+  min-width: 0;
+}
+
+.lw-rows-skel__short {
+  width: 60%;
+}
+
+.lw-skel-title {
+  display: block;
+  width: min(100%, 24rem);
+  height: 2.25rem;
+  margin: 0 0 var(--k-4);
+}
+
+/* A k-dialog's last field sits on the footer's line, not above a gap. */
+.lw-dialog .k-dialog__body > :last-child {
+  margin-bottom: 0;
+}
+
+/* ---- Profile (members/[id]) -------------------------------------------- */
+.lw-profile-head {
+  display: flex;
+  gap: var(--k-4);
+  align-items: flex-start;
+}
+
+.lw-profile-head > .k-avatar,
+.lw-profile-head__skel-avatar {
+  width: 64px;
+  height: 64px;
+  margin-top: var(--k-1);
+  font-size: var(--k-text-lg);
+}
+
+.lw-profile-head > .lw-pagehead {
+  flex: 1;
+  min-width: 0;
+}
+
+.lw-profile-grid {
+  display: grid;
+  gap: var(--k-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  align-items: start;
+}
+
+.lw-profile-grid .k-card > h2 {
+  margin-top: 0;
+}
+
+.lw-profile-grid .k-card > :last-child {
+  margin-bottom: 0;
+}
+
+.lw-bio {
+  white-space: pre-line;
+}
+
+/* ---- Forms (profile/edit) ---------------------------------------------- */
+.lw-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--k-5);
+}
+
+.lw-form-section {
+  min-width: 0;
+  margin: 0;
+  padding: var(--k-5);
+  background: var(--k-surface);
+  border: 1px solid var(--k-border);
+  border-radius: var(--k-radius);
+}
+
+/* Floated, so the legend is a heading inside the box rather than on its border. */
+.lw-form-section__title {
+  float: left;
+  width: 100%;
+  margin: 0 0 var(--k-4);
+  padding: 0;
+  font-size: var(--k-text-lg);
+  font-weight: 700;
+}
+
+.lw-form-section__title + * {
+  clear: both;
+}
+
+.lw-form-section__lead {
+  margin: calc(-1 * var(--k-2)) 0 var(--k-4);
+}
+
+.lw-form-section > :last-child {
+  margin-bottom: 0;
+}
+
+.lw-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-3);
+  justify-content: flex-end;
+}
+
+.lw-skill-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-2);
+  list-style: none;
+  margin: var(--k-2) 0 0;
+  padding: 0;
+}
+
+.lw-skill-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--k-2);
+  min-height: var(--k-target);
+  padding: 0 var(--k-4);
+  border: 1.5px solid var(--k-border-strong);
+  border-radius: var(--k-radius-pill);
+  background: var(--k-surface);
+  cursor: pointer;
+}
+
+.lw-skill-pick:has(input:checked) {
+  border-color: var(--k-accent);
+  background: var(--k-accent-tint);
+  color: var(--k-accent-ink);
+  font-weight: 600;
+}
+
+/* ---- Family (family/[id]) ---------------------------------------------- */
+.lw-inline-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-2) var(--k-6);
+  margin: 0 0 var(--k-6);
+}
+
+.lw-inline-facts div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-2);
+}
+
+.lw-inline-facts dt {
+  color: var(--k-muted);
+  font-weight: 600;
+}
+
+.lw-inline-facts dd {
+  margin: 0;
+}
+
+.k-statusrow__action.lw-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-2);
+}
+
+.k-statusrow__action.lw-row-actions .k-btn {
+  flex: 1 1 0;
+  width: auto;
+}
+
+@media (min-width: 768px) {
+  .k-statusrow__action.lw-row-actions .k-btn {
+    flex: none;
+  }
+}
+
+/* A family's members: compact rows, with Remove beside the name even on a phone. */
+.k-statusrow.lw-member-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding-top: var(--k-2);
+  padding-bottom: var(--k-2);
+}
+
+.lw-member-row .k-statusrow__action {
+  grid-column: auto;
+}
+
+.lw-member-row .k-statusrow__action .k-btn {
+  width: auto;
+}
+
+.lw-member-row__meta:empty {
+  display: none;
+}
+
+/* A name in a list: the whole row opens the profile, the name keeps the focus ring. */
+.lw-member-row,
+.lw-result {
+  position: relative;
+}
+
+.lw-member-row__link,
+.lw-result__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--k-ink);
+  text-decoration: none;
+}
+
+.lw-result__link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.lw-member-row__link:hover,
+.lw-result__link:hover {
+  color: var(--k-accent-ink);
+  text-decoration: underline;
+}
+
+.lw-result {
+  transition: border-color var(--k-motion);
+}
+
+.k-statusrow.lw-result {
+  padding-top: var(--k-2);
+  padding-bottom: var(--k-2);
+}
+
+.lw-result:hover {
+  border-color: var(--k-accent);
+}
+
+/* ---- Search (members/search) ------------------------------------------- */
+.lw-search {
+  margin: 0 0 var(--k-6);
+}
+
+.lw-search__main {
+  display: grid;
+  gap: 0 var(--k-4);
+  align-items: end;
+}
+
+.lw-search__submit {
+  margin-bottom: var(--k-4);
+}
+
+@media (min-width: 768px) {
+  .lw-search__main {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+  }
+}
+
+.lw-search__more {
+  border-top: 1px solid var(--k-border);
+}
+
+.lw-search__more summary {
+  display: flex;
+  align-items: center;
+  gap: var(--k-3);
+  min-height: var(--k-target);
+  color: var(--k-accent-ink);
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+}
+
+.lw-search__more summary::-webkit-details-marker {
+  display: none;
+}
+
+.lw-search__more summary::after {
+  content: '+';
+  margin-left: auto;
+  font-size: 1.4em;
+  line-height: 1;
+}
+
+.lw-search__more[open] summary::after {
+  content: '\2212';
+}
+
+.lw-search__grid {
+  display: grid;
+  gap: 0 var(--k-4);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+  padding-top: var(--k-3);
+}
+
+.lw-two--tight {
+  gap: 0 var(--k-2);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 5.5rem), 1fr));
+}
+
+.lw-two--tight .k-field {
+  margin-bottom: 0;
+}
+
+.lw-search__check {
+  align-self: end;
+  margin-bottom: var(--k-4);
+}
+
+.lw-search__clear {
+  margin-top: var(--k-1);
+}
+
+.lw-results h2 {
+  margin-bottom: var(--k-3);
+}
+
+/* ---- Approvals: the operator queue ------------------------------------- */
+.lw-queue-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-3) var(--k-6);
+  align-items: flex-end;
+  justify-content: space-between;
+  margin: 0 0 var(--k-4);
+}
+
+.lw-queue-bar h2 {
+  margin: 0;
+}
+
+.lw-queue-filter {
+  flex: 0 1 20rem;
+  margin: 0;
+}
+
+.lw-queue {
+  display: grid;
+  gap: var(--k-4);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lw-request {
+  display: flex;
+  flex-direction: column;
+  gap: var(--k-4);
+  padding: var(--k-5);
+  background: var(--k-surface);
+  border: 1px solid var(--k-border);
+  border-radius: var(--k-radius);
+  box-shadow: var(--k-shadow-1);
+}
+
+.lw-request__head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--k-2) var(--k-3);
+  align-items: start;
+}
+
+.lw-request__head > .k-chip {
+  grid-column: 2;
+  justify-self: start;
+}
+
+.lw-request__heading h3 {
+  margin: 0;
+  font-size: var(--k-text-lg);
+}
+
+.lw-request__who {
+  margin: var(--k-1) 0 0;
+  color: var(--k-muted);
+}
+
+.lw-request__who-skel {
+  width: min(100%, 18rem);
+  margin: var(--k-2) 0 0;
+}
+
+.lw-request__facts {
+  padding: var(--k-4);
+  background: var(--k-surface-2);
+  border-radius: var(--k-radius-sm);
+}
+
+.lw-request__note {
+  display: flex;
+  gap: var(--k-2);
+  align-items: flex-start;
+  margin: 0;
+  color: var(--k-muted);
+  font-size: var(--k-text-sm);
+}
+
+.lw-request__note .k-icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.lw-request > .k-banner {
+  margin: 0;
+}
+
+.lw-request__foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-3) var(--k-6);
+  align-items: flex-end;
+  justify-content: space-between;
+  padding-top: var(--k-4);
+  border-top: 1px solid var(--k-border);
+}
+
+.lw-request__meta {
+  min-width: 0;
+}
+
+.lw-request__meta p {
+  margin: 0;
+}
+
+.lw-request__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--k-5);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lw-request__actions {
+  display: flex;
+  flex: 1 1 100%;
+  gap: var(--k-3);
+}
+
+.lw-request__actions .k-btn {
+  flex: 1 1 0;
+}
+
+@media (min-width: 768px) {
+  .lw-request__head {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .lw-request__head > .k-chip {
+    grid-column: auto;
+  }
+
+  .lw-request__actions {
+    flex: 0 0 auto;
+  }
+
+  .lw-request__actions .k-btn {
+    flex: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .lw-request__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--k-6);
+  }
+}
+
+.lw-decide__what {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 var(--k-4);
+  padding: var(--k-3) var(--k-4);
+  background: var(--k-surface-2);
+  border-radius: var(--k-radius-sm);
 }
 
 @media print {

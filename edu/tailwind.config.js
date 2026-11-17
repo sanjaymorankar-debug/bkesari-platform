@@ -2,7 +2,7 @@ import forms from '@tailwindcss/forms';
 
 /*
  * Tailwind's colours and font, mapped onto the Kesari design system's tokens
- * (/kesari-ui/1.0.0/kesari.css, served by the bkesari hub), so the views
+ * (/kesari-ui/1.1.0/kesari.css, served by the bkesari hub), so the views
  * written with Tailwind classes take on Kesari without being rewritten:
  *
  *   indigo-*   -> the project accent (Education teal, --k-accent)

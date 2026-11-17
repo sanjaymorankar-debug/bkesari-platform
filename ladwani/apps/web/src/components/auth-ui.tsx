@@ -5,20 +5,29 @@ import { useT, type Translate } from '../lib/i18n'
 import { kesari } from '../lib/kesari'
 import { ApiError } from '../lib/api-client'
 import { errorMessage } from '../lib/auth-context'
+import { KIcon, PIcon, type KIconName } from './kicon'
 
 /**
- * The frame every sign-in screen shares: LadWani's name in its accent, and the
- * reminder that this account belongs to LadWani alone.
+ * The frame every sign-in screen shares: LadWani's tree and name, the title,
+ * the form in a card, and the reminder that this account belongs to LadWani
+ * alone. `icon` swaps the tree for the screen's own (mail on verify, clock
+ * while an ID proof waits).
  */
-export function AuthFrame({ title, lead, children, footer }: { title: string; lead?: string; children: ReactNode; footer?: ReactNode }) {
+export function AuthFrame({ title, lead, children, footer, icon = 'ladwani' }: { title: string; lead?: string; children: ReactNode; footer?: ReactNode; icon?: KIconName }) {
   const t = useT()
   return (
     <main id="main" className="k-main k-main--narrow lw-auth">
-      <p className="lw-wordmark">{t('app.name')}</p>
+      <p className="lw-auth__brand">
+        <PIcon name={icon} />
+        <span className="lw-wordmark">{t('app.name')}</span>
+      </p>
       <h1>{title}</h1>
       {lead && <p className="k-lead">{lead}</p>}
-      <p className="lw-separate">{t('auth.separateAccount')}</p>
       <div className="k-card lw-auth__card">{children}</div>
+      <p className="lw-lock-note lw-auth__separate">
+        <KIcon name="lock" small />
+        <span>{t('auth.separateAccount')}</span>
+      </p>
       {footer && <div className="lw-auth__footer">{footer}</div>}
     </main>
   )

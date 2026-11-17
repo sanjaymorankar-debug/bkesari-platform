@@ -49,7 +49,7 @@ test('the language: the k_lang cookie, else the browser\'s, else English', () =>
 test('a page is the Kesari layout: language, pinned design system, the shell, no inline script', () => {
   const html = pages.layout({ req: { path: '/about' }, lang: 'hi', env: 'test', title: 'T', body: '<p>b</p>' });
   assert.match(html, /<html lang="hi" data-i18n-reload>/);
-  assert.match(html, /\/kesari-ui\/1\.0\.0\/kesari\.css/);
+  assert.match(html, /\/kesari-ui\/1\.1\.0\/kesari\.css/);
   assert.match(html, /mukta-devanagari-400-normal\.woff2/, 'Devanagari font preloaded for Marathi and Hindi');
   assert.match(html, /<header class="ks-bar/);
   assert.match(html, /<main id="main" class="k-main">/);

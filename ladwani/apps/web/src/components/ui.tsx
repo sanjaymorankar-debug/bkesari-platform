@@ -2,11 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useAuth, type AuthUser } from '../lib/auth-context'
 import { api, BASE_PATH } from '../lib/api-client'
 import { hasMessage, useT, type MessageKey } from '../lib/i18n'
+import { openDialog } from '../lib/kesari'
 import { Icon, type IconName } from './icons'
+import { KIcon, PIcon, type KIconName } from './kicon'
 
 /** The page's main column. Inside RequireAuth it sits beside the side nav (k-layout). */
 export function Shell({ children }: { children: ReactNode }) {
@@ -123,6 +125,9 @@ export function TopBar() {
 
   if (!user) return null
   const hrefOf = (item: NavItem) => (item.href === '/family' ? familyHref : item.href)
+  // Your own profile page is "Profile", not "Search" (which every other /members/ page is).
+  const ownProfile = !!user.memberId && path === `/members/${user.memberId}`
+  const current = (item: NavItem) => (ownProfile ? item.href === '/profile/edit' : isCurrent(path, item))
   const visible = NAV_ITEMS.filter((item) => !item.show || item.show(user.roles))
 
   return (
@@ -131,7 +136,7 @@ export function TopBar() {
         <ul>
           {visible.map((item) => (
             <li key={item.href}>
-              <Link href={hrefOf(item)} aria-current={isCurrent(path, item) ? 'page' : undefined}>
+              <Link href={hrefOf(item)} aria-current={current(item) ? 'page' : undefined}>
                 <Icon name={item.icon} />
                 <span>{t(item.label)}</span>
                 {item.href === '/notifications' && unread > 0 && (
@@ -152,7 +157,7 @@ export function TopBar() {
       </nav>
       <nav className="k-bottomnav" aria-label={t('nav.label')}>
         {PHONE_ITEMS.map((item) => (
-          <Link key={item.href} href={hrefOf(item)} aria-current={isCurrent(path, item) ? 'page' : undefined}>
+          <Link key={item.href} href={hrefOf(item)} aria-current={current(item) ? 'page' : undefined}>
             <Icon name={item.icon} />
             <span>{t(item.label)}</span>
           </Link>
@@ -219,13 +224,17 @@ export function ListSkeleton({ rows = 3 }: { rows?: number }) {
 }
 
 /** Nothing to show yet: a short explanation and, when there is one, the next step. */
-export function EmptyState({ title, text, action }: { title: string; text?: string; action?: ReactNode }) {
+export function EmptyState({ title, text, action, icon }: { title: string; text?: string; action?: ReactNode; icon?: KIconName }) {
   return (
     <div className="k-empty">
-      <svg viewBox="0 0 120 96" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" focusable="false">
-        <rect x="18" y="22" width="84" height="56" rx="10" />
-        <path d="M18 40h84M40 58h40" strokeLinecap="round" />
-      </svg>
+      {icon ? (
+        <PIcon name={icon} size="xl" />
+      ) : (
+        <svg viewBox="0 0 120 96" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" focusable="false">
+          <rect x="18" y="22" width="84" height="56" rx="10" />
+          <path d="M18 40h84M40 58h40" strokeLinecap="round" />
+        </svg>
+      )}
       <h3>{title}</h3>
       {text && <p>{text}</p>}
       {action}
@@ -295,4 +304,138 @@ export function Avatar({ name, deceased }: { name: string; deceased?: boolean })
 export function EmptyList({ message }: { message: MessageKey }) {
   const t = useT()
   return <EmptyState title={t(message)} />
+}
+
+/** Loading rows of a list: the shape of what is coming, announced once to screen readers. */
+export function RowSkeleton({ rows = 3, tall }: { rows?: number; tall?: boolean }) {
+  const t = useT()
+  return (
+    <div className="lw-rows-skel" aria-busy="true" role="status">
+      <span className="k-sr-only">{t('common.loading')}</span>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className={`lw-rows-skel__row${tall ? ' lw-rows-skel__row--tall' : ''}`} aria-hidden="true">
+          <span className="k-skel lw-rows-skel__avatar" />
+          <span className="lw-rows-skel__lines">
+            <span className="k-skel k-skel--line" />
+            <span className="k-skel k-skel--line lw-rows-skel__short" />
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export interface Crumb {
+  href?: string
+  label: string
+}
+
+/** Where this page sits (k-breadcrumbs); the last crumb is the page itself. */
+export function Breadcrumbs({ items }: { items: Crumb[] }) {
+  const t = useT()
+  return (
+    <nav className="k-breadcrumbs" aria-label={t('common.breadcrumbs')}>
+      <ol>
+        {items.map((c, i) =>
+          c.href && i < items.length - 1 ? (
+            <li key={i}>
+              <Link href={c.href}>{c.label}</Link>
+            </li>
+          ) : (
+            <li key={i}>
+              <span aria-current={i === items.length - 1 ? 'page' : undefined}>{c.label}</span>
+            </li>
+          ),
+        )}
+      </ol>
+    </nav>
+  )
+}
+
+/** The top of a signed-in page: where it is, its title, one line on what it is for, and its actions. */
+export function PageHeader({ title, lead, eyebrow, crumbs, actions, meta }: { title: ReactNode; lead?: ReactNode; eyebrow?: ReactNode; crumbs?: Crumb[]; actions?: ReactNode; meta?: ReactNode }) {
+  return (
+    <header className="lw-pagehead">
+      {crumbs && <Breadcrumbs items={crumbs} />}
+      <div className="lw-pagehead__main">
+        <div className="lw-pagehead__text">
+          {eyebrow && <p className="k-eyebrow">{eyebrow}</p>}
+          <h1>{title}</h1>
+          {meta && <div className="lw-pagehead__meta">{meta}</div>}
+          {lead && <p className="lw-pagehead__lead">{lead}</p>}
+        </div>
+        {actions && <div className="lw-pagehead__actions">{actions}</div>}
+      </div>
+    </header>
+  )
+}
+
+/**
+ * A k-dialog: modal on wide screens, a bottom sheet on phones; Esc and the
+ * close button shut it, and focus goes back where it was. With `onSubmit` its
+ * body and footer are one form, so Enter submits.
+ */
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+  onSubmit,
+}: {
+  open: boolean
+  onClose: () => void
+  title: ReactNode
+  children: ReactNode
+  footer?: ReactNode
+  onSubmit?: (e: FormEvent<HTMLFormElement>) => void
+}) {
+  const t = useT()
+  const ref = useRef<HTMLDialogElement>(null)
+  const titleId = useId()
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (open) openDialog(el, document.activeElement)
+    else if (el.open) el.close()
+  }, [open])
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const closed = () => closeRef.current()
+    el.addEventListener('close', closed)
+    return () => el.removeEventListener('close', closed)
+  }, [])
+
+  const body = (
+    <>
+      <div className="k-dialog__body">{children}</div>
+      {footer && <div className="k-dialog__foot">{footer}</div>}
+    </>
+  )
+  return (
+    <dialog ref={ref} className="k-dialog lw-dialog" aria-labelledby={titleId}>
+      {open && (
+        <>
+          <div className="k-dialog__head">
+            <h2 id={titleId}>{title}</h2>
+            <button type="button" className="k-btn k-btn--ghost k-btn--icon" aria-label={t('common.close')} onClick={() => ref.current?.close()}>
+              <KIcon name="close" />
+            </button>
+          </div>
+          {onSubmit ? (
+            <form onSubmit={onSubmit} noValidate>
+              {body}
+            </form>
+          ) : (
+            body
+          )}
+        </>
+      )}
+    </dialog>
+  )
 }

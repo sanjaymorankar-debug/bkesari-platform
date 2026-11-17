@@ -10,7 +10,9 @@
     "android:debug:bkesari": "cd bkesari/android && ./gradlew assembleDebug",
     "add:android": "for a in ladwani education tasklist; do (cd apps/$a && npx cap add android); done",
     "add:ios": "for a in ladwani education tasklist; do (cd apps/$a && npx cap add ios); done",
-    "sync": "for a in ladwani education tasklist; do (cd apps/$a && npx cap sync); done"
+    "sync": "for a in ladwani education tasklist; do (cd apps/$a && npx cap sync); done",
+    "assets": "for a in ladwani education tasklist; do (cd apps/$a && npx --yes @capacitor/assets@3 generate); done",
+    "render-assets": "node tools/render-assets.js"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.2",
