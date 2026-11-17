@@ -3,22 +3,38 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#7C2D12">
 <title>LadWani</title>
+<!-- The screen the app shows when bkesari.com cannot be reached. Everything is
+     inline: Kesari 1.1.0 values, the project's icon from the Kesari icon set. -->
 <style>
-  body{margin:0;min-height:100vh;display:grid;place-items:center;text-align:center;padding:24px;box-sizing:border-box;
-    background:#FAF8F5;color:#1C1917;font:17px/1.5 system-ui,'Noto Sans Devanagari',sans-serif}
-  @media (prefers-color-scheme:dark){body{background:#141110;color:#F5F5F4}}
-  .mark{width:64px;height:64px;border-radius:16px;background:#7C2D12;margin:0 auto 16px}
-  a{display:inline-flex;align-items:center;min-height:48px;padding:0 20px;border-radius:10px;background:#7C2D12;color:#fff;font-weight:700;text-decoration:none}
+  :root{--page:#FAF8F5;--surface:#FFFFFF;--ink:#1C1917;--muted:#57534E;--accent:#7C2D12;--accent-ink:#7C2D12;--tint:#FBEDE7;--on-accent:#FFFFFF;--focus:#C2560A}
+  @media (prefers-color-scheme:dark){:root{--page:#141110;--surface:#1F1B19;--ink:#F5F5F4;--muted:#C9C4BF;--accent:#F4A68C;--accent-ink:#F4A68C;--tint:#3B1A10;--on-accent:#1C1917;--focus:#F5A869}}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:grid;place-items:center;text-align:center;padding:calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
+    background:var(--page);color:var(--ink);font:17px/1.6 'Mukta',system-ui,-apple-system,'Noto Sans Devanagari',sans-serif}
+  main{max-width:420px}
+  .icon{width:88px;height:88px;border-radius:25px;margin:0 auto 20px;display:grid;place-items:center;background:var(--tint);color:var(--accent-ink)}
+  .icon svg{width:48px;height:48px}
+  h1{font-size:28px;line-height:1.2;margin:0 0 4px}
+  .tag{color:var(--muted);margin:0 0 20px}
+  .msg{margin:0 0 24px}
+  .other{color:var(--muted);font-size:15px;margin:0 0 24px}
+  .retry{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 24px;border-radius:8px;background:var(--accent);color:var(--on-accent);font-weight:700;text-decoration:none}
+  .home{display:inline-flex;align-items:center;gap:8px;min-height:48px;margin-top:8px;color:var(--ink);font-weight:600}
+  .mark{width:22px;height:22px;border-radius:6px;background:#C2560A;color:#fff;display:inline-grid;place-items:center;font-size:13px;font-weight:800}
+  :focus-visible{outline:3px solid var(--focus);outline-offset:2px}
 </style>
 </head>
 <body>
 <main>
-  <div class="mark" aria-hidden="true"></div>
+  <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="4.75" r="2.25"/><circle cx="5" cy="19" r="2.25"/><circle cx="12" cy="19" r="2.25"/><circle cx="19" cy="19" r="2.25"/><path d="M12 7v9.75M5 16.75V13.5A1.5 1.5 0 0 1 6.5 12h11a1.5 1.5 0 0 1 1.5 1.5v3.25"/></svg></div>
   <h1>LadWani</h1>
-  <p>Family trees and community. You are offline or bkesari.com could not be reached.<br>
-  <span lang="mr">इंटरनेट जोडणी तपासा.</span> · <span lang="hi">इंटरनेट कनेक्शन जाँचें।</span></p>
-  <a href="https://bkesari.com/ladwani/">Try again</a>
+  <p class="tag">Family trees and community, for every village.</p>
+  <p class="msg">You are offline, or bkesari.com could not be reached. Check your network or mobile data, then try again.</p>
+  <p class="other"><span lang="mr">इंटरनेट जोडणी तपासा आणि पुन्हा प्रयत्न करा.</span><br><span lang="hi">इंटरनेट कनेक्शन जाँचें और फिर से कोशिश करें।</span></p>
+  <a class="retry" href="https://bkesari.com/ladwani/">Try again</a><br>
+  <a class="home" href="https://bkesari.com/"><span class="mark" aria-hidden="true">b</span>Back to bkesari home</a>
 </main>
 </body>
 </html>

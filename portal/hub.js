@@ -119,10 +119,10 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
 
   const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-  function send(req, res, { title, description, body, status = 200, isOwner: owner = false, scripts, pathname }) {
+  function send(req, res, { title, description, body, status = 200, isOwner: owner = false, scripts, pathname, head }) {
     const lang = pages.langOf(req);
     res.status(status).set({ 'Cache-Control': 'no-cache', Vary: 'Cookie' }).type('html')
-      .send(pages.layout({ req, lang, env: envName(req), title, description, body: body(lang), isOwner: owner, scripts, pathname }));
+      .send(pages.layout({ req, lang, env: envName(req), title, description, body: body(lang), isOwner: owner, scripts, pathname, head }));
   }
 
   const page = (titleKey, render, opts = {}) => wrap(async (req, res) => {
@@ -132,6 +132,7 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
       title: `${pages.t(lang, titleKey)}${titleKey === 'home.title' ? '' : ' — bkesari'}`,
       body: (l) => render({ lang: l, ...data }),
       isOwner: await isOwner(req),
+      head: opts.head,
     });
   });
 
@@ -187,7 +188,29 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
     // The old key set: nothing verifies hub tokens any more.
     app.get('/.well-known/jwks.json', (req, res) => res.status(410).json({ keys: [], note: 'retired 3 Nov 2026' }));
 
-    app.get('/', page('home.title', pages.home, { data: async (req) => {
+    // Search engines: production lists its public pages; dev and test are
+    // closed (they also send X-Robots-Tag: noindex on every page).
+    const PUBLIC_PAGES = ['/', '/about', '/contact', '/privacy', '/terms', '/driving-simulator/', '/environment/', '/ladwani/', '/edu/', '/tasklist/'];
+    app.get('/robots.txt', (req, res) => {
+      res.type('text/plain').set('Cache-Control', 'public, max-age=3600');
+      if (envName(req) !== 'prod') return res.send('User-agent: *\nDisallow: /\n');
+      res.send(['User-agent: *', 'Allow: /',
+        ...['/admin', '/account', '/ATIP/', '/atip/', '/tasklist/api/', '/ladwani/api/', '/edu/dashboard', '/lang/', '/styleguide/'].map((p) => `Disallow: ${p}`),
+        `Sitemap: https://${req.hostname}/sitemap.xml`, ''].join('\n'));
+    });
+    app.get('/sitemap.xml', (req, res) => {
+      const origin = `https://${req.hostname}`;
+      res.type('application/xml').set('Cache-Control', 'public, max-age=3600').send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${PUBLIC_PAGES.map((p) => `  <url><loc>${origin}${p}</loc></url>`).join('\n')}
+</urlset>
+`);
+    });
+
+    // The home page: each tile shows the person's access (D-039). Its heading is
+    // in the display face, fetched with the HTML so it paints once and nothing
+    // below it moves.
+    app.get('/', page('home.title', pages.home, { head: pages.DISPLAY_FONT_PRELOAD, data: async (req) => {
       const c = await content();
       const user = id ? await id.currentUser(req) : null;
       const states = access ? await access.statusList(user) : [];
@@ -197,12 +220,24 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
     app.get('/privacy', page('privacy.title', pages.privacy));
     app.get('/terms', page('terms.title', pages.terms));
 
+    // Read the site in another language without scripts: set k_lang, go back.
+    // Only a path on this site is followed, never another host.
+    app.get('/lang/:code', (req, res) => {
+      const code = pages.LANGS.includes(req.params.code) ? req.params.code : 'en';
+      const next = String(req.query.next || '/');
+      const safe = /^\/(?![/\\])[^\s]*$/.test(next) ? next : '/';
+      res.set('Cache-Control', 'no-store');
+      res.append('Set-Cookie', `k_lang=${code}; Path=/; Max-Age=31536000; SameSite=Lax${req.secure ? '; Secure' : ''}`);
+      res.redirect(303, safe);
+    });
 
     app.get('/contact', wrap(async (req, res) => {
       const lang = pages.langOf(req);
       const sent = req.query.sent === '1';
       const tokens = contactTokens(req, res);
-      send(req, res, { title: `${pages.t(lang, 'contact.title')} — bkesari`, body: (l) => pages.contact({ lang: l, ...tokens, sent }), isOwner: await isOwner(req) });
+      // A page that sends people here may choose the topic (/contact?topic=driving).
+      const values = pages.TOPICS.includes(req.query.topic) ? { topic: req.query.topic } : {};
+      send(req, res, { title: `${pages.t(lang, 'contact.title')} — bkesari`, body: (l) => pages.contact({ lang: l, ...tokens, sent, values }), isOwner: await isOwner(req) });
     }));
 
     app.post('/contact', express.urlencoded({ extended: false, limit: '20kb' }), wrap(async (req, res) => {
@@ -257,6 +292,7 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
       send(req, res, {
         title: `${pages.t(lang, 'admin.title')} — bkesari`, pathname: '/admin', isOwner: s.user.role === 'owner', scripts: ['/shared/admin.js'],
         body: () => `<div class="hub-admin" data-admin-app><h1>Hub admin</h1><p class="k-muted">Signed in as ${escapeHtml(s.user.email || '')} (${escapeHtml(s.user.role)}).</p>
+<a class="k-card k-card--link hub-admin-access" href="/admin/access">${pages.ico('users', 'k-icon')}<span><strong>Access requests</strong><br><span class="k-muted">Approve or decline who may open LadWani, Education and TaskList (bkesari ID admin)</span></span>${pages.ico('arrow-right', 'k-icon')}</a>
 <div class="hub-admin-grid" id="admin-root"><div class="k-skel k-skel--card"></div><div class="k-skel k-skel--card"></div></div></div>`,
       });
     }));

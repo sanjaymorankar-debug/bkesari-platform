@@ -56,7 +56,7 @@ describe('the hub on PostgreSQL', { skip }, () => {
   test('the home page is rendered on the server: six tiles with status chips and each project\'s access state (D-039)', async () => {
     const r = await html(new Browser(base), '/');
     assert.equal(r.status, 200);
-    const tiles = [...r.text.matchAll(/<h3 class="k-tile__name">([^<]+)/g)].map((m) => m[1].trim());
+    const tiles = [...r.text.matchAll(/<h3 class="k-pcard__name">([^<]+)/g)].map((m) => m[1].trim());
     assert.deepEqual(tiles, ['LadWani', 'Education', 'TaskList', 'ATIP', 'Driving Simulator', 'Global Warming']);
     for (const chip of ['Live', 'Beta', 'Coming soon', 'Private']) assert.match(r.text, new RegExp(`class="k-chip[^"]*">${chip}<`));
     assert.match(r.text, /href="\/ATIP\/"[^>]*target="_blank" rel="noopener"/, 'ATIP only links out');
@@ -66,7 +66,7 @@ describe('the hub on PostgreSQL', { skip }, () => {
     for (const p of ['%2Fladwani%2F', '%2Fedu%2F', '%2Ftasklist%2F']) assert.ok(r.text.includes(`href="/auth/sign-in?next=${p}"`), p);
     assert.match(r.text, /data-access-state="signin"/);
     assert.match(r.text, /<html lang="en"/);
-    assert.match(r.text, /\/kesari-ui\/1\.0\.0\/kesari\.css/);
+    assert.match(r.text, /\/kesari-ui\/1\.1\.0\/kesari\.css/);
     assert.match(r.text, /<header class="ks-bar/, 'the shell header is in the page, not added by script');
     assert.match(r.text, /href="\/privacy">Privacy</, 'the footer carries the privacy notice');
   });
@@ -103,6 +103,48 @@ describe('the hub on PostgreSQL', { skip }, () => {
     assert.equal((await b.fetch('GET', '/.well-known/jwks.json')).status, 410);
     assert.equal((await html(b, '/education/sign-in')).location, '/edu/sign-in');
     assert.equal((await html(b, '/education')).location, '/edu');
+  });
+
+  test('the bkesari ID sign-in on Kesari 1.1.0: every hook signin.js needs, one primary action, the projects explained beside it', async () => {
+    const r = await html(new Browser(base), '/auth/sign-in?next=%2Fladwani%2F');
+    assert.equal(r.status, 200);
+    for (const id of ['si-send', 'si-email', 'si-pass-field', 'si-pass', 'si-send-btn', 'si-verify', 'si-sent', 'si-code', 'si-err', 'si-dev']) assert.ok(r.text.includes(`id="${id}"`), id);
+    assert.match(r.text, /<div class="k-card hub-form hub-auth__card" data-signin data-next="/);
+    assert.match(r.text, /<nav class="k-breadcrumbs"/);
+    assert.match(r.text, /<aside class="k-card hub-auth__aside"/);
+    for (const key of ['ladwani', 'education', 'tasklist', 'driving', 'environment']) assert.match(r.text, new RegExp(`<li data-project="${key}"><span class="k-picon k-picon--sm">`), key);
+    // Without Google set up, sending the code is the one primary action.
+    assert.match(r.text, /<button class="k-btn k-btn--brand k-btn--block" type="submit" id="si-send-btn">/);
+    assert.doesNotMatch(r.text, /hub-google/);
+  });
+
+  test('read in another language without scripts: /lang/xx sets k_lang and goes back to a path on this site only', async () => {
+    const b = new Browser(base);
+    const r = await html(b, '/lang/mr?next=/about');
+    assert.equal(r.status, 303);
+    assert.equal(r.location, '/about');
+    assert.match(r.headers.get('set-cookie'), /k_lang=mr; Path=\/; Max-Age=31536000; SameSite=Lax/);
+    for (const next of ['//evil.example/', 'https://evil.example/', '/\\evil.example']) assert.equal((await html(b, `/lang/hi?next=${encodeURIComponent(next)}`)).location, '/', next);
+    assert.match((await html(b, '/lang/xx')).headers.get('set-cookie'), /k_lang=en;/);
+    assert.match((await html(new Browser(base), '/')).text, /<a href="\/lang\/mr\?next=%2F" lang="mr" hreflang="mr" data-k-setlang="mr">मराठी<\/a>/);
+  });
+
+  test('robots.txt closes dev and test; the sitemap lists the public pages', async () => {
+    const r = await html(new Browser(base), '/robots.txt');
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type'), /text\/plain/);
+    assert.equal(r.text, 'User-agent: *\nDisallow: /\n', 'this suite runs as a non-production tier');
+    const map = await html(new Browser(base), '/sitemap.xml');
+    assert.match(map.headers.get('content-type'), /application\/xml/);
+    for (const p of ['/', '/driving-simulator/', '/environment/', '/ladwani/', '/edu/']) assert.match(map.text, new RegExp(`<loc>https://[^<]+${p.replace(/\//g, '\\/')}</loc>`));
+    assert.doesNotMatch(map.text, /admin|account|ATIP/i);
+  });
+
+  test('the contact form takes its topic from the page that sends people there', async () => {
+    const r = await html(new Browser(base), '/contact?topic=driving');
+    assert.match(r.text, /<option value="driving" selected>Driving Simulator<\/option>/);
+    const topicSelect = (text) => text.match(/<select class="k-select" id="topic"[\s\S]*?<\/select>/)[0];
+    assert.doesNotMatch(topicSelect((await html(new Browser(base), '/contact?topic=<x>')).text), /selected/, 'an unknown topic chooses nothing');
   });
 
   test('the contact form stores a real message, and keeps out forged, robotic and repeated ones', async () => {
@@ -169,7 +211,7 @@ describe('the hub on PostgreSQL', { skip }, () => {
     const banner = await admin.fetch('PUT', '/admin/api/announcement', { json: { message_en: 'TaskList is open for everyone.', message_mr: 'टास्कलिस्ट सर्वांसाठी खुली.', kind: 'success', active: true, link: '/tasklist/' }, csrf: admin.csrf });
     assert.equal(banner.status, 200, banner.text);
     const home = await html(new Browser(base), '/');
-    const names = [...home.text.matchAll(/<h3 class="k-tile__name">([^<]+)/g)].map((m) => m[1].trim());
+    const names = [...home.text.matchAll(/<h3 class="k-pcard__name">([^<]+)/g)].map((m) => m[1].trim());
     assert.equal(names[0], 'Driving Simulator', 'the new order shows straight away');
     assert.match(home.text, /Book a practice session\./);
     assert.match(home.text, /TaskList is open for everyone\./);
@@ -234,7 +276,7 @@ describe('the hub on PostgreSQL', { skip }, () => {
     assert.equal(home.headers.get('strict-transport-security'), null, 'HSTS only over https');
     const https = await html(b, '/', { 'x-forwarded-proto': 'https' });
     assert.equal(https.headers.get('strict-transport-security'), 'max-age=31536000');
-    assert.match((await html(b, '/kesari-ui/1.0.0/kesari.css')).headers.get('cache-control'), /immutable/);
+    assert.match((await html(b, '/kesari-ui/1.1.0/kesari.css')).headers.get('cache-control'), /immutable/);
     // 127.0.0.1 is the dev tier: the style guide is there, and not on production.
     assert.equal((await html(b, '/styleguide/')).status, 200);
     process.env.APP_ENV = 'prod';

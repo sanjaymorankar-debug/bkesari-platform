@@ -154,6 +154,7 @@ The earlier shells, if still wanted (they have no native projects yet):
 ```bash
 npm run add:android    # each app in apps/
 npm run add:ios
+npm run assets         # every icon and splash size for the three shells, from apps/<app>/assets
 npm run sync
 ```
 
@@ -207,3 +208,30 @@ Never ship a store build that points at test.
   build numbers, the vendored scripts and each folder's `package.json` agree.
 
 The repository's `tests/mobile.test.js` (portal-tester, `npm test` at the root) covers `apps/`.
+
+## The three earlier shells on Kesari 1.1.0 (17 Nov 2026)
+
+The three per-project shells (`apps/`) show the new design with no store release: the screens, the icon set,
+the "Back to bkesari home" link, the project switcher and the footer all come
+from the site. What lives in the apps themselves was updated for 1.1.0:
+
+| What | Where | Made from |
+|---|---|---|
+| App icon (iOS; Android adaptive foreground + background) | `apps/<app>/assets/icon-only.png`, `icon-foreground.png`, `icon-background.png` | the project's icon from the Kesari icon set, white on its accent; the iOS icon carries the bkesari "b" |
+| Splash (light, dark) | `apps/<app>/assets/splash.png`, `splash-dark.png` | the project icon tile, its name and bkesari.com |
+| Offline screen | `apps/<app>/www/index.html` | Kesari 1.1.0 values, the project icon, "Try again" and "Back to bkesari home" |
+| Splash settings | `capacitor.config.json` → `SplashScreen` | page background `#FAF8F5`, no spinner |
+
+`node mobile/tools/render-assets.js` (from the repository root, needs Playwright)
+redraws the PNGs from `packages/kesari-ui/src/icons.json`; `tests/mobile.test.js`
+checks every app has them. `npm run assets` (below) turns them into every
+Android density and iOS size.
+
+### The bkesari app's icons and splash (17 Nov 2026)
+
+`mobile/bkesari` shipped Capacitor's placeholder images. Its launcher icons (every Android
+density: square, round and the adaptive foreground on `@color/ic_launcher_background` = saffron
+`#C2560A`; the iOS 1024 px app icon) and its splash screens (Android portrait and landscape, iOS)
+now carry the bkesari mark: a white "b" in Mukta, Kesari's face, on saffron, as in the site's
+header. `node mobile/tools/render-bkesari-app.js` (from the repository root; Playwright and
+Pillow) redraws them at the sizes and colour modes the native projects already use.

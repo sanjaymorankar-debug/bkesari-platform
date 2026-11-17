@@ -80,20 +80,24 @@ new #[Layout('layouts.guest')] class extends Component
     <p class="k-muted">{{ __('For parents, students and teachers. It takes a minute, and you can then link your account to your school.') }}</p>
 
     <form wire:submit="register" class="mt-4" novalidate>
-        <div class="k-field">
-            <x-input-label for="role" :value="__('I am registering as a')" />
-            <select wire:model="role" id="role" class="k-select">
-                <option value="parent">{{ __('Parent') }}</option>
-                <option value="student">{{ __('Student') }}</option>
-                <option value="teacher">{{ __('Teacher') }}</option>
-            </select>
+        <fieldset class="k-field edu-roles" aria-describedby="role-hint">
+            <legend class="k-label">{{ __('I am registering as a') }}</legend>
+            <div class="edu-role-options">
+                @foreach (['parent' => ['Parent', 'users'], 'student' => ['Student', 'education'], 'teacher' => ['Teacher', 'book']] as $value => [$label, $icon])
+                    <label class="edu-role-option">
+                        <input type="radio" wire:model="role" name="role" value="{{ $value }}">
+                        <x-k-icon :name="$icon" />
+                        <span>{{ __($label) }}</span>
+                    </label>
+                @endforeach
+            </div>
             <x-input-error :messages="$errors->get('role')" />
-            <p class="k-hint">
+            <p id="role-hint" class="k-hint">
                 {{ __('Registering a school instead?') }}
                 <a href="{{ route('schools.register') }}" wire:navigate>{{ __('Register your school here') }}</a>
                 — {{ __('School Admin and government accounts are not created through this form.') }}
             </p>
-        </div>
+        </fieldset>
 
         <div class="k-field">
             <x-input-label for="name" :value="__('Name')" />

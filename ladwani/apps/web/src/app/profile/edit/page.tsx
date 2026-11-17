@@ -1,10 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { api } from '../../../lib/api-client'
-import { errorMessage, useAuth } from '../../../lib/auth-context'
-import { RequireAuth, TopBar, Shell, ErrorBanner } from '../../../components/ui'
+import { errorText } from '../../../lib/errors'
+import { useAuth } from '../../../lib/auth-context'
+import { useT } from '../../../lib/i18n'
+import { toast } from '../../../lib/kesari'
+import { INCOME_RANGES, incomeLabel } from '../../../lib/labels'
+import { RequireAuth, TopBar, Shell, ErrorBanner, ErrorState, ListSkeleton, PageHeader } from '../../../components/ui'
 
 interface LookupOption {
   id: string
@@ -25,43 +30,90 @@ interface OwnProfile {
   skills?: { id: string; label: string }[]
 }
 
-const INCOME_RANGES = [
-  { value: '', label: 'Prefer not to say' },
-  { value: 'BELOW_2L', label: 'Below ₹2 lakh' },
-  { value: 'L2_5L', label: '₹2–5 lakh' },
-  { value: 'L5_10L', label: '₹5–10 lakh' },
-  { value: 'L10_25L', label: '₹10–25 lakh' },
-  { value: 'ABOVE_25L', label: 'Above ₹25 lakh' },
-  { value: 'NOT_DISCLOSED', label: 'Not disclosed' },
-]
+const EMPTY = {
+  currentCity: '',
+  currentState: '',
+  nativeVillage: '',
+  nativeDistrict: '',
+  nativeState: '',
+  educationLevelId: '',
+  occupationId: '',
+  employerOrBusiness: '',
+  incomeRange: '',
+  bio: '',
+}
+type Form = typeof EMPTY
+
+interface Lookups {
+  education: LookupOption[]
+  occupations: LookupOption[]
+  skills: LookupOption[]
+}
 
 export default function EditProfilePage() {
+  return (
+    <RequireAuth>
+      <TopBar />
+      <Shell>
+        <EditProfile />
+      </Shell>
+    </RequireAuth>
+  )
+}
+
+/** A labelled text input or select, Kesari-styled, sized by its column (never a fixed text width). */
+function Field({ label, hint, children }: { label: string; hint?: string; children: (id: string, describedBy?: string) => ReactNode }) {
+  const id = useId()
+  return (
+    <div className="k-field">
+      <label className="k-label" htmlFor={id}>
+        {label}
+      </label>
+      {hint && (
+        <span className="k-hint" id={`${id}-hint`}>
+          {hint}
+        </span>
+      )}
+      {children(id, hint ? `${id}-hint` : undefined)}
+    </div>
+  )
+}
+
+function Section({ title, lead, children }: { title: string; lead?: string; children: ReactNode }) {
+  return (
+    <fieldset className="lw-form-section">
+      <legend className="lw-form-section__title">{title}</legend>
+      {lead && <p className="k-muted lw-form-section__lead">{lead}</p>}
+      {children}
+    </fieldset>
+  )
+}
+
+/**
+ * The signed-in person's own profile. The form appears once their profile has
+ * loaded, so nothing is ever saved over it from an empty form.
+ */
+function EditProfile() {
+  const t = useT()
   const router = useRouter()
   const { user } = useAuth()
-  const [form, setForm] = useState({
-    currentCity: '',
-    currentState: '',
-    nativeVillage: '',
-    nativeDistrict: '',
-    nativeState: '',
-    educationLevelId: '',
-    occupationId: '',
-    employerOrBusiness: '',
-    incomeRange: '',
-    bio: '',
-  })
+  const [form, setForm] = useState<Form | null>(null)
   const [skillIds, setSkillIds] = useState<string[]>([])
-  const [educationLevels, setEducationLevels] = useState<LookupOption[]>([])
-  const [occupations, setOccupations] = useState<LookupOption[]>([])
-  const [skillOptions, setSkillOptions] = useState<LookupOption[]>([])
+  const [lookups, setLookups] = useState<Lookups>({ education: [], occupations: [], skills: [] })
+  // The raw failure: put in words when shown, so it follows the language.
+  const [loadError, setLoadError] = useState<unknown>(null)
   const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    api.get<LookupOption[]>('/config/education-levels').then(setEducationLevels).catch(() => undefined)
-    api.get<LookupOption[]>('/config/occupations').then(setOccupations).catch(() => undefined)
-    api.get<(LookupOption & { code: string })[]>('/config/skills').then(setSkillOptions).catch(() => undefined)
+  const load = useCallback(() => {
+    setLoadError(null)
+    setForm(null)
+    // The lists are optional extras: a field whose list did not load just offers fewer choices.
+    Promise.all([
+      api.get<LookupOption[]>('/config/education-levels').catch(() => []),
+      api.get<LookupOption[]>('/config/occupations').catch(() => []),
+      api.get<LookupOption[]>('/config/skills').catch(() => []),
+    ]).then(([education, occupations, skills]) => setLookups({ education, occupations, skills }))
     api
       .get<OwnProfile>('/members/me')
       .then((profile) => {
@@ -79,15 +131,38 @@ export default function EditProfilePage() {
         })
         setSkillIds(profile.skills?.map((s) => s.id) ?? [])
       })
-      .catch((err) => setError(errorMessage(err)))
+      .catch((err) => setLoadError(err ?? new Error()))
   }, [])
+  useEffect(load, [load])
+
+  const profileHref = user?.memberId ? `/members/${user.memberId}` : '/dashboard'
+
+  if (loadError != null) {
+    return (
+      <>
+        <PageHeader title={t('editProfile.title')} />
+        <ErrorState message={errorText(loadError, t)} onRetry={load} />
+      </>
+    )
+  }
+  if (!form) {
+    return (
+      <>
+        <PageHeader title={t('editProfile.title')} lead={t('editProfile.lead')} />
+        <ListSkeleton rows={3} />
+      </>
+    )
+  }
+
+  const set = (key: keyof Form) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value })
 
   function toggleSkill(id: string) {
     setSkillIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]))
   }
 
-  async function save(e: React.FormEvent) {
+  async function save(e: FormEvent) {
     e.preventDefault()
+    if (!form) return
     setError(null)
     setSaving(true)
     try {
@@ -104,106 +179,110 @@ export default function EditProfilePage() {
         bio: form.bio || undefined,
         skillIds,
       })
-      setNotice('Profile updated.')
-      if (user?.memberId) router.push(`/members/${user.memberId}`)
+      toast(t('editProfile.saved'), 'success')
+      router.push(profileHref)
     } catch (err) {
-      setError(errorMessage(err))
-    } finally {
+      setError(errorText(err, t))
       setSaving(false)
     }
   }
 
   return (
-    <RequireAuth>
-      <TopBar />
-      <Shell>
-        <h1>Edit my profile</h1>
+    <>
+      <PageHeader title={t('editProfile.title')} lead={t('editProfile.lead')} crumbs={[{ href: profileHref, label: t('nav.profile') }, { label: t('editProfile.title') }]} />
+      <form onSubmit={save} className="lw-form" noValidate>
         <ErrorBanner message={error} />
-        {notice && <div className="card" style={{ borderColor: 'var(--success)', color: 'var(--success)', marginBottom: 16 }}>{notice}</div>}
 
-        <form onSubmit={save} className="card stack" style={{ marginTop: 16 }}>
-          <div className="row" style={{ flexWrap: 'wrap' }}>
-            <div className="field" style={{ flex: 1, minWidth: 160 }}>
-              <label htmlFor="currentCity">Current city</label>
-              <input id="currentCity" value={form.currentCity} onChange={(e) => setForm({ ...form, currentCity: e.target.value })} />
-            </div>
-            <div className="field" style={{ flex: 1, minWidth: 160 }}>
-              <label htmlFor="currentState">Current state</label>
-              <input id="currentState" value={form.currentState} onChange={(e) => setForm({ ...form, currentState: e.target.value })} />
-            </div>
+        <Section title={t('editProfile.livesTitle')}>
+          <div className="lw-two">
+            <Field label={t('field.city')}>{(id) => <input id={id} className="k-input" autoComplete="address-level2" value={form.currentCity} onChange={set('currentCity')} />}</Field>
+            <Field label={t('field.state')}>{(id) => <input id={id} className="k-input" autoComplete="address-level1" value={form.currentState} onChange={set('currentState')} />}</Field>
           </div>
-          <div className="row" style={{ flexWrap: 'wrap' }}>
-            <div className="field" style={{ flex: 1, minWidth: 160 }}>
-              <label htmlFor="nativeVillage">Native village</label>
-              <input id="nativeVillage" value={form.nativeVillage} onChange={(e) => setForm({ ...form, nativeVillage: e.target.value })} />
-            </div>
-            <div className="field" style={{ flex: 1, minWidth: 160 }}>
-              <label htmlFor="nativeDistrict">Native district</label>
-              <input id="nativeDistrict" value={form.nativeDistrict} onChange={(e) => setForm({ ...form, nativeDistrict: e.target.value })} />
-            </div>
-            <div className="field" style={{ flex: 1, minWidth: 160 }}>
-              <label htmlFor="nativeState">Native state</label>
-              <input id="nativeState" value={form.nativeState} onChange={(e) => setForm({ ...form, nativeState: e.target.value })} />
-            </div>
+        </Section>
+
+        <Section title={t('editProfile.nativeTitle')} lead={t('editProfile.nativeLead')}>
+          <Field label={t('field.village')}>{(id) => <input id={id} className="k-input" value={form.nativeVillage} onChange={set('nativeVillage')} />}</Field>
+          <div className="lw-two">
+            <Field label={t('field.district')}>{(id) => <input id={id} className="k-input" value={form.nativeDistrict} onChange={set('nativeDistrict')} />}</Field>
+            <Field label={t('field.state')}>{(id) => <input id={id} className="k-input" value={form.nativeState} onChange={set('nativeState')} />}</Field>
           </div>
-          <div className="row" style={{ flexWrap: 'wrap' }}>
-            <div className="field" style={{ flex: 1, minWidth: 160 }}>
-              <label htmlFor="educationLevelId">Education</label>
-              <select id="educationLevelId" value={form.educationLevelId} onChange={(e) => setForm({ ...form, educationLevelId: e.target.value })}>
-                <option value="">Prefer not to say</option>
-                {educationLevels.map((el) => (
-                  <option key={el.id} value={el.id}>{el.label}</option>
+        </Section>
+
+        <Section title={t('editProfile.workTitle')}>
+          <div className="lw-two">
+            <Field label={t('field.education')}>
+              {(id) => (
+                <select id={id} className="k-select" value={form.educationLevelId} onChange={set('educationLevelId')}>
+                  <option value="">{t('common.choose')}</option>
+                  {lookups.education.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field label={t('field.occupation')}>
+              {(id) => (
+                <select id={id} className="k-select" value={form.occupationId} onChange={set('occupationId')}>
+                  <option value="">{t('common.choose')}</option>
+                  {lookups.occupations.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+          </div>
+          <Field label={t('field.employer')} hint={t('field.employerHint')}>
+            {(id, describedBy) => <input id={id} className="k-input" aria-describedby={describedBy} value={form.employerOrBusiness} onChange={set('employerOrBusiness')} />}
+          </Field>
+          <Field label={t('field.income')} hint={t('field.incomeHint')}>
+            {(id, describedBy) => (
+              <select id={id} className="k-select" aria-describedby={describedBy} value={form.incomeRange} onChange={set('incomeRange')}>
+                <option value="">{t('common.choose')}</option>
+                {INCOME_RANGES.map((r) => (
+                  <option key={r} value={r}>
+                    {incomeLabel(t, r)}
+                  </option>
                 ))}
               </select>
-            </div>
-            <div className="field" style={{ flex: 1, minWidth: 160 }}>
-              <label htmlFor="occupationId">Occupation</label>
-              <select id="occupationId" value={form.occupationId} onChange={(e) => setForm({ ...form, occupationId: e.target.value })}>
-                <option value="">Prefer not to say</option>
-                {occupations.map((o) => (
-                  <option key={o.id} value={o.id}>{o.label}</option>
+            )}
+          </Field>
+        </Section>
+
+        <Section title={t('editProfile.aboutTitle')}>
+          <Field label={t('field.bio')} hint={t('field.bioHint')}>
+            {(id, describedBy) => <textarea id={id} className="k-textarea" rows={4} aria-describedby={describedBy} value={form.bio} onChange={set('bio')} />}
+          </Field>
+          {lookups.skills.length > 0 && (
+            <fieldset className="lw-fieldset k-field">
+              <legend className="k-label">{t('profile.skills')}</legend>
+              <span className="k-hint">{t('editProfile.skillsHint')}</span>
+              <ul className="lw-skill-picks">
+                {lookups.skills.map((s) => (
+                  <li key={s.id}>
+                    <label className="lw-skill-pick">
+                      <input type="checkbox" checked={skillIds.includes(s.id)} onChange={() => toggleSkill(s.id)} />
+                      <span>{s.label}</span>
+                    </label>
+                  </li>
                 ))}
-              </select>
-            </div>
-          </div>
-          <div className="field">
-            <label htmlFor="employerOrBusiness">Employer / business name</label>
-            <input
-              id="employerOrBusiness"
-              value={form.employerOrBusiness}
-              onChange={(e) => setForm({ ...form, employerOrBusiness: e.target.value })}
-              placeholder="e.g. Infosys, or Deshmukh Traders"
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="incomeRange">Income range</label>
-            <select id="incomeRange" value={form.incomeRange} onChange={(e) => setForm({ ...form, incomeRange: e.target.value })}>
-              {INCOME_RANGES.map((r) => (
-                <option key={r.value} value={r.value}>{r.label}</option>
-              ))}
-            </select>
-            <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>Only visible to you by default.</p>
-          </div>
-          <div className="field">
-            <label htmlFor="bio">About</label>
-            <textarea id="bio" rows={4} value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>Skills</label>
-            <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-              {skillOptions.map((s) => (
-                <label key={s.id} className="row" style={{ gap: 6, alignItems: 'center' }}>
-                  <input type="checkbox" checked={skillIds.includes(s.id)} onChange={() => toggleSkill(s.id)} />
-                  {s.label}
-                </label>
-              ))}
-            </div>
-          </div>
-          <button className="btn btn-primary" type="submit" disabled={saving} style={{ alignSelf: 'flex-start' }}>
-            {saving ? 'Saving…' : 'Save profile'}
+              </ul>
+            </fieldset>
+          )}
+        </Section>
+
+        <div className="lw-form__actions">
+          <Link href={profileHref} className="k-btn k-btn--secondary">
+            {t('common.cancel')}
+          </Link>
+          <button className="k-btn" type="submit" aria-busy={saving || undefined} disabled={saving}>
+            {t('editProfile.save')}
           </button>
-        </form>
-      </Shell>
-    </RequireAuth>
+        </div>
+      </form>
+    </>
   )
 }
