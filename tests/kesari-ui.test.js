@@ -117,6 +117,8 @@ test('the icon set: the sprite and files are built from icons.json, and the shel
   const menu = require('../portal/public/shared/menu.js');
   for (const [name, body] of Object.entries(menu.ICONS)) assert.equal(body, set[name], `menu.js icon ${name} differs from icons.json`);
   for (const tab of menu.TABS) assert.ok(set[tab.icon], `${tab.key} uses an icon from the set`);
+  // The hub's pages read the set from the committed sprite (portal/ ships alone on the dev deploy).
+  assert.deepEqual(require('../portal/hub-pages.js').ICON, set, 'hub-pages.js draws exactly the icons in icons.json');
 });
 
 test('dark: every text pair is AA on the dark surfaces', () => {

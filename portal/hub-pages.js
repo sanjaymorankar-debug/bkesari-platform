@@ -7,18 +7,26 @@
    this origin, so the hub's Content-Security-Policy can forbid inline ones.
    ============================================================ */
 
+const fs = require('fs');
+const path = require('path');
 const menu = require('./public/shared/menu.js');
 const strings = require('./i18n/hub.json');
-const iconSet = require('../packages/kesari-ui/src/icons.json');
 
-/** Every Kesari icon, drawn inline by the server (no request, no script). */
-const ICON = { ...iconSet.project, ...iconSet.ui };
+const KESARI = '/kesari-ui/1.1.0';
+
+/**
+ * Every Kesari icon, drawn inline by the server (no request, no script). Read
+ * from the committed build's sprite under portal/public, which
+ * tests/kesari-ui.test.js keeps equal to packages/kesari-ui/src/icons.json:
+ * the dev deploy ships portal/ alone, so nothing here may come from outside it.
+ */
+const ICON = Object.fromEntries([...fs.readFileSync(path.join(__dirname, 'public', KESARI, 'icons.svg'), 'utf8')
+  .matchAll(/<symbol id="k-i-([^"]+)" [^>]*>([\s\S]*?)<\/symbol>/g)].map((m) => [m[1], m[2]]));
 function ico(name, cls = 'k-icon') {
   if (!ICON[name]) throw new Error(`no Kesari icon named ${name}`);
   return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICON[name]}</svg>`;
 }
 
-const KESARI = '/kesari-ui/1.1.0';
 const LANGS = ['en', 'mr', 'hi'];
 /** Preload for pages whose heading uses the display face (.k-display). */
 const DISPLAY_FONT_PRELOAD = `<link rel="preload" href="${KESARI}/fonts/tiro-devanagari-marathi-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>`;
