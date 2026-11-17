@@ -8,11 +8,11 @@ Screens: [design/screen-inventory.md](../design/screen-inventory.md). Design sys
 
 | | |
 |---|---|
-| Verdict on the code | **PASS** — portal-tester PASS (1 S1 defect found and fixed), edu-tester __EDU_VERDICT__, CI green (test, ladwani, edu) |
+| Verdict on the code | **PASS** — portal-tester PASS (1 S1 defect found and fixed), edu-tester PASS (1 S4 defect found and fixed), CI green (test, ladwani, edu) |
 | Test server (test.bkesari.com) | **Not testable as a separate tier**: since the move to the VPS it answers `301 → https://bkesari.com/`. The tier checks ran on a local production-tier build instead (section 9) |
 | Production (bkesari.com) | **Not updated** — it runs on the Hostinger VPS (189.72.155.162), which does not pull `main`; at 01:15 AM IST it still served the 4 Nov release. Measured as the "before" baseline (sections 6, 8); the "after" checks run once the VPS is updated (section 11) |
 | Screens | 17 hub and shared screens, 2 static pages, 11 LadWani, 10 Education, 4 mobile apps: all built; see section 2 |
-| Defects | 19 found across design, build and testing; 19 fixed (section 10) |
+| Defects | 20 found across design, build and testing; 20 fixed (section 10) |
 
 ## 2. Pass / fail per screen
 
@@ -53,7 +53,7 @@ All at 360 px and 1440 px (768 and 1024 for the hub's overflow and target check)
 | Neon parity (PgBouncer, TLS, SCRAM) | `scripts/neon-parity.sh` | 18 / 0 |
 | bkesari app | `cd mobile && npm test` | 29 / 29 |
 | Kesari build | `npm run build:kesari` | byte-identical; 23.4 KB of the 30 KB gzipped budget |
-| edu-tester (edu/TEST_SPEC.md) | agent | __EDU_DETAIL__ |
+| edu-tester (edu/TEST_SPEC.md, all levels incl. S7 through PgBouncer, 22 critical checks) | agent | **PASS**; **583 / 583** on PostgreSQL and through the pooler (main: 574; none removed or weakened); smoke http 65/0, browser 21/0; hub identity path by hand 22/0; role-by-dashboard matrix 5×5; report `.claude/test-runs/20261117-195450-edu-tester.md` |
 | CI (GitHub Actions) on a7de01d | test, ladwani, edu | **green** |
 
 ## 4. End-to-end journeys
@@ -130,6 +130,7 @@ Order: Performance / Accessibility / Best practices / SEO. All ≥ 90. Productio
 | U-16 | S3 | production | No robots.txt or sitemap.xml (404) | tier-aware routes |
 | U-17 | S3 | bkesari app | Capacitor's placeholder icon and splash | the bkesari mark |
 | U-18 | S3 | Kesari | A spouse who has passed away lost the dashed outline | kept |
+| U-20 | S4 | Education (edu-tester D1) | On Marathi/Hindi pages a confidence level or complaint status stayed in English inside a translated sentence | translated; 2 tests |
 | U-19 | S4 | My projects (draft) | LadWani's PENDING read as "waiting for an operator" | superseded by D-039's `/account` |
 
 ## 11. Open items
@@ -140,5 +141,6 @@ Order: Performance / Accessibility / Best practices / SEO. All ≥ 90. Productio
 4. **Firefox and Safari** for real (section 7).
 5. **Mobile store builds**: on hold (D-033); need the Mac.
 6. **LadWani API** (from the LadWani work): operators cannot open ID-proof files; the approvals list has no submitter names; 20 requests a minute per visitor is tight for signed-in pages.
-7. **Audits (report only)**: hub 3 high (picomatch); LadWani 11 (4 moderate, 5 high, 2 critical); Education per the edu-tester.
+7. **Audits (report only)**: hub 3 high (picomatch); LadWani 11 (4 moderate, 5 high, 2 critical); Education `composer audit` 7 advisories in 4 packages (same lock file as main; none reached under `/edu`; proposed: `composer update laravel/framework symfony/http-foundation symfony/http-kernel symfony/routing --with-dependencies` as its own change), `npm audit` 0 with `--omit=dev`.
+9. **Education tests to add**: the child-safety callout and the dashboard role matrix are unchanged and pass, but no committed test covers them yet (the edu-tester's probe can be committed as it is).
 8. **Translations**: Marathi and Hindi written for this release need a native speaker's read (D-019).
