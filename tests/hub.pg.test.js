@@ -116,6 +116,10 @@ describe('the hub on PostgreSQL', { skip }, () => {
     // Without Google set up, sending the code is the one primary action.
     assert.match(r.text, /<button class="k-btn k-btn--brand k-btn--block" type="submit" id="si-send-btn">/);
     assert.doesNotMatch(r.text, /hub-google/);
+    // ...and no sentence offers Google either, here or on the home page.
+    assert.doesNotMatch(r.text, /Google/, 'sign-in names Google only when its button is on');
+    assert.match(r.text, /Sign in once, with a code sent to your email\./);
+    assert.doesNotMatch((await html(new Browser(base), '/')).text, /Google/, 'home names Google only when it is on');
   });
 
   test('read in another language without scripts: /lang/xx sets k_lang and goes back to a path on this site only', async () => {

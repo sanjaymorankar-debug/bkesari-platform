@@ -2,6 +2,7 @@
 
 **Brief of 17 Nov 2026, 11:18 PM IST; report of 18 Nov 2026 (IST, UTC + 5:30).**
 Branch `claude/inspiring-cray-41q0vh`, PR [sanjaymorankar-debug/bkesari-platform#40](https://github.com/sanjaymorankar-debug/bkesari-platform/pull/40), on top of `main` 2d03d98 (the bkesari ID, D-039).
+Released to `main` by [sanjaymorankar-debug/bkesari-platform#43](https://github.com/sanjaymorankar-debug/bkesari-platform/pull/43) (`1e80125`); **live on bkesari.com since 18 Nov 2026, 02:25 AM IST** (section 9). Live checks: section 12.
 Screens: [design/screen-inventory.md](../design/screen-inventory.md). Design system: [design/design-system.md](../design/design-system.md). Decisions D-040 to D-049: [design/decisions.md](../design/decisions.md).
 
 ## 1. Summary
@@ -9,10 +10,10 @@ Screens: [design/screen-inventory.md](../design/screen-inventory.md). Design sys
 | | |
 |---|---|
 | Verdict on the code | **PASS** — portal-tester PASS (1 S1 defect found and fixed), edu-tester PASS (1 S4 defect found and fixed), CI green (test, ladwani, edu) |
-| Test server (test.bkesari.com) | **Not testable as a separate tier**: since the move to the VPS it answers `301 → https://bkesari.com/`. The tier checks ran on a local production-tier build instead (section 9) |
-| Production (bkesari.com) | **Not updated** — it runs on the Hostinger VPS (189.72.155.162), which does not pull `main`; at 01:15 AM IST it still served the 4 Nov release. Measured as the "before" baseline (sections 6, 8); the "after" checks run once the VPS is updated (section 11) |
+| Test server (test.bkesari.com) | **Not testable as a separate tier**: since the move to the VPS it answers `301 → https://bkesari.com/`. Instead: the tier checks on a local production-tier build, and a rehearsal of the VPS update on the exact release (section 9) |
+| Production (bkesari.com) | **Live, PASS** — `main` 1e80125 since 02:25 AM IST on the VPS. Journeys 56/56 at 360/768/1024/1440; axe 0 violations (9 pages, light and dark, 360 and 1440); no overflow or target under 44 px (36/36); Lighthouse 99–100 / 100 / 100 / 100 on 6 pages, mobile and desktop (section 12). Two minor defects found live (U-21, U-22), fixed in a follow-up awaiting its VPS update |
 | Screens | 17 hub and shared screens, 2 static pages, 11 LadWani, 10 Education, 4 mobile apps: all built; see section 2 |
-| Defects | 20 found across design, build and testing; 20 fixed (section 10) |
+| Defects | 22 found across design, build, testing and the live checks; 20 fixed and live, 2 fixed in the follow-up (section 10) |
 
 ## 2. Pass / fail per screen
 
@@ -75,16 +76,17 @@ Keyboard: skip link, visible 3 px focus ring everywhere (tested: no rule removes
 
 ## 6. Lighthouse (12.x, Chromium; mobile = simulated slow 4G)
 
-| Page | Production now (4 Nov release) | This release, production-tier build (local) |
-|---|---|---|
-| `/` mobile | 99 / 100 / 100 / 100 | **98 / 100 / 100 / 100** |
-| `/` desktop | 99 / 100 / 100 / 100 | **100 / 100 / 100 / 100** |
-| `/driving-simulator/` mobile | 99 / 100 / 100 / 100 | **100 / 100 / 100 / 100** |
-| `/environment/` mobile | 99 / 100 / 100 / 100 | **100 / 100 / 100 / 100** |
-| `/auth/sign-in` mobile | 99 / 100 / 100 / 100 | **100 / 100 / 100 / —** (dev tier: noindex) |
-| `/edu/` mobile | 99 / 98 / 96 / 90 | measured after deploy |
+| Page | Production before (4 Nov release, 17 Nov) | This release, production-tier build (local) | **bkesari.com after (18 Nov, 02:30 AM IST)** |
+|---|---|---|---|
+| `/` mobile | 99 / 100 / 100 / 100 | 98 / 100 / 100 / 100 | **99 / 100 / 100 / 100** (LCP 1.5 s, CLS 0) |
+| `/` desktop | 99 / 100 / 100 / 100 | 100 / 100 / 100 / 100 | **99 / 100 / 100 / 100** (CLS 0.005) |
+| `/auth/sign-in` mobile / desktop | 99 / 100 / 100 / 100 | 100 / 100 / 100 / — (dev tier: noindex) | **100 / 100 / 100 / 100**; desktop **99 / 100 / 100 / 100** |
+| `/driving-simulator/` mobile / desktop | 99 / 100 / 100 / 100 | 100 / 100 / 100 / 100 | **99 / 100 / 100 / 100** both |
+| `/environment/` mobile / desktop | 99 / 100 / 100 / 100 | 100 / 100 / 100 / 100 | **99 / 100 / 100 / 100** both |
+| `/about`, `/contact` mobile / desktop | — | — | **99 / 100 / 100 / 100** all four |
+| `/edu/` mobile | 99 / 98 / 96 / 90 | — | behind the bkesari ID gate since D-039 (a visitor is sent to sign-in), so not measurable signed out |
 
-Order: Performance / Accessibility / Best practices / SEO. All ≥ 90. Production-tier build: robots.txt and sitemap.xml now exist (production had neither; SEO 100). Home: LCP 2.1 s mobile, CLS ≤ 0.014.
+Order: Performance / Accessibility / Best practices / SEO. All ≥ 90. robots.txt and sitemap.xml now exist (production had neither). Live LCP 0.9–1.5 s on mobile, 0.2–0.3 s on desktop; CLS ≤ 0.005.
 
 ## 7. Cross-browser
 
@@ -100,13 +102,28 @@ Order: Performance / Accessibility / Best practices / SEO. All ≥ 90. Productio
 ## 8. Before / after screenshots
 
 `docs/design/screens/before/` and `after/`, `<screen>-360.jpg` and `-1440.jpg` (JPEG, full page): 18 hub and shared screens, 11 LadWani, 9 Education. Before = production on 17 Nov for public pages; `main` run locally for signed-in pages (2d03d98 for the bkesari ID's screens, 4aaa7fd for LadWani and Education with the same data).
+`docs/design/screens/after-prod/`: the 10 public screens captured on bkesari.com itself after the release went live (home, about, contact, privacy, sign-in, Driving Simulator, Environment, 404, offline, admin sign-in; 360 and 1440). Signed-in screens cannot be captured on production without a real account and its email code.
 
 ## 9. Test server and production server
 
 | Tier | State | Checks |
 |---|---|---|
-| test.bkesari.com | redirects to bkesari.com (no separate tier on the VPS) | the tier rules ran locally with `APP_ENV=prod` (robots open, indexable, no on-screen codes) and in the portal-tester's S5 tier step (test and prod: no code or link shown) |
-| bkesari.com | 4 Nov release | before: Lighthouse (section 6), screenshots (section 8). After: pending the VPS update |
+| test.bkesari.com | redirects to bkesari.com (no separate tier on the VPS; DEPLOY.md: set aside for releases on 18 Nov) | the tier rules ran locally with `APP_ENV=prod` (robots open, indexable, no on-screen codes) and in the portal-tester's S5 tier step (test and prod: no code or link shown). **Rehearsal of the release**: `git archive` of `dev` 6106b34 (the same tree as `main` 1e80125) built as `update-bkesari.sh prepare` does (`npm run build:hostinger`, 44 s, no errors), started with `APP_ENV=production` and `node portal/start.js`: the script's switch check (the bkesari ID's sign-in) passed; 1.1.0 and 1.0.0 assets, robots, sitemap 200; `/edu/`, `/ladwani/`, `/tasklist/`, `/account` to sign-in; unknown paths 404. Hostinger's preview of `dev` (a `*.hostingersite.com` site on the shared hosting the domain no longer uses) is refused by this environment's network, so it was not used |
+| bkesari.com | `main` 1e80125 since 02:25 AM IST | before: sections 6 and 8 (4 Nov release). After: section 12 |
+
+### Deployment record (18 Nov 2026, IST)
+
+| Time | Step | Result |
+|---|---|---|
+| 01:18 AM | (the bkesari ID's release, `eb6598f`, by its own session; `docs/test-reports/auth-module-2026-11-18.md` §7) | live; accounts linked 01:23 AM |
+| 01:33 AM | PR #40 merged into `dev` (6106b34) | CI green on its head 6d9aaec (test, ladwani, edu) |
+| 01:37 AM | PR #43 merged `dev` → `main` (1e80125) | test, ladwani, edu green. The two red `deploy` checks are the dev.bkesari.com push deploys, which have failed since 4 Nov because `DEV_SSH_HOST` is unset (explained on the PR) |
+| ~02:20 AM | `update-bkesari.sh check`, `prepare 1e80125…` (owner, on the VPS) | built beside the live copy: `platform-new-1e80125`. An earlier `switch` had correctly refused with "run 'prepare' first" |
+| 02:25 AM | `update-bkesari.sh switch 1e80125…` | Education migration: nothing to migrate; swap (previous copy `platform-prev-eb6598f-20261118-0225`); hub restarted; `php artisan optimize`, php-fpm reloaded; checks: the bkesari ID's sign-in, `/edu/` 302 to sign-in, Education 200 |
+| 02:25 AM | bkesari.com serves Kesari 1.1.0 | seen by the watcher polling the home page every 30 s |
+| 02:27–02:45 AM | live checks | section 12 |
+
+The day-one account linking (`update-bkesari.sh link`) was not needed again: it ran with the bkesari ID's release at 01:23 AM. Rollback, if ever needed: `sudo bash /tmp/update-bkesari.sh rollback` returns to `eb6598f`.
 
 ## 10. Defects found and fixed
 
@@ -132,15 +149,40 @@ Order: Performance / Accessibility / Best practices / SEO. All ≥ 90. Productio
 | U-18 | S3 | Kesari | A spouse who has passed away lost the dashed outline | kept |
 | U-20 | S4 | Education (edu-tester D1) | On Marathi/Hindi pages a confidence level or complaint status stayed in English inside a translated sentence | translated; 2 tests |
 | U-19 | S4 | My projects (draft) | LadWani's PENDING read as "waiting for an operator" | superseded by D-039's `/account` |
+| U-21 | S3 | sign-in, live | At 360 px the aside broke "Environmental" mid-word ("Environme / ntal"): the rows' grid let the name column shrink to nothing | rows wrap: the name stays whole, the chip moves to the next line; test (follow-up 1eeda7e, awaiting the VPS update) |
+| U-22 | S3 | sign-in and home, live | "Sign in once with Google or an email code" while production has no Google button (keys not set yet) | the wording follows the button: Google named only while it is on; 2 new strings × 3 languages; tests (follow-up 1eeda7e, awaiting the VPS update) |
+| U-23 | S4 | home (portal-tester D1 on the follow-up) | With Google on, inside a WebView or an in-app browser (Instagram, Facebook) the home card still named Google, though the sign-in page shows no button there | the home route asks `googleEntry` like the sign-in page; test for a browser, the bkesari app, a WebView and Instagram (0ffac9e) |
+
+The follow-up (1eeda7e, 0ffac9e) went through the portal-tester: **PASS**, `npm run test:pg` 219/219, all 13 levels and 30 critical checks, Google on and off in en/mr/hi at 320/360/768/1440 in light and dark (216 page loads, axe 0 in 108 runs). Report `.claude/test-runs/20261117-212853-portal-tester.md`.
 
 ## 11. Open items
 
-1. **Update the VPS** (owner, or Claude with SSH access): this also switches production to the bkesari ID, so first set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and the redirect URI, `HUB_PROXY_SECRET` (hub and Education), the built-in administrators' hashes, and run `tools/link_accounts_to_hub.mjs` (dry run, then `--apply`) — `docs/test-reports/auth-module-2026-11-18.md` §8. Then: `git pull` of `main`, `npm ci && npm run build:hostinger`, restart the hub; Education: `git pull`, `composer install --no-dev`, `php artisan migrate --force`, caches.
-2. **After the update**: re-run sections 4–6 against bkesari.com (`func2.js`, axe, Lighthouse) and take the production "after" screenshots.
-3. **Hardening (portal-tester O2)**: robots.txt and the sitemap build their URLs from the request's host and are publicly cacheable; use a fixed origin per tier.
+1. ~~Update the VPS~~ **Done**: live since 02:25 AM IST (section 9).
+2. ~~Live checks after the update~~ **Done**: section 12.
+2a. **Follow-up release** (U-21, U-22, U-23): once it is on `main`, the same three steps on the VPS (`check`, `prepare`, `switch` with the new `main` commit; DEPLOY.md Part 10).
+2c. **Shell below 340 px on dev and test only (portal-tester O1, S4, pre-existing)**: with the tier badge in the brand, signed-in pages scroll 20 px sideways under 340 px. Production has no badge and is not affected. Proposed: hide the brand's name (visually) under 360 px when the badge shows; `portal/public/shared/menu.js` is shared by every project, so it is its own change.
+2b. **Google sign-in on production** (owner): set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (and the redirect URI in Google's console); after U-22's fix the pages name Google by themselves once it is on.
+3. **Hardening (portal-tester O2)**: robots.txt and the sitemap build their URLs from the request's host and are publicly cacheable; use a fixed origin per tier. On production the host is right (`Sitemap: https://bkesari.com/sitemap.xml`, Caddy passes it through), so this is low priority.
 4. **Firefox and Safari** for real (section 7).
 5. **Mobile store builds**: on hold (D-033); need the Mac.
 6. **LadWani API** (from the LadWani work): operators cannot open ID-proof files; the approvals list has no submitter names; 20 requests a minute per visitor is tight for signed-in pages.
 7. **Audits (report only)**: hub 3 high (picomatch); LadWani 11 (4 moderate, 5 high, 2 critical); Education `composer audit` 7 advisories in 4 packages (same lock file as main; none reached under `/edu`; proposed: `composer update laravel/framework symfony/http-foundation symfony/http-kernel symfony/routing --with-dependencies` as its own change), `npm audit` 0 with `--omit=dev`.
 9. **Education tests to add**: the child-safety callout and the dashboard role matrix are unchanged and pass, but no committed test covers them yet (the edu-tester's probe can be committed as it is).
 8. **Translations**: Marathi and Hindi written for this release need a native speaker's read (D-019).
+
+## 12. Live checks on bkesari.com (18 Nov 2026, 02:27–02:45 AM IST)
+
+Release `main` 1e80125, live since 02:25 AM IST. Run from the cloud session against `https://bkesari.com` (Caddy on the VPS; responses `Cache-Control: no-cache`, so no cache stood in front of the checks). Production sends sign-in codes by email and never shows them on screen, so the signed-in journeys of section 4 cannot be automated there; they ran on the production-tier build and in both testing agents.
+
+| Check | Tool | Scope | Result |
+|---|---|---|---|
+| Signed-out journeys | Playwright (`prod-func.js`) | 14 checks × 360/768/1024/1440: home on Kesari 1.1.0 (6 cards, each with icon, name, line and one action; one primary button); LadWani/Education/TaskList cards and `/ladwani/`, `/edu/`, `/tasklist/`, `/account`, `/access/request` go to the bkesari ID sign-in; ATIP tile and switcher entry open `/ATIP/` unchanged in a new window; sign-in (email field, send-code button, two columns, no code on screen); Driving Simulator and Environment open to all with "Back to bkesari home" that goes home; contact topic, branded 404, theme toggle, Marathi and back; robots.txt (allow, `Sitemap: https://bkesari.com/sitemap.xml`) and the sitemap; no script errors | **56 / 56 PASS** |
+| Accessibility | axe-core 4, WCAG 2.1 A + AA | 9 pages (`/`, about, contact, privacy, terms, sign-in, Driving Simulator, Environment, 404) × 360 and 1440 × light and dark | **0 violations** |
+| Responsive | Playwright | the same 9 pages × 360/768/1024/1440: horizontal overflow, interactive targets under 44 px | **36 / 36 clean** |
+| Lighthouse 12 | Chromium | 6 pages × mobile and desktop (section 6) | performance **99–100**, accessibility, best practices, SEO **100** |
+| Routes | curl | `/kesari-ui/1.1.0/` and `/kesari-ui/1.0.0/` served (cached pages keep working); robots.txt, sitemap.xml 200; `/ATIP/` → ATIP's own login (unchanged); unknown paths 404 | **PASS** |
+| Screenshots | Playwright | `docs/design/screens/after-prod/` (section 8) | taken |
+
+The same journeys on the release before (`eb6598f`, the bkesari ID on Kesari 1.0.0) at 01:43 AM, at 360 px: the 6 gate checks passed and the 8 redesign checks failed, as expected. That run is the "before" baseline for this table.
+
+Found live and fixed in the follow-up (section 10): U-21 (a project name broke mid-word in the sign-in aside at 360 px) and U-22 (the pages named Google while production has no Google button). Neither was caught by axe or the overflow check, only by looking at the live screenshots.
