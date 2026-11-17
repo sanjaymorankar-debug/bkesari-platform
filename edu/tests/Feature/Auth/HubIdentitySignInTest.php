@@ -406,10 +406,16 @@ class HubIdentitySignInTest extends TestCase
         $user->assignRole('school_admin');
         TwoFactorAuthentication::create(['user_id' => $user->id, 'secret' => 'JBSWY3DPEHPK3PXP', 'recovery_codes' => [], 'confirmed_at' => now()]);
 
+        // Education's own sign-in got as far as the two-factor challenge
+        // (pages.auth.login) before the visitor came through the hub.
+        $this->withSession(['2fa_user_id' => $user->id, '2fa_remember' => true, '2fa_password' => 'pending-challenge']);
+
         $this->get('/dashboard', $this->hub(['role' => 'school_admin']))->assertRedirect(route('dashboard.school'));
 
         $this->assertAuthenticatedAs($user);
         $this->assertNull(session('2fa_user_id'));
+        $this->assertNull(session('2fa_remember'));
+        $this->assertNull(session('2fa_password'));
     }
 
     // --- Roles -------------------------------------------------------------

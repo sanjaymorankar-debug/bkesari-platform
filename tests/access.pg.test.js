@@ -227,6 +227,7 @@ describe('the bkesari ID and project access on PostgreSQL', { skip }, () => {
     assert.equal((await anon.fetch('GET', '/edu/', { headers: html })).location, '/auth/sign-in?next=%2Fedu%2F');
     assert.equal((await anon.fetch('GET', '/EDU/courses', { headers: html })).location, '/auth/sign-in?next=%2FEDU%2Fcourses', 'any spelling');
     assert.equal((await anon.fetch('GET', '/ladwani/tree', { headers: html })).location, '/auth/sign-in?next=%2Fladwani%2Ftree');
+    assert.equal((await anon.fetch('HEAD', '/tasklist/', { headers: html })).location, '/auth/sign-in?next=%2Ftasklist%2F', 'a HEAD is answered like the page');
     const api = await anon.fetch('GET', '/tasklist/api/tasks');
     assert.equal(api.status, 401);
     assert.equal(api.json.signIn, '/auth/sign-in?next=%2Ftasklist%2Fapi%2Ftasks');
@@ -490,5 +491,41 @@ describe('the bkesari ID and project access on PostgreSQL', { skip }, () => {
     const webview = await new Browser(base).fetch('GET', '/auth/sign-in', { headers: ua('Mozilla/5.0 (Linux; Android 14; wv) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36') });
     assert.doesNotMatch(webview.text, /hub-google/);
     assert.match(webview.text, /id="si-send"/, 'the email code is still there');
+  });
+
+  test('an address nobody confirmed is no one\'s identity in a project: an account made by SMS code that adds someone else\'s email opens nothing of theirs', async () => {
+    // Someone's TaskList account from before D-039: a confirmed email, not yet linked to a hub user.
+    const victim = await db.get("INSERT INTO tl_users (email, name, role, email_verified) VALUES ('victim.tl@example.com', 'Victim', 'member', TRUE) RETURNING id");
+    // Another person makes a bkesari ID with a mobile code (dev shows it), then puts the victim's address on it.
+    const x = new Browser(base);
+    const at = nextIp();
+    const s = await x.fetch('GET', '/account/api/auth/session');
+    const sent = await x.fetch('POST', '/account/api/auth/otp/send', { json: { mobile: '9876500111' }, csrf: s.json.csrf, headers: { 'x-forwarded-for': at } });
+    assert.equal(sent.status, 200, sent.text);
+    const v = await x.fetch('POST', '/account/api/auth/otp/verify', { json: { mobile: '9876500111', code: sent.json.devCode }, csrf: s.json.csrf, headers: { 'x-forwarded-for': at } });
+    assert.equal(v.status, 200, v.text);
+    const csrf = v.json.csrf;
+    await x.fetch('POST', '/account/api/auth/account', { json: { email: 'victim.tl@example.com' }, csrf });
+    const hubUser = await db.get('SELECT id, email, email_verified FROM users WHERE mobile = $1', ['9876500111']);
+    assert.equal(hubUser.email_verified, false, 'the address was added, not confirmed');
+
+    // The admin is never shown that address as a request...
+    const asked = await x.fetch('POST', '/hub/api/access/requests', { json: { project: 'tasklist', role: 'viewer' }, csrf });
+    assert.equal(asked.status, 403, asked.text);
+    assert.equal(asked.json.code, 'unconfirmed');
+    // ...and even a direct grant puts nobody's account in their hands.
+    const admin = await googleUser(ADMIN);
+    for (const project of ['tasklist', 'edu']) {
+      const role = project === 'edu' ? 'student' : 'viewer';
+      assert.equal((await admin.b.fetch('POST', `/hub/api/admin/access/users/${hubUser.id}/grant`, { json: { project, role }, csrf: admin.csrf })).status, 200);
+    }
+    seen.length = 0;
+    const tasks = await x.fetch('GET', '/tasklist/api/tasks');
+    assert.equal(tasks.status, 403, tasks.text);
+    assert.equal(tasks.json.code, 'unconfirmed');
+    assert.equal((await x.fetch('GET', '/tasklist/', { headers: html })).location, '/account');
+    assert.equal((await x.fetch('GET', '/edu/', { headers: html })).location, '/account');
+    assert.equal(seen.length, 0, 'no identity headers reached a project');
+    assert.equal((await db.get('SELECT hub_user_id FROM tl_users WHERE id = $1', [victim.id])).hub_user_id, null, 'the victim\'s TaskList account is not linked to them');
   });
 });
