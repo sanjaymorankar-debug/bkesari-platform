@@ -151,12 +151,16 @@ The day-one account linking (`update-bkesari.sh link`) was not needed again: it 
 | U-19 | S4 | My projects (draft) | LadWani's PENDING read as "waiting for an operator" | superseded by D-039's `/account` |
 | U-21 | S3 | sign-in, live | At 360 px the aside broke "Environmental" mid-word ("Environme / ntal"): the rows' grid let the name column shrink to nothing | rows wrap: the name stays whole, the chip moves to the next line; test (follow-up 1eeda7e, awaiting the VPS update) |
 | U-22 | S3 | sign-in and home, live | "Sign in once with Google or an email code" while production has no Google button (keys not set yet) | the wording follows the button: Google named only while it is on; 2 new strings × 3 languages; tests (follow-up 1eeda7e, awaiting the VPS update) |
+| U-23 | S4 | home (portal-tester D1 on the follow-up) | With Google on, inside a WebView or an in-app browser (Instagram, Facebook) the home card still named Google, though the sign-in page shows no button there | the home route asks `googleEntry` like the sign-in page; test for a browser, the bkesari app, a WebView and Instagram (0ffac9e) |
+
+The follow-up (1eeda7e, 0ffac9e) went through the portal-tester: **PASS**, `npm run test:pg` 219/219, all 13 levels and 30 critical checks, Google on and off in en/mr/hi at 320/360/768/1440 in light and dark (216 page loads, axe 0 in 108 runs). Report `.claude/test-runs/20261117-212853-portal-tester.md`.
 
 ## 11. Open items
 
 1. ~~Update the VPS~~ **Done**: live since 02:25 AM IST (section 9).
 2. ~~Live checks after the update~~ **Done**: section 12.
-2a. **Follow-up release** (U-21, U-22): once it is on `main`, the same three steps on the VPS (`check`, `prepare`, `switch` with the new `main` commit; DEPLOY.md Part 10).
+2a. **Follow-up release** (U-21, U-22, U-23): once it is on `main`, the same three steps on the VPS (`check`, `prepare`, `switch` with the new `main` commit; DEPLOY.md Part 10).
+2c. **Shell below 340 px on dev and test only (portal-tester O1, S4, pre-existing)**: with the tier badge in the brand, signed-in pages scroll 20 px sideways under 340 px. Production has no badge and is not affected. Proposed: hide the brand's name (visually) under 360 px when the badge shows; `portal/public/shared/menu.js` is shared by every project, so it is its own change.
 2b. **Google sign-in on production** (owner): set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (and the redirect URI in Google's console); after U-22's fix the pages name Google by themselves once it is on.
 3. **Hardening (portal-tester O2)**: robots.txt and the sitemap build their URLs from the request's host and are publicly cacheable; use a fixed origin per tier. On production the host is right (`Sitemap: https://bkesari.com/sitemap.xml`, Caddy passes it through), so this is low priority.
 4. **Firefox and Safari** for real (section 7).
