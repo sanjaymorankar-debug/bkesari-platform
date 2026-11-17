@@ -20,6 +20,8 @@ function ico(name, cls = 'k-icon') {
 
 const KESARI = '/kesari-ui/1.1.0';
 const LANGS = ['en', 'mr', 'hi'];
+/** Preload for pages whose heading uses the display face (.k-display). */
+const DISPLAY_FONT_PRELOAD = `<link rel="preload" href="${KESARI}/fonts/tiro-devanagari-marathi-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>`;
 const esc = menu.escapeHtml;
 
 /**
@@ -378,6 +380,6 @@ function notOnTier({ lang, name, path }) {
 }
 
 module.exports = {
-  KESARI, LANGS, langOf, t, layout, strings, SIGN_IN,
+  KESARI, LANGS, DISPLAY_FONT_PRELOAD, langOf, t, layout, strings, SIGN_IN,
   home, about, contact, privacy, terms, chooser, requestAccess, account, notFound, serverError, notOnTier, tileHtml, TOPICS, ICON, ico, langLinks,
 };

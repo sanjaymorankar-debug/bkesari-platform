@@ -114,10 +114,10 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
 
   const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-  function send(req, res, { title, description, body, status = 200, isOwner: owner = false, scripts, pathname }) {
+  function send(req, res, { title, description, body, status = 200, isOwner: owner = false, scripts, pathname, head }) {
     const lang = pages.langOf(req);
     res.status(status).set({ 'Cache-Control': 'no-cache', Vary: 'Cookie' }).type('html')
-      .send(pages.layout({ req, lang, env: envName(req), title, description, body: body(lang), isOwner: owner, scripts, pathname }));
+      .send(pages.layout({ req, lang, env: envName(req), title, description, body: body(lang), isOwner: owner, scripts, pathname, head }));
   }
 
   const page = (titleKey, render, opts = {}) => wrap(async (req, res) => {
@@ -127,6 +127,7 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
       title: `${pages.t(lang, titleKey)}${titleKey === 'home.title' ? '' : ' — bkesari'}`,
       body: (l) => render({ lang: l, ...data }),
       isOwner: await isOwner(req),
+      head: opts.head,
     });
   });
 
@@ -213,7 +214,9 @@ ${PUBLIC_PAGES.map((p) => `  <url><loc>${origin}${p}</loc></url>`).join('\n')}
 `);
     });
 
-    app.get('/', page('home.title', pages.home, { data: () => content() }));
+    // The home page's heading is in the display face: fetching it with the HTML
+    // lets the heading paint once, in its own face, so nothing below it moves.
+    app.get('/', page('home.title', pages.home, { data: () => content(), head: pages.DISPLAY_FONT_PRELOAD }));
     app.get('/about', page('about.title', pages.about, { data: () => content() }));
     app.get('/privacy', page('privacy.title', pages.privacy));
     app.get('/terms', page('terms.title', pages.terms));

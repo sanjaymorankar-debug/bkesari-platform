@@ -6,7 +6,8 @@
 .hub-purpose{color:var(--k-ink);font-weight:600;margin-bottom:var(--k-2)}
 .hub-lead2{color:var(--k-muted);max-width:58ch}
 .hub-langs{display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--k-2);margin:var(--k-5) 0 0;font-size:var(--k-text-sm);color:var(--k-muted)}
-.hub-langs a{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--k-1);font-weight:600}
+/* Regular weight on purpose: it reuses the Devanagari face the lead already loads (a second weight is 100 KB). */
+.hub-langs a{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--k-1);font-weight:400}
 .hub-art{max-width:440px;margin:0 auto;color:var(--k-ink)}
 .hub-art-halo{fill:var(--k-brand-tint)}
 .hub-art-lines line{stroke:var(--k-border-strong);stroke-width:1.5;stroke-dasharray:4 6}
@@ -16,6 +17,10 @@
 .hub-art-tile>g{color:var(--k-accent-ink)}
 .hub-art-tile rect{filter:drop-shadow(0 2px 4px rgba(28,25,23,.08))}
 @media (max-width:767px){.hub-hero .k-hero__art{display:none}}
+/* Two columns: the text column is 404-439 px tall depending on which fonts have
+   arrived (and the language), so the hero keeps one height whatever they do and
+   the projects below never move when a font swaps in (measured, 18 Nov 2026). */
+@media (min-width:1024px){.hub-hero{min-height:540px;align-items:start}.hub-hero .k-hero__art{align-self:center}}
 
 /* ---- Home: projects ------------------------------------------------------ */
 .hub-grid{list-style:none;margin:0;padding:0;display:grid;gap:var(--k-4);grid-template-columns:1fr}
