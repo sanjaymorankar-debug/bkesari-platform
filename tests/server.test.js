@@ -193,3 +193,36 @@ test('the hub is an installable PWA: manifest, icons, service worker, offline pa
     assert.doesNotMatch(await tsw.text(), /caches?\.(open|match)\([^)]*\/tasklist\/api/, 'TaskList\'s worker never stores its API');
   });
 });
+
+test('the deploy bundle (package.json, package-lock.json and portal/) starts on its own: nothing in portal/ needs a file outside it', (t) => {
+  // The dev deploy uploads only those three and runs npm ci --omit=dev
+  // (.github/workflows/deploy-dev-portal.yml; TEST_SPEC.md #9). A require of
+  // ../packages/kesari-ui from portal/ once made that hub die at start.
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { spawnSync } = require('node:child_process');
+  const root = path.join(__dirname, '..');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bk-bundle-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  for (const f of ['package.json', 'package-lock.json']) fs.copyFileSync(path.join(root, f), path.join(dir, f));
+  fs.cpSync(path.join(root, 'portal'), path.join(dir, 'portal'), { recursive: true });
+  fs.symlinkSync(path.join(root, 'node_modules'), path.join(dir, 'node_modules'), 'dir');
+  const script = `
+    const db = { all: async () => [], get: async () => null, run: async () => ({ rowCount: 0, rows: [] }) };
+    db.tx = async (fn) => fn(db);
+    const { createApp } = require('./portal/server.js');
+    const { app } = createApp(db, { log: { log() {}, warn() {}, error() {} } });
+    const s = app.listen(0, '127.0.0.1', async () => {
+      const out = [];
+      for (const p of ['/', '/auth/sign-in', '/contact', '/about', '/no-such-page']) out.push((await fetch('http://127.0.0.1:' + s.address().port + p)).status);
+      console.log(out.join(' '));
+      s.close();
+    });`;
+  const r = spawnSync(process.execPath, ['-e', script], {
+    cwd: dir, encoding: 'utf8', timeout: 30000,
+    env: { ...process.env, APP_ENV: '', EDU_ORIGIN: '', LADWANI_ORIGIN: '', DATABASE_URL: '', LADWANI_DATABASE_URL: '' },
+  });
+  assert.equal(r.status, 0, `the bundle's server.js failed to load: ${r.stderr}`);
+  assert.equal(r.stdout.trim(), '200 200 200 200 404', r.stderr);
+});

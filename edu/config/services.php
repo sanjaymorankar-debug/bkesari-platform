@@ -3,7 +3,7 @@
 return [
 
     // The bkesari.com hub serves the shared Kesari design system and the app
-    // shell (/kesari-ui/1.0.0/kesari.css, /kesari-ui/1.0.0/kesari.js,
+    // shell (/kesari-ui/1.1.0/kesari.css, /kesari-ui/1.1.0/kesari.js,
     // /shared/menu.js). Behind the hub they are on this app's own origin, so
     // the default is '' (same origin). A copy of this app reached directly,
     // not through the hub, sets HUB_ASSET_ORIGIN=https://bkesari.com.

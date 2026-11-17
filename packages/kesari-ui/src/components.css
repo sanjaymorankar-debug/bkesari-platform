@@ -15,10 +15,10 @@
 .k-btn--secondary:hover{--_bg:var(--k-surface-2)}
 .k-btn--ghost{--_bg:transparent;--_fg:var(--k-accent-ink)}
 .k-btn--ghost:hover{--_bg:var(--k-accent-tint);color:var(--k-accent-ink)}
-.k-btn--danger{--_bg:var(--k-danger);--_fg:#fff}
+.k-btn--danger{--_bg:var(--k-danger);--_fg:var(--k-on-brand)}
 .k-btn--danger:hover{--_bg:var(--k-danger);filter:brightness(.92)}
 .k-btn--block{display:flex;width:100%}
-.k-btn--sm{min-height:40px;padding:0 var(--k-3);font-size:var(--k-text-sm)}
+.k-btn--sm{min-height:44px;padding:0 var(--k-3);font-size:var(--k-text-sm)}
 .k-btn--icon{padding:0;width:var(--k-target)}
 .k-btn:disabled,.k-btn[aria-disabled="true"]{opacity:.55;cursor:not-allowed;filter:none}
 .k-btn[aria-busy="true"]{position:relative;color:transparent!important;pointer-events:none}
@@ -160,7 +160,7 @@
 
 /* ---- Pagination --------------------------------------------------------- */
 .k-pager{display:flex;gap:var(--k-2);align-items:center;justify-content:center;margin:var(--k-6) 0;flex-wrap:wrap}
-.k-pager a,.k-pager button,.k-pager span{min-width:var(--k-target);min-height:var(--k-target);display:inline-grid;place-items:center;padding:0 var(--k-3);
+.k-pager>a,.k-pager>button,.k-pager>span{min-width:var(--k-target);min-height:var(--k-target);display:inline-grid;place-items:center;padding:0 var(--k-3);
   border-radius:var(--k-radius-sm);border:1px solid var(--k-border);background:var(--k-surface);color:var(--k-ink);text-decoration:none;font:inherit;cursor:pointer}
 .k-pager [aria-current="page"]{background:var(--k-accent);color:var(--k-on-accent);border-color:var(--k-accent)}
 
@@ -182,6 +182,8 @@
 .k-node--expired{border-style:dashed;background:var(--k-surface-2);color:var(--k-muted)}
 .k-node--expired .k-node__name::after{content:" †";color:var(--k-muted)}
 .k-node--spouse{border-color:var(--k-accent);border-style:double;border-width:3px}
+/* A spouse who has passed away keeps the dashed outline that says so. */
+.k-node--spouse.k-node--expired{border-style:dashed}
 .k-node__meta{display:block;font-size:var(--k-text-xs);color:var(--k-muted)}
 
 /* ---- Progress ring ------------------------------------------------------ */
@@ -192,7 +194,7 @@
 
 /* ---- Navigation: side nav (desktop), bottom nav (phones) ----------------- */
 .k-layout{display:flex;flex:1;width:100%;max-width:var(--k-content);margin:0 auto}
-.k-layout>.k-main{max-width:none;margin:0}
+.k-layout>.k-main{max-width:none;margin:0;min-width:0}
 .k-sidenav{width:232px;flex:none;padding:var(--k-6) var(--k-3);border-right:1px solid var(--k-border)}
 .k-sidenav ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;position:sticky;top:80px}
 .k-sidenav a{display:flex;align-items:center;gap:var(--k-3);min-height:var(--k-target);padding:0 var(--k-3);border-radius:var(--k-radius-sm);
@@ -220,3 +222,140 @@
 .k-footer nav ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:0 16px}
 .k-footer a{color:var(--k-muted);display:inline-flex;align-items:center;min-height:44px}
 .k-footer a:hover{color:var(--k-ink)}
+.k-footer{padding:24px 16px 20px}
+.k-footer .ks-foot-top{max-width:var(--k-content);margin:0 auto 8px;padding-bottom:12px;border-bottom:1px solid var(--k-border);display:flex;flex-wrap:wrap;gap:8px 32px;align-items:center;justify-content:space-between}
+.k-footer .ks-foot-brand{display:flex;align-items:center;gap:10px;color:var(--k-ink)}
+.k-footer .ks-foot-brand a{color:var(--k-ink);font-weight:700;font-size:16px;text-decoration:none;gap:8px}
+.k-footer .ks-mark{width:22px;height:22px;border-radius:6px;background:var(--k-brand);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:800}
+
+/* ======================================================================
+   1.1.0 additions: project identity, page sections and the shared screens.
+   ====================================================================== */
+
+/* ---- Soft button: accent text on the accent tint (secondary CTAs in cards) */
+.k-btn--soft{--_bg:var(--k-accent-tint);--_fg:var(--k-accent-ink)}
+.k-btn--soft:hover{--_bg:var(--k-accent);--_fg:var(--k-on-accent)}
+.k-btn svg{width:20px;height:20px;flex:none}
+
+/* ---- Icon: <svg class="k-icon"> from the set (icons.svg / server inline) */
+.k-icon{width:24px;height:24px;flex:none;vertical-align:middle}
+.k-icon--sm{width:18px;height:18px}
+
+/* ---- Project icon: the same tile for a project everywhere it appears.
+   States: rest (tint), hover (solid accent, lifts), current (solid with a
+   tint ring), focus (the 3px ring from the link or button around it). */
+.k-picon{--_s:48px;width:var(--_s);height:var(--_s);border-radius:calc(var(--_s) * .28);display:inline-grid;place-items:center;flex:none;
+  background:var(--k-accent-tint);color:var(--k-accent-ink);transition:background var(--k-motion) var(--k-ease),color var(--k-motion) var(--k-ease),transform var(--k-motion) var(--k-ease),box-shadow var(--k-motion) var(--k-ease)}
+.k-picon svg{width:calc(var(--_s) * .54);height:calc(var(--_s) * .54)}
+.k-picon--sm{--_s:36px}.k-picon--lg{--_s:64px}.k-picon--xl{--_s:88px}
+.k-picon--solid,a:hover .k-picon,.k-pcard:hover .k-picon,button:hover .k-picon{background:var(--k-accent);color:var(--k-on-accent)}
+a:hover .k-picon,.k-pcard:hover .k-picon{transform:translateY(-1px)}
+[aria-current] .k-picon,.k-picon[aria-current]{background:var(--k-accent);color:var(--k-on-accent);box-shadow:0 0 0 3px var(--k-accent-tint)}
+
+/* ---- Project card: icon + name + one line + Open. The Open link stretches
+   over the whole card, so the card is one target and one tab stop. */
+.k-pcard{position:relative;display:flex;flex-direction:column;gap:var(--k-3);height:100%;padding:var(--k-6) var(--k-5) var(--k-5);
+  background:var(--k-surface);border:1px solid var(--k-border);border-radius:var(--k-radius-lg);box-shadow:var(--k-shadow-1);
+  transition:transform var(--k-motion) var(--k-ease),box-shadow var(--k-motion) var(--k-ease),border-color var(--k-motion) var(--k-ease)}
+.k-pcard::before{content:"";position:absolute;left:var(--k-5);right:var(--k-5);top:0;height:4px;border-radius:0 0 4px 4px;background:var(--k-accent)}
+.k-pcard:hover{border-color:var(--k-accent);box-shadow:var(--k-shadow-2);transform:translateY(-2px)}
+.k-pcard:focus-within{border-color:var(--k-accent)}
+.k-pcard__head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--k-3)}
+.k-pcard__name{font-size:var(--k-text-lg);margin:var(--k-1) 0 0;color:var(--k-ink)}
+.k-pcard__text{color:var(--k-muted);margin:0;flex:1}
+.k-pcard__cta{margin-top:var(--k-2);align-self:stretch}
+.k-pcard__cta::after{content:"";position:absolute;inset:0;border-radius:inherit}
+.k-pcard:hover .k-pcard__cta{--_bg:var(--k-accent);--_fg:var(--k-on-accent)}
+
+/* ---- Breadcrumbs -------------------------------------------------------- */
+.k-breadcrumbs ol{display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--k-2);list-style:none;margin:0 0 var(--k-4);padding:0;font-size:var(--k-text-sm);color:var(--k-muted)}
+.k-breadcrumbs li{display:inline-flex;align-items:center;gap:var(--k-2)}
+.k-breadcrumbs li+li::before{content:"/";color:var(--k-faint)}
+.k-breadcrumbs a{display:inline-flex;align-items:center;gap:var(--k-1);min-height:44px;color:var(--k-muted);text-decoration:none}
+.k-breadcrumbs a:hover{color:var(--k-ink);text-decoration:underline}
+.k-breadcrumbs [aria-current]{color:var(--k-ink);font-weight:600}
+
+/* ---- Page sections ------------------------------------------------------ */
+.k-eyebrow{display:inline-flex;align-items:center;gap:var(--k-2);margin:0 0 var(--k-3);padding:4px 12px;border-radius:var(--k-radius-pill);
+  background:var(--k-accent-tint);color:var(--k-accent-ink);font-size:var(--k-text-sm);font-weight:700;letter-spacing:.02em}
+.k-eyebrow svg{width:16px;height:16px}
+.k-hero{display:grid;gap:var(--k-8);align-items:center;padding:var(--k-4) 0 var(--k-6)}
+.k-hero h1{font-size:clamp(2rem,1.45rem + 2.4vw,var(--k-text-4xl));line-height:1.1;margin:0 0 var(--k-4);color:var(--k-ink)}
+.k-hero__lead{font-size:clamp(1.0625rem,1rem + .35vw,1.25rem);color:var(--k-muted);max-width:56ch;margin:0}
+.k-hero__actions{display:flex;flex-wrap:wrap;gap:var(--k-3) var(--k-5);align-items:center;margin-top:var(--k-6)}
+.k-hero__art{position:relative;min-width:0}
+.k-hero__art svg{display:block;width:100%;height:auto}
+@media (min-width:1024px){.k-hero{grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:var(--k-12);padding:var(--k-8) 0 var(--k-10)}}
+.k-section-head{max-width:64ch;margin:0 0 var(--k-6)}
+.k-section-head h2{margin:0 0 var(--k-2)}
+.k-section-head p{color:var(--k-muted);margin:0}
+.k-link-arrow{display:inline-flex;align-items:center;gap:var(--k-2);min-height:var(--k-target);font-weight:600;text-decoration:none;color:var(--k-accent-ink)}
+.k-link-arrow svg{width:20px;height:20px;transition:transform var(--k-motion) var(--k-ease)}
+.k-link-arrow:hover{color:var(--k-ink);text-decoration:underline}
+.k-link-arrow:hover svg{transform:translateX(3px)}
+
+/* ---- Feature: icon + title + line, in a grid ---------------------------- */
+.k-features{display:grid;gap:var(--k-4);grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));list-style:none;margin:0;padding:0}
+.k-feature{display:flex;flex-direction:column;gap:var(--k-2);padding:var(--k-5);background:var(--k-surface);border:1px solid var(--k-border);border-radius:var(--k-radius)}
+.k-feature h3{font-size:var(--k-text-md);margin:var(--k-2) 0 0;color:var(--k-ink)}
+.k-feature p{color:var(--k-muted);margin:0}
+.k-feature .k-picon{--_s:44px}
+
+/* ---- Stat: a number, what it is, and where it comes from ---------------- */
+.k-stats{display:grid;gap:var(--k-4);grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));list-style:none;margin:0;padding:0}
+.k-stat{display:flex;flex-direction:column;gap:var(--k-1);padding:var(--k-5);background:var(--k-surface);border:1px solid var(--k-border);border-radius:var(--k-radius)}
+.k-stat__value{font-size:clamp(1.75rem,1.4rem + 1.4vw,2.25rem);font-weight:700;line-height:1.1;color:var(--k-accent-ink);font-variant-numeric:tabular-nums}
+.k-stat__label{color:var(--k-ink);margin:0}
+.k-stat__source{color:var(--k-muted);font-size:var(--k-text-xs);margin:var(--k-2) 0 0}
+
+/* ---- Numbered steps ----------------------------------------------------- */
+.k-steps{list-style:none;margin:0;padding:0;display:grid;gap:var(--k-4);counter-reset:k-steps;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
+.k-steps>li{counter-increment:k-steps;position:relative;padding:var(--k-5);padding-top:calc(var(--k-5) + 44px);background:var(--k-surface);border:1px solid var(--k-border);border-radius:var(--k-radius)}
+.k-steps>li::before{content:counter(k-steps);position:absolute;top:var(--k-5);left:var(--k-5);width:36px;height:36px;border-radius:50%;display:grid;place-items:center;
+  background:var(--k-accent);color:var(--k-on-accent);font-weight:700}
+.k-steps h3{font-size:var(--k-text-md);margin:0 0 var(--k-1)}
+.k-steps p{color:var(--k-muted);margin:0}
+/* One column, the number beside the text (a short sequence inside a flow). */
+.k-steps--list{grid-template-columns:1fr;gap:var(--k-3)}
+.k-steps--list>li{padding:var(--k-4) var(--k-5) var(--k-4) 68px;min-height:68px;display:flex;flex-direction:column;justify-content:center}
+.k-steps--list>li::before{top:var(--k-4)}
+
+/* ---- Call-to-action band ------------------------------------------------ */
+.k-cta{display:grid;gap:var(--k-4);align-items:center;padding:var(--k-8) var(--k-6);border-radius:var(--k-radius-lg);background:var(--k-accent-tint);
+  border:1px solid var(--k-border);margin:var(--k-10) 0}
+.k-cta h2{margin:0 0 var(--k-2);color:var(--k-ink)}
+.k-cta p{margin:0;color:var(--k-ink)}
+@media (min-width:768px){.k-cta{grid-template-columns:1fr auto;padding:var(--k-8) var(--k-10)}}
+
+/* ---- Questions: <details> with a 48px summary --------------------------- */
+.k-faq{border-top:1px solid var(--k-border)}
+.k-faq details{border-bottom:1px solid var(--k-border)}
+.k-faq summary{display:flex;justify-content:space-between;align-items:center;gap:var(--k-3);min-height:56px;padding:var(--k-2) 0;cursor:pointer;font-weight:600;list-style:none}
+.k-faq summary::-webkit-details-marker{display:none}
+.k-faq summary::after{content:"+";font-size:1.4em;line-height:1;color:var(--k-accent-ink);transition:transform var(--k-motion) var(--k-ease)}
+.k-faq details[open] summary::after{transform:rotate(45deg)}
+.k-faq details>:not(summary){color:var(--k-muted);margin:0 0 var(--k-4)}
+
+/* ---- Bars: a labelled comparison, readable without colour --------------- */
+.k-bars{list-style:none;margin:0;padding:0;display:grid;gap:var(--k-3)}
+.k-bars li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-1) var(--k-3);align-items:center}
+.k-bars__label{font-size:var(--k-text-sm);color:var(--k-ink)}
+.k-bars__value{font-weight:700;font-variant-numeric:tabular-nums;color:var(--k-ink)}
+.k-bars__track{grid-column:1 / -1;height:14px;border-radius:var(--k-radius-pill);background:var(--k-surface-2);border:1px solid var(--k-border);overflow:hidden}
+.k-bars__fill{display:block;height:100%;width:calc(var(--v,0) * 1%);background:var(--k-accent);border-radius:inherit}
+.k-bars__fill--muted{background:var(--k-border-strong)}
+
+/* ---- Status list: one row per project (My projects, approvals) ---------- */
+.k-statuslist{list-style:none;margin:0;padding:0;display:grid;gap:var(--k-3)}
+.k-statusrow{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--k-2) var(--k-4);align-items:center;padding:var(--k-4) var(--k-5);
+  background:var(--k-surface);border:1px solid var(--k-border);border-radius:var(--k-radius)}
+.k-statusrow h2,.k-statusrow h3{font-size:var(--k-text-md);margin:0;color:var(--k-ink)}
+.k-statusrow p{margin:0;color:var(--k-muted);font-size:var(--k-text-sm)}
+.k-statusrow__meta{display:flex;flex-wrap:wrap;gap:var(--k-2);align-items:center;margin-top:var(--k-1)}
+.k-statusrow__action{grid-column:1 / -1}
+.k-statusrow__action .k-btn{width:100%}
+@media (min-width:768px){.k-statusrow{grid-template-columns:auto minmax(0,1fr) auto}.k-statusrow__action{grid-column:auto}.k-statusrow__action .k-btn{width:auto}}
+
+/* Headings inside components carry their own weight: a page that resets
+   headings (Tailwind's preflight in Education) still gets Kesari's. */
+.k-hero h1,.k-section-head h2,.k-pcard__name,.k-feature h3,.k-steps h3,.k-cta h2,.k-statusrow h2,.k-statusrow h3,.k-card h2,.k-card h3,.k-tile__name,.k-empty h1,.k-empty h2,.k-empty h3,.k-dialog__head h2{font-weight:700;line-height:1.2}

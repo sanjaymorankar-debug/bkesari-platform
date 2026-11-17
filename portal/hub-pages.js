@@ -7,11 +7,29 @@
    this origin, so the hub's Content-Security-Policy can forbid inline ones.
    ============================================================ */
 
+const fs = require('fs');
+const path = require('path');
 const menu = require('./public/shared/menu.js');
 const strings = require('./i18n/hub.json');
 
-const KESARI = '/kesari-ui/1.0.0';
+const KESARI = '/kesari-ui/1.1.0';
+
+/**
+ * Every Kesari icon, drawn inline by the server (no request, no script). Read
+ * from the committed build's sprite under portal/public, which
+ * tests/kesari-ui.test.js keeps equal to packages/kesari-ui/src/icons.json:
+ * the dev deploy ships portal/ alone, so nothing here may come from outside it.
+ */
+const ICON = Object.fromEntries([...fs.readFileSync(path.join(__dirname, 'public', KESARI, 'icons.svg'), 'utf8')
+  .matchAll(/<symbol id="k-i-([^"]+)" [^>]*>([\s\S]*?)<\/symbol>/g)].map((m) => [m[1], m[2]]));
+function ico(name, cls = 'k-icon') {
+  if (!ICON[name]) throw new Error(`no Kesari icon named ${name}`);
+  return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICON[name]}</svg>`;
+}
+
 const LANGS = ['en', 'mr', 'hi'];
+/** Preload for pages whose heading uses the display face (.k-display). */
+const DISPLAY_FONT_PRELOAD = `<link rel="preload" href="${KESARI}/fonts/tiro-devanagari-marathi-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>`;
 const esc = menu.escapeHtml;
 
 /**
@@ -77,36 +95,51 @@ ${scripts.map((s) => `<script src="${esc(s)}" defer></script>`).join('\n')}
 }
 
 const CHIP = { live: 'k-chip--live', beta: 'k-chip--beta', soon: 'k-chip--soon', private: 'k-chip--plain' };
+/** Projects with an accent of their own in Kesari (data-project). */
+const PROJECTS = ['ladwani', 'education', 'tasklist', 'environment', 'driving', 'atip'];
+const projectAttr = (key) => (PROJECTS.includes(key) ? ` data-project="${key}"` : '');
+const picon = (key, cls = '') => `<span class="k-picon${cls ? ` ${cls}` : ''}">${ico(key)}</span>`;
+const arrow = (name = 'arrow-right') => ico(name);
 
 // The home tiles are keyed by tile; access is keyed by project (hub_projects).
 const TILE_PROJECT = { education: 'edu' };
 const STATE_CHIP = { open: 'k-chip--live', approved: 'k-chip--live', awaiting: 'k-chip--beta', pending: 'k-chip--beta', declined: 'k-chip--plain', revoked: 'k-chip--plain', request: 'k-chip--soon', signin: 'k-chip--soon' };
 
-/** The chip and the button for one project, from the person's access state (portal/access.js statusList). */
+/** A role code in the visitor's language (hub_projects roles); an unknown code as written. */
+function roleName(lang, code) {
+  const key = `role.${String(code || '')}`;
+  return strings.en[key] ? t(lang, key) : String(code || '');
+}
+
+/** The chip and the action for one project, from the person's access state (portal/access.js statusList, D-039). */
 function accessAction(st, tile, lang) {
   if (!st || st.state === 'open' || st.state === 'hidden') return null;
-  const label = st.state === 'approved' ? t(lang, 'access.state.approved', { role: st.role })
-    : st.state === 'awaiting' ? t(lang, 'access.state.awaiting', { role: st.role })
+  const label = st.state === 'approved' ? t(lang, 'access.state.approved', { role: roleName(lang, st.role) })
+    : st.state === 'awaiting' ? t(lang, 'access.state.awaiting', { role: roleName(lang, st.role) })
       : t(lang, `access.state.${st.state}`);
   const chip = `<span class="k-chip ${STATE_CHIP[st.state] || ''}" data-access-state="${esc(st.state)}">${esc(label)}</span>`;
-  if (st.state === 'approved' || st.state === 'awaiting') return { chip, href: tile.href, text: t(lang, 'tile.open') };
+  if (st.state === 'approved' || st.state === 'awaiting') return { chip, href: tile.href, text: t(lang, 'tile.openName', { name: tile.name }), open: true };
   if (st.state === 'signin') return { chip, href: `/auth/sign-in?next=${encodeURIComponent(st.path || tile.href)}`, text: t(lang, 'home.signInHelp') };
   if (st.state === 'pending') return { chip, href: '/account', text: t(lang, 'account.title') };
   return { chip, href: `/access/request?project=${encodeURIComponent(st.key)}`, text: t(lang, 'access.state.request') };
 }
 
+/**
+ * A project card: icon, status, name, one line, and one action: "Open", or,
+ * under the bkesari ID, what the person's access allows next (sign in,
+ * request access, see the request). The action's link covers the card.
+ */
 function tileHtml(tile, lang, st) {
   const benefit = tile[`benefit_${lang}`] || tile.benefit_en;
   const act = accessAction(st, tile, lang);
-  const ext = tile.external;
-  const label = t(lang, 'tile.openName', { name: tile.name });
-  const project = ['ladwani', 'education', 'tasklist', 'environment'].includes(tile.icon) ? ` data-project="${tile.icon}"` : '';
-  return `<li><article class="k-tile hub-tile"${project}>
-  <div class="k-tile__head"><span class="k-tile__icon">${menu.icon(tile.icon, 'hub-ico')}</span>
-    <h3 class="k-tile__name">${esc(tile.name)}${ext ? ' <span aria-hidden="true">↗</span>' : ''}</h3></div>
-  <p class="k-tile__text">${esc(benefit)}</p>
-  <div class="k-tile__foot"><span class="k-chip ${CHIP[tile.status] || ''}">${esc(t(lang, `chip.${tile.status}`))}</span>${act ? ` ${act.chip}` : ''}
-    <a class="k-btn hub-open" href="${esc(act ? act.href : tile.href)}" aria-label="${esc(act ? `${act.text}: ${tile.name}` : label)}${ext && !act ? ` (${esc(t(lang, 'tile.newWindow'))})` : ''}"${ext && !act ? ' target="_blank" rel="noopener"' : ''}>${esc(act ? act.text : t(lang, 'tile.open'))}${ext && !act ? ' ↗' : ''}</a></div>
+  const ext = tile.external && (!act || act.open);
+  const label = act ? act.text : t(lang, 'tile.openName', { name: tile.name });
+  const href = act ? act.href : tile.href;
+  return `<li><article class="k-pcard hub-tile"${projectAttr(tile.icon)}>
+  <div class="k-pcard__head">${picon(tile.icon)}<span class="k-chip ${CHIP[tile.status] || ''}">${esc(t(lang, `chip.${tile.status}`))}</span></div>
+  <h3 class="k-pcard__name">${esc(tile.name)}</h3>
+  <p class="k-pcard__text">${esc(benefit)}</p>${act ? `\n  <p class="hub-tile__access">${act.chip}</p>` : ''}
+  <a class="k-btn k-btn--soft k-pcard__cta" href="${esc(href)}"${ext ? ` target="_blank" rel="noopener" aria-label="${esc(label)} (${esc(t(lang, 'tile.newWindow'))})"` : ''}>${esc(label)}${ext ? ico('external') : arrow()}</a>
 </article></li>`;
 }
 
@@ -116,36 +149,59 @@ function announcementHtml(a, lang) {
   return `<div class="k-banner k-banner--${esc(a.kind)} hub-announce" role="status"><p>${esc(msg)}${a.link ? ` <a href="${esc(a.link)}">→</a>` : ''}</p></div>`;
 }
 
+/**
+ * The hero's picture: the bkesari mark with the projects around it, drawn
+ * with the icon set in each project's own colours. Decorative.
+ */
+function heroArt(lang) {
+  const ring = [['ladwani', 220, 50], ['education', 363, 115], ['tasklist', 363, 245], ['driving', 220, 310], ['environment', 77, 245], ['atip', 77, 115]];
+  const tiles = ring.map(([key, x, y]) => `<g class="hub-art-tile" data-project="${key}" transform="translate(${x - 34} ${y - 34})">
+  <rect width="68" height="68" rx="20"/><g transform="translate(16 16) scale(1.5)" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${ICON[key]}</g></g>`).join('');
+  const lines = ring.map(([, x, y]) => `<line x1="220" y1="180" x2="${x}" y2="${y}"/>`).join('');
+  return `<svg class="hub-art" viewBox="0 0 440 360" role="img" aria-label="${esc(t(lang, 'home.artLabel'))}">
+<circle class="hub-art-halo" cx="220" cy="180" r="150"/><g class="hub-art-lines">${lines}</g>
+<g class="hub-art-core"><rect x="164" y="124" width="112" height="112" rx="32"/><text x="220" y="203" text-anchor="middle">b</text></g>${tiles}</svg>`;
+}
+
+const LANG_NAMES = { en: 'English', mr: 'मराठी', hi: 'हिंदी' };
+/** Links to read the page in the other languages: Kesari switches in place; without scripts, /lang/xx sets the cookie. */
+function langLinks(lang, next = '/') {
+  return `<p class="hub-langs"><span>${esc(t(lang, 'home.readIn'))}</span> ${LANGS.filter((l) => l !== lang)
+    .map((l) => `<a href="/lang/${l}?next=${encodeURIComponent(next)}" lang="${l}" hreflang="${l}" data-k-setlang="${l}">${LANG_NAMES[l]}</a>`).join(' <span aria-hidden="true">·</span> ')}</p>`;
+}
+
 function home({ lang, tiles, announcement, states = [], user = null }) {
   const stateOf = (tile) => states.find((x) => x.key === (TILE_PROJECT[tile.key] || tile.key));
-  const others = LANGS.filter((l) => l !== lang);
-  const names = { en: 'English', mr: 'मराठी', hi: 'हिंदी' };
   return `${announcementHtml(announcement, lang)}
-<section class="hub-hero" aria-labelledby="hero-h">
-  <p class="hub-kicker">bkesari.com</p>
-  <h1 id="hero-h" class="k-display">${esc(t(lang, 'home.h1'))}</h1>
-  <p class="k-lead">${esc(t(lang, 'home.purpose'))}</p>
-  <p class="hub-lead2">${esc(t(lang, 'home.lead'))}</p>
-  <p class="hub-other"><span class="k-muted">${esc(t(lang, 'home.inOther'))}:</span>
-    ${others.map((l) => `<span lang="${l}"><strong>${names[l]}</strong> — ${esc(t(l, 'home.purpose'))}</span>`).join(' ')}</p>
-  <div class="k-row"><a class="k-btn k-btn--brand" href="#projects">${esc(t(lang, 'home.cta'))}</a>
-    <a class="k-btn k-btn--secondary" href="/about">${esc(t(lang, 'home.about'))}</a></div>
+<section class="k-hero hub-hero" aria-labelledby="hero-h">
+  <div>
+    <p class="k-eyebrow">${ico('home')} bkesari.com</p>
+    <h1 id="hero-h" class="k-display">${esc(t(lang, 'home.h1'))}</h1>
+    <p class="k-hero__lead hub-purpose">${esc(t(lang, 'home.purpose'))}</p>
+    <p class="hub-lead2">${esc(t(lang, 'home.lead'))}</p>
+    <div class="k-hero__actions"><a class="k-btn k-btn--brand" href="#projects">${esc(t(lang, 'home.cta'))}${ico('chevron-down')}</a>
+      <a class="k-link-arrow" href="/about">${esc(t(lang, 'home.about'))}${arrow()}</a></div>
+    ${langLinks(lang)}
+  </div>
+  <div class="k-hero__art">${heroArt(lang)}</div>
 </section>
-<section id="projects" class="k-section" aria-labelledby="proj-h">
-  <h2 id="proj-h">${esc(t(lang, 'home.projects'))}</h2>
-  <p class="k-muted">${esc(t(lang, 'home.projectsLead'))}</p>
-  <ul class="k-grid hub-tiles" role="list">${tiles.map((x) => tileHtml(x, lang, stateOf(x))).join('')}</ul>
+<section id="projects" class="k-section hub-projects" aria-labelledby="proj-h">
+  <div class="k-section-head"><h2 id="proj-h">${esc(t(lang, 'home.projects'))}</h2><p>${esc(t(lang, 'home.projectsLead'))}</p></div>
+  <ul class="hub-grid" role="list">${tiles.map((x) => tileHtml(x, lang, stateOf(x))).join('')}</ul>
 </section>
-<section class="k-section hub-values" aria-labelledby="why-h">
-  <h2 id="why-h">${esc(t(lang, 'home.why'))}</h2>
-  <ul class="k-grid" role="list">
-    ${[1, 2, 3].map((i) => `<li class="k-card"><h3>${esc(t(lang, `home.v${i}t`))}</h3><p class="k-muted">${esc(t(lang, `home.v${i}`))}</p></li>`).join('')}
+<section class="k-section hub-about" aria-labelledby="about-h">
+  <div class="hub-about__text">
+    <h2 id="about-h">${esc(t(lang, 'home.aboutH'))}</h2>
+    <p>${esc(t(lang, 'home.aboutBody'))}</p>
+    <a class="k-link-arrow" href="/about">${esc(t(lang, 'home.more'))}${arrow()}</a>
+  </div>
+  <ul class="k-features hub-values" role="list" aria-label="${esc(t(lang, 'home.why'))}">
+    <li class="k-feature">${picon('globe', 'hub-vicon')}<h3>${esc(t(lang, 'home.v1t'))}</h3><p>${esc(t(lang, 'home.v1'))}</p></li>
+    <li class="k-feature">${picon('phone', 'hub-vicon')}<h3>${esc(t(lang, 'home.v2t'))}</h3><p>${esc(t(lang, 'home.v2'))}</p></li>
+    <li class="k-feature">${picon('shield', 'hub-vicon')}<h3>${esc(t(lang, 'home.v3t'))}</h3><p>${esc(t(lang, 'home.v3'))}</p></li>
+    <li class="k-feature">${picon('lock', 'hub-vicon')}<h3>${esc(t(lang, 'home.accountsTitle'))}</h3><p>${esc(t(lang, 'home.accountsBody'))}</p>
+      ${user ? `<a class="k-link-arrow" href="/account">${esc(t(lang, 'account.title'))}${arrow()}</a>` : `<a class="k-link-arrow" href="/auth/sign-in">${esc(t(lang, 'home.signInHelp'))}${arrow()}</a>`}</li>
   </ul>
-</section>
-<section class="k-section k-card hub-accounts" aria-labelledby="acc-h">
-  <h2 id="acc-h">${esc(t(lang, 'home.accountsTitle'))}</h2>
-  <p>${esc(t(lang, 'home.accountsBody'))}</p>
-  <p>${user ? `<a class="k-btn" href="/account">${esc(t(lang, 'account.title'))}</a>` : `<a class="k-btn k-btn--brand" href="/auth/sign-in">${esc(t(lang, 'home.signInHelp'))}</a>`}</p>
 </section>`;
 }
 
@@ -157,28 +213,42 @@ function home({ lang, tiles, announcement, states = [], user = null }) {
 function signIn({ lang, next = '/', google = null, error = null }) {
   const known = ['cancelled', 'state', 'failed', 'unverified', 'unconfirmed', 'conflict', 'builtin', 'status', 'rate_limited', 'retry'];
   const msg = error ? t(lang, `id.err.${known.includes(error) ? error : 'failed'}`) : '';
-  return `<div class="k-main--narrow">
+  // One primary action: Google when it is on, else sending the code.
+  const sendClass = google ? 'k-btn k-btn--secondary k-btn--block' : 'k-btn k-btn--brand k-btn--block';
+  const projects = [['ladwani', 'LadWani', true], ['education', 'Education', true], ['tasklist', 'TaskList', true],
+    ['driving', 'Driving Simulator', false], ['environment', t(lang, 'contact.topic.environment'), false]];
+  return `${crumbs(lang, t(lang, 'id.title'))}
+<div class="hub-auth">
+<section class="hub-auth__main" aria-labelledby="id-h">
 <h1 id="id-h">${esc(t(lang, 'id.title'))}</h1>
-<p class="k-muted">${esc(t(lang, 'id.lead'))}</p>
+<p class="k-lead">${esc(t(lang, 'id.lead'))}</p>
 ${msg ? `<div class="k-banner k-banner--danger" role="alert"><p>${esc(msg)}</p></div>` : ''}
-<div class="k-card hub-form" data-signin data-next="${esc(next)}">
-${google ? `<a class="k-btn k-btn--brand k-btn--block hub-google" href="${esc(google)}">${esc(t(lang, 'id.google'))}</a>
+<div class="k-card hub-form hub-auth__card" data-signin data-next="${esc(next)}">
+${google ? `<a class="k-btn k-btn--brand k-btn--block hub-google" href="${esc(google)}"><svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="#fff" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.3z"/><path fill="#fff" d="M12 22c2.7 0 5-.9 6.6-2.4l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z" opacity=".85"/><path fill="#fff" d="M6.4 14c-.2-.6-.3-1.3-.3-2s.1-1.4.3-2V7.4H3.1A10 10 0 0 0 2 12c0 1.6.4 3.1 1.1 4.6z" opacity=".7"/><path fill="#fff" d="M12 6c1.5 0 2.8.5 3.9 1.5l2.9-2.9A10 10 0 0 0 3.1 7.4L6.4 10C7.2 7.8 9.4 6 12 6z" opacity=".55"/></svg>${esc(t(lang, 'id.google'))}</a>
 <p class="hub-or k-muted"><span>${esc(t(lang, 'id.or'))}</span></p>` : ''}
 <form id="si-send" novalidate>
 <div class="k-field"><label class="k-label" for="si-email">${esc(t(lang, 'id.email'))}</label>
 <input class="k-input" id="si-email" type="text" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" required aria-describedby="si-err"></div>
 <div class="k-field" id="si-pass-field" hidden><label class="k-label" for="si-pass">${esc(t(lang, 'id.password'))}</label>
 <input class="k-input" id="si-pass" type="password" autocomplete="current-password" aria-describedby="si-err"></div>
-<button class="k-btn k-btn--block" type="submit" id="si-send-btn">${esc(t(lang, 'id.sendCode'))}</button></form>
+<button class="${sendClass}" type="submit" id="si-send-btn">${ico('mail')}${esc(t(lang, 'id.sendCode'))}</button></form>
 <form id="si-verify" novalidate hidden>
 <p id="si-sent" class="k-muted" role="status" data-template="${esc(t(lang, 'id.codeSent'))}"></p>
 <div class="k-field"><label class="k-label" for="si-code">${esc(t(lang, 'id.code'))}</label>
-<input class="k-input" id="si-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required aria-describedby="si-err"></div>
+<input class="k-input hub-code" id="si-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required aria-describedby="si-err"></div>
 <button class="k-btn k-btn--block k-btn--brand" type="submit">${esc(t(lang, 'id.verify'))}</button></form>
 <p class="k-error" id="si-err" role="alert"></p>
 <p class="k-banner k-banner--warning" id="si-dev" role="status" hidden></p>
 </div>
-<p class="k-small k-muted">${esc(t(lang, 'home.accountsBody'))}</p>
+<p class="k-small k-muted hub-auth__note">${ico('lock', 'k-icon k-icon--sm')}<span>${esc(t(lang, 'home.accountsBody'))}</span></p>
+</section>
+<aside class="k-card hub-auth__aside" aria-labelledby="id-aside-h">
+<h2 id="id-aside-h">${esc(t(lang, 'id.asideT'))}</h2>
+<p class="k-muted">${esc(t(lang, 'id.aside'))}</p>
+<ul class="hub-auth__projects" role="list">
+${projects.map(([key, name, approval]) => `<li${projectAttr(key)}>${picon(key, 'k-picon--sm')}<span>${esc(name)}</span><span class="k-chip ${approval ? 'k-chip--soon' : 'k-chip--live'}">${esc(t(lang, approval ? 'id.chipApproval' : 'id.chipOpen'))}</span></li>`).join('\n')}
+</ul>
+</aside>
 </div>`;
 }
 
@@ -195,7 +265,7 @@ function about({ lang, tiles }) {
 </div>`;
 }
 
-const TOPICS = ['general', 'ladwani', 'education', 'tasklist', 'privacy', 'problem'];
+const TOPICS = ['general', 'ladwani', 'education', 'tasklist', 'driving', 'environment', 'privacy', 'problem'];
 
 function field(lang, { id, label, type = 'text', value = '', error, hint, attrs = '' }) {
   const err = error ? t(lang, error) : '';
@@ -257,51 +327,38 @@ const privacy = ({ lang }) => prose(lang, 'privacy', [
 
 const terms = ({ lang }) => prose(lang, 'terms', [1, 2, 3, 4, 5].map((i) => [`terms.t${i}T`, [`terms.t${i}`]]));
 
-/** The projects that sign people in, and where. */
-const SIGN_IN = [
-  { key: 'ladwani', name: 'LadWani', signIn: '/ladwani/sign-in/', join: '/ladwani/sign-up/' },
-  { key: 'education', name: 'Education', signIn: '/edu/sign-in', join: '/edu/sign-up' },
-  { key: 'tasklist', name: 'TaskList', signIn: '/tasklist/sign-in', join: '/tasklist/sign-up' },
-];
+/** Breadcrumbs: Home / here. */
+function crumbs(lang, here) {
+  return `<nav class="k-breadcrumbs" aria-label="Breadcrumb"><ol><li><a href="/">${ico('home', 'k-icon k-icon--sm')}${esc(t(lang, 'crumb.home'))}</a></li><li><span aria-current="page">${esc(here)}</span></li></ol></nav>`;
+}
 
-function chooser({ lang }) {
-  const tabs = Object.fromEntries(menu.TABS.map((x) => [x.key, x]));
-  return `<div class="k-main--narrow">
-<h1>${esc(t(lang, 'chooser.h1'))}</h1>
-<p class="k-lead">${esc(t(lang, 'chooser.lead'))}</p>
-<ul class="hub-choose" role="list">
-${SIGN_IN.map((p) => `<li class="k-card hub-choice" data-project="${p.key}">
-  <span class="k-tile__icon">${menu.icon(tabs[p.key].icon, 'hub-ico')}</span>
-  <div><h2>${esc(p.name)}</h2><p class="k-muted">${esc(menu.STRINGS[lang][`tag.${p.key}`])}</p>
-  <div class="k-row"><a class="k-btn" href="${p.signIn}">${esc(t(lang, 'chooser.signIn', { name: p.name }))}</a>
-  <a class="k-btn k-btn--ghost" href="${p.join}">${esc(t(lang, 'chooser.join'))}</a></div></div></li>`).join('\n')}
-</ul>
-<div class="k-banner k-banner--brand"><div><p><strong>${esc(t(lang, 'chooser.movedT'))}</strong></p><p>${esc(t(lang, 'chooser.moved'))}</p></div></div>
-<p class="k-small"><a href="/admin">${esc(t(lang, 'chooser.admin'))}</a></p>
-</div>`;
+/** Shortcut tiles for the error pages: every public project, by its icon. */
+function projectLinks(lang) {
+  return `<ul class="hub-jump" role="list">${menu.TABS.filter((x) => !x.ownerOnly).map((x) => `<li${projectAttr(x.key)}><a href="${x.path}">${picon(x.icon, 'k-picon--sm')}<span>${esc(x.name)}</span></a></li>`).join('')}</ul>`;
 }
 
 function notFound({ lang }) {
   return `<div class="k-empty hub-error">${ILLUSTRATION.compass}
 <h1>${esc(t(lang, 'nf.h1'))}</h1><p>${esc(t(lang, 'nf.lead'))}</p>
-<div class="k-row" style="justify-content:center"><a class="k-btn k-btn--brand" href="/">${esc(t(lang, 'nf.home'))}</a>
-<a class="k-btn k-btn--secondary" href="/#projects">${esc(t(lang, 'nf.projects'))}</a></div></div>`;
+<div class="k-row hub-error__actions"><a class="k-btn k-btn--brand" href="/">${esc(t(lang, 'nf.home'))}</a>
+<a class="k-link-arrow" href="/contact?topic=problem">${esc(t(lang, 'contact.h1'))}${arrow()}</a></div>
+<h2 class="hub-h2-sm">${esc(t(lang, 'nf.suggest'))}</h2>${projectLinks(lang)}</div>`;
 }
 
 function serverError({ lang }) {
   return `<div class="k-empty hub-error">${ILLUSTRATION.plug}
-<h1>${esc(t(lang, 'err.h1'))}</h1><p>${esc(t(lang, 'err.lead'))}</p>
-<div class="k-row" style="justify-content:center"><a class="k-btn k-btn--brand" href="">${esc(t(lang, 'err.retry'))}</a>
-<a class="k-btn k-btn--secondary" href="/contact">${esc(t(lang, 'contact.h1'))}</a></div></div>`;
+<h1>${esc(t(lang, 'err.h1'))}</h1><p>${esc(t(lang, 'err.lead'))}</p><p class="k-small">${esc(t(lang, 'err.status'))}</p>
+<div class="k-row hub-error__actions"><a class="k-btn k-btn--brand" href="">${esc(t(lang, 'err.retry'))}</a>
+<a class="k-link-arrow" href="/contact?topic=problem">${esc(t(lang, 'contact.h1'))}${arrow()}</a></div></div>`;
 }
 
 function notOnTier({ lang, name, path }) {
   return `<div class="k-empty hub-error">${ILLUSTRATION.plug}
 <h1>${esc(t(lang, 'notier.h1', { name }))}</h1><p>${esc(t(lang, 'notier.lead', { path }))}</p>
-<a class="k-btn k-btn--secondary" href="/#projects">${esc(t(lang, 'nf.projects'))}</a></div>`;
+<a class="k-btn k-btn--secondary" href="/#projects">${esc(t(lang, 'nf.projects'))}</a>${projectLinks(lang)}</div>`;
 }
 
 module.exports = {
-  KESARI, LANGS, langOf, t, layout, strings, SIGN_IN,
-  home, about, contact, privacy, terms, chooser, signIn, notFound, serverError, notOnTier, tileHtml, TOPICS,
+  KESARI, LANGS, DISPLAY_FONT_PRELOAD, langOf, t, layout, strings,
+  home, about, contact, privacy, terms, signIn, notFound, serverError, notOnTier, tileHtml, TOPICS, ICON, ico, picon, crumbs, roleName, langLinks,
 };

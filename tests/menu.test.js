@@ -83,17 +83,46 @@ test('inside a project the header names it in its accent; on the hub it names no
   assert.doesNotMatch(bar({ pathname: '/ladwani/' }), /class="ks-brand" href="\/" aria-current/);
 });
 
-test('the All-projects switcher lists every project, ATIP only for the owner and only as a link out', () => {
-  const owner = bar({ pathname: '/', isOwner: true });
-  for (const [name, href] of EXPECTED) assert.ok(owner.includes(`href="${href}"`), `${name} is missing from the owner's switcher`);
-  assert.match(owner, /href="\/ATIP\/"[^>]*target="_blank" rel="noopener"/);
+test('the All-projects switcher lists every project, ATIP included, marked private and only as a link out', () => {
+  for (const isOwner of [true, false]) {
+    const html = bar({ pathname: '/', isOwner });
+    for (const [name, href] of EXPECTED) assert.ok(html.includes(`href="${href}"`), `${name} is missing from the switcher (owner: ${isOwner})`);
+    assert.match(html, /href="\/ATIP\/"[^>]*target="_blank" rel="noopener"/, 'ATIP opens /ATIP/ unchanged, in its own window');
+    assert.match(html, /ATIP ↗<small>Private: the owner&#39;s view-only trading dashboard<\/small>/);
+    assert.equal((html.match(/class="ks-item"/g) || []).length, 6);
+  }
   const other = bar({ pathname: '/' });
-  assert.doesNotMatch(other, /ATIP/);
-  assert.equal((other.match(/class="ks-item"/g) || []).length, 5);
   assert.match(other, /<details class="ks-pop ks-switch">/);
   assert.match(other, /<summary class="ks-btn" aria-label="All projects"/);
-  assert.match(other, /href="\/#projects"/, 'and returns to the hub');
+  assert.match(other, /<a class="ks-item ks-homeitem" href="\/" aria-current="page">/, 'and returns to the hub, first');
+  assert.match(other, /<a class="ks-all" href="\/account">/, 'and ends with My projects and access');
   assert.equal((bar({ pathname: '/tasklist/' }).match(/aria-current="page"/g) || []).length, 1, 'exactly one current item');
+});
+
+test('inside every project the logo is a visible way back: "Back to bkesari home", in each language', () => {
+  for (const tab of menu.TABS) {
+    const html = bar({ pathname: tab.path, isOwner: true, env: 'dev' });
+    assert.match(html, /<a class="ks-brand ks-back" href="\/" title="Back to bkesari home">/, `${tab.name} has no way back home`);
+    // Named by its content: the visible word "bkesari" inside "Back to … home" (WCAG 2.5.3).
+    assert.match(html, /<span class="ks-sr">Back to <\/span><span class="ks-brand-name">bkesari<\/span><span class="ks-sr"> home<\/span><\/a> <span class="ks-env">dev<\/span>/, 'the tier badge is outside the link');
+    assert.match(html, /<a class="ks-item ks-homeitem" href="\/"><span class="ks-dot">/, `${tab.name}'s switcher starts with home`);
+  }
+  assert.match(bar({ pathname: '/ladwani/', lang: 'mr' }), /<span class="ks-brand-name">bkesari<\/span><span class="ks-sr"> मुख्यपृष्ठावर परत जा<\/span>/);
+  assert.match(bar({ pathname: '/edu/', lang: 'hi' }), /title="bkesari मुखपृष्ठ पर वापस जाएँ"/);
+  assert.doesNotMatch(bar({ pathname: '/' }), /ks-back/, 'the hub itself needs no way back');
+});
+
+test('long project names have a short form on phones, and the full name everywhere else', () => {
+  assert.match(bar({ pathname: '/driving-simulator/' }), /<a class="ks-proj" href="\/driving-simulator\/"><span class="ks-proj-full">Driving Simulator<\/span><span class="ks-proj-short">Driving<\/span><\/a>/);
+  assert.match(menu.styleTag(), /\.ks-proj-short\{display:none\}/);
+  assert.match(menu.styleTag(), /@media \(max-width:480px\)\{[^@]*\.ks-proj-full\{display:none\}\.ks-proj-short\{display:inline\}/);
+});
+
+test('the footer lists the public projects (never ATIP) and the site links', () => {
+  const foot = menu.renderFooter({ lang: 'en', year: 2026 });
+  for (const tab of menu.TABS.filter((x) => !x.ownerOnly)) assert.ok(foot.includes(`<a href="${tab.path}">${tab.name}</a>`), `${tab.name} missing from the footer`);
+  assert.doesNotMatch(foot, /ATIP/);
+  for (const href of ['/about', '/privacy', '/terms', '/contact']) assert.ok(foot.includes(`href="${href}"`));
 });
 
 test('the tier badge shows on dev and test, never on production', () => {
@@ -172,7 +201,7 @@ test('every hub page carries the shell and the pinned design system', () => {
   for (const page of ['environment/index.html', 'driving-simulator/index.html', 'tasklist/app.html', 'tasklist/auth.html', 'styleguide/index.html']) {
     const html = fs.readFileSync(path.join(publicDir, page), 'utf8');
     assert.match(html, /<script src="\/shared\/menu\.js" defer><\/script>/, `${page} has no shell`);
-    assert.match(html, /<link rel="stylesheet" href="\/kesari-ui\/1\.0\.0\/kesari\.css">/, `${page} is not on Kesari 1.0.0`);
+    assert.match(html, /<link rel="stylesheet" href="\/kesari-ui\/1\.1\.0\/kesari\.css">/, `${page} is not on Kesari 1.1.0`);
     assert.doesNotMatch(html, /<script>(?!<\/script>)/, `${page} has an inline script, which the hub's CSP refuses`);
     assert.doesNotMatch(html, /\son[a-z]+="/, `${page} has an inline event handler`);
     assert.doesNotMatch(html, /fonts\.googleapis\.com/, `${page} fetches Google Fonts; Kesari ships its own`);

@@ -55,11 +55,11 @@ new class extends Component
 
 <section>
     <header>
-        <h2 class="text-lg font-medium text-gray-900">
+        <h2 class="edu-panel__title">
             {{ __('Update Password') }}
         </h2>
 
-        <p class="mt-1 text-sm text-gray-600">
+        <p class="edu-panel__intro">
             {{ __('Ensure your account is using a long, random password to stay secure.') }}
         </p>
     </header>
@@ -88,7 +88,8 @@ new class extends Component
             </div>
 
             <div class="flex items-center gap-4">
-                <x-primary-button>{{ __('Save') }}</x-primary-button>
+                {{-- The profile's Save is the page's one primary action. --}}
+                <x-secondary-button type="submit">{{ __('Update Password') }}</x-secondary-button>
 
                 <x-action-message class="me-3" on="password-updated">
                     {{ __('Saved.') }}

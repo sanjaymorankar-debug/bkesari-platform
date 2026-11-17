@@ -19,7 +19,7 @@
 })(typeof self !== 'undefined' ? self : globalThis, function (win) {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.1.0';
   const LANGS = [
     { code: 'en', label: 'English', short: 'EN' },
     { code: 'mr', label: 'मराठी', short: 'मरा' },

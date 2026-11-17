@@ -3,6 +3,7 @@
 use App\Models\AnonymousIdentity;
 use App\Models\StudentSchoolRelationship;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 
@@ -36,7 +37,7 @@ new #[Layout('layouts.app')] class extends Component
         $continue = match (true) {
             $mySchools->isEmpty() => ['title' => __('Link your school'), 'text' => __('Your school approves the link, then your growth record and reports open up.'), 'href' => route('onboarding'), 'action' => __('Link my school')],
             ! $mySchools->contains('status', 'verified') => ['title' => __('Waiting for your school'), 'text' => __('Your school has not approved your link yet. You can still look around.'), 'href' => route('schools.index'), 'action' => __('Find a school')],
-            $openReport !== null => ['title' => __('Your report :number', ['number' => $openReport->complaint_number]), 'text' => __('Status: :status. See what has happened since.', ['status' => str_replace('_', ' ', $openReport->status)]), 'href' => route('complaints.show', $openReport), 'action' => __('Open report')],
+            $openReport !== null => ['title' => __('Your report :number', ['number' => $openReport->complaint_number]), 'text' => __('Status: :status. See what has happened since.', ['status' => __(ucfirst(str_replace('_', ' ', $openReport->status)))]), 'href' => route('complaints.show', $openReport), 'action' => __('Open report')],
             default => ['title' => __('My growth'), 'text' => __('What you are doing well, and what you are working on this term.'), 'href' => route('growth.show', $user->id), 'action' => __('Open my growth')],
         };
 
@@ -48,36 +49,44 @@ new #[Layout('layouts.app')] class extends Component
             'continue' => $continue,
             'unread' => $user->unreadNotifications()->count(),
             'today' => now('Asia/Kolkata')->format('j M Y'),
+            'firstName' => Str::before(trim($user->name), ' ') ?: $user->name,
         ];
+    }
+
+    public function rendering($view): void
+    {
+        $view->title(__('My Dashboard'));
     }
 }; ?>
 
 <div>
     <x-slot name="header">
-        <h2>{{ __('My Dashboard') }}</h2>
+        <p class="k-eyebrow"><x-k-icon name="education" /> {{ __('My Dashboard') }}</p>
+        <h1>{{ __('Namaste, :name', ['name' => $firstName]) }}</h1>
+        <p class="edu-page-head__lead">{{ $today }}</p>
     </x-slot>
 
-    <div class="max-w-5xl space-y-6">
-        <div class="grid gap-4 md:grid-cols-3">
-            <section class="k-card md:col-span-2" aria-labelledby="continue-title">
+    <div class="edu-dash">
+        <div class="edu-dash__split edu-dash__split--wide">
+            <section class="k-card edu-next" aria-labelledby="continue-title">
                 <p class="k-chip k-chip--accent k-chip--plain">{{ __('Continue') }}</p>
-                <h3 id="continue-title" class="mt-2 text-lg font-bold text-gray-900">{{ $continue['title'] }}</h3>
-                <p class="text-gray-600 mt-1">{{ $continue['text'] }}</p>
-                <a href="{{ $continue['href'] }}" wire:navigate class="k-btn mt-4">{{ $continue['action'] }}</a>
+                <h2 id="continue-title">{{ $continue['title'] }}</h2>
+                <p>{{ $continue['text'] }}</p>
+                <a href="{{ $continue['href'] }}" wire:navigate class="k-btn">{{ $continue['action'] }} <x-k-icon name="arrow-right" /></a>
             </section>
 
-            <section class="k-card flex items-center gap-4" aria-labelledby="setup-title">
+            <section class="k-card edu-setup" aria-labelledby="setup-title">
                 <div class="k-ring shrink-0" style="--p: {{ (int) round($stepsDone / count($steps) * 100) }}" role="img"
                     aria-label="{{ __('Getting started: :done of :total steps done', ['done' => $stepsDone, 'total' => count($steps)]) }}">
                     <span aria-hidden="true">{{ $stepsDone }}/{{ count($steps) }}</span>
                 </div>
                 <div>
-                    <h3 id="setup-title" class="font-bold text-gray-900">{{ __('Getting started') }}</h3>
-                    <ul class="mt-1 space-y-1 text-sm">
+                    <h2 id="setup-title" class="edu-panel__title">{{ __('Getting started') }}</h2>
+                    <ul class="edu-checklist" role="list">
                         @foreach ($steps as $step)
-                            <li class="{{ $step['done'] ? 'text-green-700' : 'text-gray-600' }}">
-                                <span aria-hidden="true">{{ $step['done'] ? '✓' : '○' }}</span>
-                                {{ $step['label'] }}<span class="sr-only">: {{ $step['done'] ? __('done') : __('not yet') }}</span>
+                            <li class="{{ $step['done'] ? 'is-done' : '' }}">
+                                <x-k-icon :name="$step['done'] ? 'check' : 'pending'" class="k-icon--sm" />
+                                <span>{{ $step['label'] }}<span class="k-sr-only">: {{ $step['done'] ? __('done') : __('not yet') }}</span></span>
                             </li>
                         @endforeach
                     </ul>
@@ -85,70 +94,78 @@ new #[Layout('layouts.app')] class extends Component
             </section>
         </div>
 
-        <section class="k-card" aria-labelledby="today-title">
-            <div class="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 id="today-title" class="font-bold text-gray-900">{{ __('Today') }}</h3>
-                <span class="text-sm text-gray-600">{{ $today }}</span>
+        <ul class="k-stats edu-stats" role="list" aria-label="{{ __('Today') }}">
+            <li class="k-stat relative">
+                <span class="k-stat__value">{{ $unread }}</span>
+                <span class="k-stat__label"><a href="{{ route('notifications.index') }}" wire:navigate class="k-link edu-cover">{{ trans_choice(':count new notification|:count new notifications', $unread) }}</a></span>
+            </li>
+            <li class="k-stat">
+                <span class="k-stat__value">{{ $myComplaints->whereNotIn('status', ['resolved', 'closed'])->count() }}</span>
+                <span class="k-stat__label">{{ trans_choice(':count report still open|:count reports still open', $myComplaints->whereNotIn('status', ['resolved', 'closed'])->count()) }}</span>
+            </li>
+        </ul>
+
+        <div class="edu-dash__split">
+            <section class="k-card edu-panel" aria-labelledby="growth-title">
+                <span class="k-picon k-picon--sm"><x-k-icon name="sprout" /></span>
+                <h2 id="growth-title" class="edu-panel__title mt-3">{{ __('My Growth') }}</h2>
+                <p>{{ __("What you're doing well, what you're working on, and what you're interested in. This is yours — it isn't a grade, and nobody is ranked by it.") }}</p>
+                <div class="edu-actions">
+                    <a href="{{ route('growth.show', Auth::id()) }}" wire:navigate class="k-btn k-btn--soft">{{ __('My Growth') }}</a>
+                    <a href="{{ route('career.show', Auth::id()) }}" wire:navigate class="k-btn k-btn--secondary">{{ __('My Interests') }}</a>
+                </div>
+            </section>
+
+            <section class="k-card edu-panel" aria-labelledby="report-title">
+                <span class="k-picon k-picon--sm"><x-k-icon name="shield" /></span>
+                <h2 id="report-title" class="edu-panel__title mt-3">{{ __('Report a Problem') }}</h2>
+                <p>{{ __("If something isn't right at school — teaching, safety, bullying, anything — you can report it privately. The school never sees your name, only that a verified student reported it.") }}</p>
+                <div class="edu-actions">
+                    <a href="{{ route('complaints.create') }}" wire:navigate class="k-btn k-btn--soft">{{ __('Report a Problem') }}</a>
+                    <a href="{{ route('retaliation.create') }}" wire:navigate class="k-btn k-btn--secondary">{{ __('Report Retaliation') }}</a>
+                </div>
+            </section>
+        </div>
+
+        <section class="k-card edu-panel" aria-labelledby="school-title">
+            <div class="edu-panel__head">
+                <h2 id="school-title">{{ __('My School') }}</h2>
+                <a href="{{ route('schools.index') }}" wire:navigate class="k-link-arrow">{{ __('Find School') }} <x-k-icon name="arrow-right" /></a>
             </div>
-            <ul class="mt-2 space-y-2">
-                <li>
-                    <a href="{{ route('notifications.index') }}" wire:navigate class="k-link">
-                        {{ trans_choice(':count new notification|:count new notifications', $unread) }}
-                    </a>
-                </li>
-                <li class="text-gray-700">
-                    {{ trans_choice(':count report still open|:count reports still open', $myComplaints->whereNotIn('status', ['resolved', 'closed'])->count()) }}
-                </li>
-            </ul>
+            @if ($mySchools->isEmpty())
+                <p class="edu-none">{{ __('No linked school yet. Use "Find School" to link one.') }}</p>
+            @else
+                <ul class="edu-rows" role="list">
+                    @foreach ($mySchools as $rel)
+                        <li>
+                            <div class="edu-rows__main">
+                                <a href="{{ route('schools.show', $rel->school_id) }}" wire:navigate class="edu-rows__title k-link">{{ $rel->school->name }}</a>
+                                <p class="edu-rows__sub">{{ $rel->school->city }}</p>
+                            </div>
+                            <span class="k-chip {{ $rel->status === 'verified' ? 'k-chip--success' : ($rel->status === 'rejected' ? 'k-chip--danger' : 'k-chip--warning') }}">{{ __(ucfirst($rel->status)) }}</span>
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
         </section>
 
-        <div class="k-card">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="font-semibold text-gray-900">{{ __('My School') }}</h3>
-                <a href="{{ route('schools.index') }}" wire:navigate class="k-link text-sm">{{ __('Find School') }}</a>
-            </div>
-            @forelse ($mySchools as $rel)
-                <div class="flex justify-between py-2 border-b border-gray-200 last:border-0 text-sm">
-                    <a href="{{ route('schools.show', $rel->school_id) }}" wire:navigate class="k-link">{{ $rel->school->name }}</a>
-                    <span class="k-chip {{ $rel->status === 'verified' ? 'k-chip--success' : ($rel->status === 'rejected' ? 'k-chip--danger' : 'k-chip--warning') }}">{{ __(ucfirst($rel->status)) }}</span>
-                </div>
-            @empty
-                <p class="text-sm text-gray-600">{{ __('No linked school yet. Use "Find School" to link one.') }}</p>
-            @endforelse
-        </div>
-
-        <div class="k-card">
-            <h3 class="font-semibold text-gray-900 mb-2">{{ __('My Growth') }}</h3>
-            <p class="text-sm text-gray-600 mb-3">
-                {{ __("What you're doing well, what you're working on, and what you're interested in. This is yours — it isn't a grade, and nobody is ranked by it.") }}
-            </p>
-            <div class="flex flex-wrap gap-3">
-                <a href="{{ route('growth.show', Auth::id()) }}" wire:navigate class="k-btn">{{ __('My Growth') }}</a>
-                <a href="{{ route('career.show', Auth::id()) }}" wire:navigate class="k-btn k-btn--secondary">{{ __('My Interests') }}</a>
-            </div>
-        </div>
-
-        <div class="k-card">
-            <h3 class="font-semibold text-gray-900 mb-2">{{ __('Report a Problem') }}</h3>
-            <p class="text-sm text-gray-600 mb-3">
-                {{ __("If something isn't right at school — teaching, safety, bullying, anything — you can report it privately. The school never sees your name, only that a verified student reported it.") }}
-            </p>
-            <div class="flex flex-wrap gap-3">
-                <a href="{{ route('complaints.create') }}" wire:navigate class="k-btn k-btn--danger">{{ __('Report a Problem') }}</a>
-                <a href="{{ route('retaliation.create') }}" wire:navigate class="k-btn k-btn--secondary">{{ __('Report Retaliation') }}</a>
-            </div>
-        </div>
-
-        <div class="k-card">
-            <h3 class="font-semibold text-gray-900 mb-4">{{ __('My Reports') }}</h3>
-            @forelse ($myComplaints as $complaint)
-                <a href="{{ route('complaints.show', $complaint) }}" wire:navigate class="flex flex-wrap justify-between gap-2 min-h-12 items-center py-2 border-b border-gray-200 last:border-0 text-sm hover:bg-gray-100 -mx-2 px-2 rounded-md">
-                    <span>{{ $complaint->complaint_number }} — {{ $complaint->subject }}</span>
-                    <span class="text-gray-600">{{ str_replace('_', ' ', $complaint->status) }}</span>
-                </a>
-            @empty
-                <p class="text-sm text-gray-600">{{ __("You haven't submitted any reports.") }}</p>
-            @endforelse
-        </div>
+        <section class="k-card edu-panel" aria-labelledby="reports-title">
+            <h2 id="reports-title" class="edu-panel__title">{{ __('My Reports') }}</h2>
+            @if ($myComplaints->isEmpty())
+                <p class="edu-none">{{ __("You haven't submitted any reports.") }}</p>
+            @else
+                <ul class="edu-rows" role="list">
+                    @foreach ($myComplaints as $complaint)
+                        <li class="edu-rows__item--link">
+                            <div class="edu-rows__main">
+                                <a href="{{ route('complaints.show', $complaint) }}" wire:navigate class="edu-stretch edu-rows__title">{{ $complaint->subject }}</a>
+                                <p class="edu-rows__sub">{{ $complaint->complaint_number }} &middot; {{ $complaint->created_at->format('j M Y') }}</p>
+                            </div>
+                            <x-complaint-status :status="$complaint->status" />
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+        </section>
     </div>
 </div>

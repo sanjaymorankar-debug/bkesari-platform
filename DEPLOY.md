@@ -398,7 +398,7 @@ and server-rendering keeps that page's policy untouched.
 
 | Path | Served by |
 |---|---|
-| `/`, `/about`, `/contact`, `/privacy`, `/terms`, `/auth/sign-in` (project chooser), `/admin`, `/tasklist/`, `/ATIP/` (owner only), `/kesari-ui/1.0.0/`, `/styleguide/` (dev and test only) | this repo (`portal/`) |
+| `/`, `/about`, `/contact`, `/privacy`, `/terms`, `/auth/sign-in` (project chooser), `/admin`, `/tasklist/`, `/ATIP/` (owner only), `/kesari-ui/1.1.0/`, `/styleguide/` (dev and test only) | this repo (`portal/`) |
 | `/environment/` (`/global-warming/` redirects to it), `/driving-simulator/` | this repo, static |
 | `/tasks/*`, `/education/*`, `/access/*`, `/admin/access` | redirects (to `/tasklist/`, `/edu/`, the chooser, `/admin`); the old `/hub/api/*`, `/tasks/api/*` and `/.well-known/jwks.json` answer 410 |
 | `/edu/`, `/ladwani/` | their own apps, reached through the hub |

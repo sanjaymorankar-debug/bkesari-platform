@@ -5,7 +5,7 @@ One repository for everything behind **bkesari.com**. Each part keeps its own la
 | Folder | What | Language | Where it runs |
 |---|---|---|---|
 | `portal/` | The hub (home with project tiles, about, contact, privacy, terms, `/admin`), **TaskList** (`/tasklist/`, its own accounts), the **ATIP viewer** (`/ATIP/`), LadWani served at `/ladwani/` | Node.js (Express) | Hostinger Node.js Web App: `dev.`/`test.`/`bkesari.com` |
-| `packages/kesari-ui/` | **Kesari**, the design system every project uses (tokens, components, runtime; built to `portal/public/kesari-ui/1.0.0/`) | CSS, JS | served by the hub |
+| `packages/kesari-ui/` | **Kesari**, the design system every project uses (tokens, components, runtime; built to `portal/public/kesari-ui/1.1.0/`) | CSS, JS | served by the hub |
 | `ladwani/` | LadWani: NestJS API + Next.js static export, its own accounts | TypeScript | built into and served by the hub |
 | `mobile/` | Capacitor shells for the LadWani, Education and TaskList apps | JSON, HTML | Android / iOS (built on the Mac) |
 | `edu/` | School & Student Governance platform | PHP (Laravel) | Hostinger PHP site: `devedu.`/`testedu.`/`edu.bkesari.com` |

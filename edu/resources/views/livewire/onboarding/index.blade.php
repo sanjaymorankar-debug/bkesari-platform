@@ -186,140 +186,175 @@ new #[Layout('layouts.app')] class extends Component
             'role' => Auth::user()->getRoleNames()->first(),
         ];
     }
+
+    public function rendering($view): void
+    {
+        $view->title(__('Link your school'));
+    }
 }; ?>
 
 <div>
     <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">Link Your School</h2>
+        <p class="k-eyebrow"><x-k-icon name="school" /> {{ __('Getting started') }}</p>
+        <h1>{{ __('Link your school') }}</h1>
+        <p class="edu-page-head__lead">{{ __('Tell us which school you belong to. Your school approves the link, then you can take part.') }}</p>
     </x-slot>
 
-    <div class="py-8 max-w-xl mx-auto sm:px-6 lg:px-8">
-        <div class="bg-white rounded-lg shadow p-6">
+    <div class="edu-narrow">
+        <ol class="k-stepper" aria-label="{{ __('Your progress') }}">
+            <li data-done>{{ __('Account created') }}<span class="k-sr-only">: {{ __('done') }}</span></li>
+            <li @if ($linked) data-done @else aria-current="step" @endif>{{ __('School link requested') }}@if ($linked)<span class="k-sr-only">: {{ __('done') }}</span>@endif</li>
+            <li @if ($linked) aria-current="step" @endif>{{ __('School approved your link') }}<span class="k-sr-only">: {{ __('not yet') }}</span></li>
+        </ol>
+
+        <div class="k-card">
             @if ($linked)
-                <h3 class="font-semibold text-lg text-green-700">Request sent — pending verification</h3>
-                <p class="text-sm text-gray-600 mt-2">
-                    The school's admin needs to approve this link before you can submit complaints or ratings for it.
-                    You can still browse schools and track any existing complaints in the meantime.
-                </p>
+                <div class="edu-success" role="status">
+                    <span class="k-picon k-picon--lg"><x-k-icon name="check" /></span>
+                    <h2>{{ __('Request sent — pending verification') }}</h2>
+                    <p>{{ __('The school’s admin needs to approve this link before you can submit complaints or ratings for it. You can still browse schools and track any existing complaints in the meantime.') }}</p>
+                </div>
 
                 @if ($childTempPassword)
-                    <div class="mt-4 border-t pt-4">
-                        <h4 class="font-medium text-gray-800">Your child's account</h4>
-                        <p class="text-xs text-gray-500 mb-2">This test environment doesn't send real email — share these details with your child directly. They should change the password after first login.</p>
-                        <p class="text-sm"><strong>Email:</strong> {{ $childEmail }}</p>
-                        <p class="text-sm font-mono"><strong>Temporary password:</strong> {{ $childTempPassword }}</p>
+                    <div class="k-banner k-banner--brand mt-4">
+                        <x-k-icon name="info" />
+                        <div class="min-w-0">
+                            <p><strong>{{ __('Your child’s account') }}</strong></p>
+                            <p class="text-sm">{{ __('These details are shown only here, once. Share them with your child yourself; they should change the password after first signing in.') }}</p>
+                            <dl class="edu-facts edu-facts--stack">
+                                <div><dt>{{ __('Email') }}</dt><dd class="break-all">{{ $childEmail }}</dd></div>
+                                <div><dt>{{ __('Temporary password') }}</dt><dd class="font-mono">{{ $childTempPassword }}</dd></div>
+                            </dl>
+                        </div>
                     </div>
                 @endif
 
-                <a href="{{ route('dashboard') }}" wire:navigate class="inline-block mt-6 px-4 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700">Go to Dashboard</a>
+                <a href="{{ route('dashboard') }}" wire:navigate class="k-btn mt-6">{{ __('Go to your dashboard') }} <x-k-icon name="arrow-right" /></a>
             @else
-                <p class="text-sm text-gray-500 mb-6">
-                    Link your account to a school as a <strong>{{ ucfirst($role) }}</strong>. The school's admin
-                    reviews and approves this before you can submit anything for it — your identity is never shown
-                    to the school, only that you're a verified {{ $role }}.
+                <p class="k-muted">
+                    {{ match ($role) {
+                        'student' => __('The school’s admin approves the link before you can submit anything for it. The school never sees your name, only that a verified student spoke up.'),
+                        'teacher' => __('The school’s admin approves the link before you can submit anything for it. The school never sees your name, only that a verified teacher spoke up.'),
+                        default => __('The school’s admin approves the link before you can submit anything for it. The school never sees your name, only that a verified parent spoke up.'),
+                    } }}
                 </p>
 
-                <form wire:submit="link" class="space-y-4">
-                    <div>
-                        <x-input-label for="search" value="Search school" />
-                        <x-text-input wire:model.live.debounce.300ms="search" id="search" class="mt-1 w-full" placeholder="Type a school name..." />
+                <form wire:submit="link" class="mt-4" novalidate>
+                    <div class="k-field">
+                        <x-input-label for="search" :value="__('Search for your school')" />
+                        <div class="k-search">
+                            <x-text-input wire:model.live.debounce.300ms="search" id="search" type="search" autocomplete="off" :placeholder="__('Type a school name...')" aria-describedby="search-hint" />
+                        </div>
+                        <p id="search-hint" class="k-hint" role="status">
+                            <span wire:loading.remove wire:target="search">{{ trans_choice(':count school matches|:count schools match', $schools->count()) }}</span>
+                            <span wire:loading wire:target="search">{{ __('Searching…') }}</span>
+                        </p>
                     </div>
 
-                    <div>
-                        <x-input-label for="schoolId" value="School" />
-                        <select wire:model="schoolId" id="schoolId" class="border-gray-300 rounded-md shadow-sm mt-1 w-full">
-                            <option value="">Select school</option>
+                    <div class="k-field">
+                        <x-input-label for="schoolId" :value="__('School')" />
+                        <select wire:model="schoolId" id="schoolId" class="k-select" @error('schoolId') aria-invalid="true" @enderror>
+                            <option value="">{{ __('Choose your school') }}</option>
                             @foreach ($schools as $school)
                                 <option value="{{ $school->id }}">{{ $school->name }} ({{ $school->city }})</option>
                             @endforeach
                         </select>
-                        <x-input-error :messages="$errors->get('schoolId')" class="mt-2" />
+                        @if ($schools->isEmpty())
+                            <p class="k-hint">{{ __('No school matches that name. Check the spelling, or register the school if it is missing.') }}
+                                <a href="{{ route('schools.register') }}" wire:navigate>{{ __('Register a school') }}</a></p>
+                        @endif
+                        <x-input-error :messages="$errors->get('schoolId')" />
                     </div>
 
                     @if ($role === 'parent')
-                        <div>
-                            <x-input-label for="phone" value="Phone number" />
-                            <x-text-input wire:model="phone" id="phone" class="mt-1 w-full" />
-                            <x-input-error :messages="$errors->get('phone')" class="mt-2" />
+                        <div class="k-field">
+                            <x-input-label for="phone" :value="__('Phone number')" />
+                            <x-text-input wire:model="phone" id="phone" type="tel" inputmode="tel" autocomplete="tel-national" />
+                            <x-input-error :messages="$errors->get('phone')" />
                         </div>
 
-                        <div class="border-t pt-4">
-                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700">
-                                <input type="checkbox" wire:model.live="addChild"> Also register my child at this school
+                        <fieldset class="edu-fieldset">
+                            <legend class="k-sr-only">{{ __('Your child') }}</legend>
+                            <label class="k-check">
+                                <input type="checkbox" wire:model.live="addChild">
+                                <span>{{ __('Also register my child at this school') }}</span>
                             </label>
 
                             @if ($addChild)
-                                <div class="mt-3 space-y-3 pl-1">
-                                    <div class="flex gap-4 text-sm">
-                                        <label class="flex items-center gap-1"><input type="radio" wire:model.live="childMode" value="new"> Create a new account for my child</label>
-                                        <label class="flex items-center gap-1"><input type="radio" wire:model.live="childMode" value="existing"> My child already has an account</label>
-                                    </div>
+                                <fieldset class="k-field">
+                                    <legend class="k-label">{{ __('Does your child have an account?') }}</legend>
+                                    <label class="k-check"><input type="radio" wire:model.live="childMode" value="new"> <span>{{ __('Create a new account for my child') }}</span></label>
+                                    <label class="k-check"><input type="radio" wire:model.live="childMode" value="existing"> <span>{{ __('My child already has an account') }}</span></label>
+                                </fieldset>
 
-                                    @if ($childMode === 'existing')
-                                        <div>
-                                            <x-input-label for="childEmail" value="Child's email" />
-                                            <x-text-input wire:model="childEmail" id="childEmail" type="email" class="mt-1 w-full" />
-                                            <x-input-error :messages="$errors->get('childEmail')" class="mt-2" />
+                                @if ($childMode === 'existing')
+                                    <div class="k-field">
+                                        <x-input-label for="childEmail" :value="__('Child’s email')" />
+                                        <x-text-input wire:model="childEmail" id="childEmail" type="email" />
+                                        <x-input-error :messages="$errors->get('childEmail')" />
+                                    </div>
+                                @else
+                                    <div class="k-field">
+                                        <x-input-label for="childName" :value="__('Child’s name')" />
+                                        <x-text-input wire:model="childName" id="childName" autocomplete="off" />
+                                        <x-input-error :messages="$errors->get('childName')" />
+                                    </div>
+                                    <div class="k-field">
+                                        <x-input-label for="childEmail" :value="__('Child’s email')" />
+                                        <x-text-input wire:model="childEmail" id="childEmail" type="email" autocomplete="off" />
+                                        <x-input-error :messages="$errors->get('childEmail')" />
+                                    </div>
+                                    <div class="grid gap-x-4 sm:grid-cols-2">
+                                        <div class="k-field">
+                                            <x-input-label for="childDateOfBirth" :value="__('Date of birth')" />
+                                            <x-text-input wire:model="childDateOfBirth" id="childDateOfBirth" type="date" />
+                                            <x-input-error :messages="$errors->get('childDateOfBirth')" />
                                         </div>
-                                    @else
-                                        <div>
-                                            <x-input-label for="childName" value="Child's name" />
-                                            <x-text-input wire:model="childName" id="childName" class="mt-1 w-full" />
-                                            <x-input-error :messages="$errors->get('childName')" class="mt-2" />
+                                        <div class="k-field">
+                                            <x-input-label for="childClassGrade" :value="__('Class / Grade')" />
+                                            <x-text-input wire:model="childClassGrade" id="childClassGrade" :placeholder="__('e.g. 8')" />
+                                            <x-input-error :messages="$errors->get('childClassGrade')" />
                                         </div>
-                                        <div>
-                                            <x-input-label for="childEmail" value="Child's email" />
-                                            <x-text-input wire:model="childEmail" id="childEmail" type="email" class="mt-1 w-full" />
-                                            <x-input-error :messages="$errors->get('childEmail')" class="mt-2" />
-                                        </div>
-                                        <div>
-                                            <x-input-label for="childDateOfBirth" value="Date of birth" />
-                                            <x-text-input wire:model="childDateOfBirth" id="childDateOfBirth" type="date" class="mt-1 w-full" />
-                                            <x-input-error :messages="$errors->get('childDateOfBirth')" class="mt-2" />
-                                        </div>
-                                        <div>
-                                            <x-input-label for="childGender" value="Gender" />
-                                            <select wire:model="childGender" id="childGender" class="border-gray-300 rounded-md shadow-sm mt-1 w-full">
-                                                <option value="">Select</option>
-                                                <option value="male">Male</option>
-                                                <option value="female">Female</option>
-                                                <option value="other">Other</option>
-                                            </select>
-                                            <x-input-error :messages="$errors->get('childGender')" class="mt-2" />
-                                        </div>
-                                        <div>
-                                            <x-input-label for="childClassGrade" value="Class / Grade" />
-                                            <x-text-input wire:model="childClassGrade" id="childClassGrade" class="mt-1 w-full" placeholder="e.g. 8" />
-                                            <x-input-error :messages="$errors->get('childClassGrade')" class="mt-2" />
-                                        </div>
-                                    @endif
-                                </div>
+                                    </div>
+                                    <div class="k-field">
+                                        <x-input-label for="childGender" :value="__('Gender')" />
+                                        <select wire:model="childGender" id="childGender" class="k-select">
+                                            <option value="">{{ __('Select') }}</option>
+                                            <option value="male">{{ __('Male') }}</option>
+                                            <option value="female">{{ __('Female') }}</option>
+                                            <option value="other">{{ __('Other') }}</option>
+                                        </select>
+                                        <x-input-error :messages="$errors->get('childGender')" />
+                                    </div>
+                                @endif
                             @endif
-                        </div>
+                        </fieldset>
                     @elseif ($role === 'student')
-                        <div>
-                            <x-input-label for="dateOfBirth" value="Date of birth" />
-                            <x-text-input wire:model="dateOfBirth" id="dateOfBirth" type="date" class="mt-1 w-full" />
-                            <x-input-error :messages="$errors->get('dateOfBirth')" class="mt-2" />
+                        <div class="grid gap-x-4 sm:grid-cols-2">
+                            <div class="k-field">
+                                <x-input-label for="dateOfBirth" :value="__('Date of birth')" />
+                                <x-text-input wire:model="dateOfBirth" id="dateOfBirth" type="date" />
+                                <x-input-error :messages="$errors->get('dateOfBirth')" />
+                            </div>
+                            <div class="k-field">
+                                <x-input-label for="classGrade" :value="__('Class / Grade')" />
+                                <x-text-input wire:model="classGrade" id="classGrade" :placeholder="__('e.g. 8')" />
+                                <x-input-error :messages="$errors->get('classGrade')" />
+                            </div>
                         </div>
-                        <div>
-                            <x-input-label for="gender" value="Gender" />
-                            <select wire:model="gender" id="gender" class="border-gray-300 rounded-md shadow-sm mt-1 w-full">
-                                <option value="">Select</option>
-                                <option value="male">Male</option>
-                                <option value="female">Female</option>
-                                <option value="other">Other</option>
+                        <div class="k-field">
+                            <x-input-label for="gender" :value="__('Gender')" />
+                            <select wire:model="gender" id="gender" class="k-select">
+                                <option value="">{{ __('Select') }}</option>
+                                <option value="male">{{ __('Male') }}</option>
+                                <option value="female">{{ __('Female') }}</option>
+                                <option value="other">{{ __('Other') }}</option>
                             </select>
-                            <x-input-error :messages="$errors->get('gender')" class="mt-2" />
-                        </div>
-                        <div>
-                            <x-input-label for="classGrade" value="Class / Grade" />
-                            <x-text-input wire:model="classGrade" id="classGrade" class="mt-1 w-full" placeholder="e.g. 8" />
-                            <x-input-error :messages="$errors->get('classGrade')" class="mt-2" />
+                            <x-input-error :messages="$errors->get('gender')" />
                         </div>
                     @endif
 
-                    <x-primary-button>Request Link</x-primary-button>
+                    <button type="submit" class="k-btn k-btn--block mt-2" wire:loading.attr="aria-busy" wire:target="link">{{ __('Request the link') }}</button>
                 </form>
             @endif
         </div>

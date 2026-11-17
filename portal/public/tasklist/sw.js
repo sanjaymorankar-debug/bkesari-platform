@@ -3,12 +3,12 @@
    last data and offline changes in its own per-account storage (app.js).
    Nothing from /tasklist/api is ever stored here, so a shared phone cannot
    replay one person's tasks from this cache to another. */
-const CACHE = 'tasklist-shell-v1';
+const CACHE = 'tasklist-shell-v2';
 const SHELL = [
   '/tasklist/app.html', '/tasklist/app.js', '/tasklist/i18n.js', '/tasklist/quickadd.js', '/tasklist/tasklist.css',
   '/tasklist/auth.html', '/tasklist/auth.js', '/tasklist/manifest.webmanifest',
-  '/kesari-ui/1.0.0/kesari.css', '/kesari-ui/1.0.0/kesari.js', '/kesari-ui/1.0.0/fonts/mukta-latin-400-normal.woff2',
-  '/kesari-ui/1.0.0/fonts/mukta-latin-600-normal.woff2', '/kesari-ui/1.0.0/fonts/mukta-devanagari-400-normal.woff2',
+  '/kesari-ui/1.1.0/kesari.css', '/kesari-ui/1.1.0/kesari.js', '/kesari-ui/1.1.0/fonts/mukta-latin-400-normal.woff2',
+  '/kesari-ui/1.1.0/fonts/mukta-latin-600-normal.woff2', '/kesari-ui/1.1.0/fonts/mukta-devanagari-400-normal.woff2',
   '/shared/menu.js', '/icons/icon-192.png',
 ];
 const AUTH_PAGES = /^\/tasklist\/(sign-in|sign-up|forgot-password|reset-password|verify)\/?$/;

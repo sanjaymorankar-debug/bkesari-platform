@@ -86,11 +86,11 @@ new class extends Component
 
 <section>
     <header>
-        <h2 class="text-lg font-semibold text-gray-900">
+        <h2 class="edu-panel__title">
             {{ __('Profile Information') }}
         </h2>
 
-        <p class="mt-1 text-sm text-gray-600">
+        <p class="edu-panel__intro">
             {{ __("Update your account's profile information, email address and mobile number.") }}
         </p>
     </header>
@@ -98,7 +98,7 @@ new class extends Component
     <form wire:submit="updateProfileInformation" class="mt-6 space-y-6">
         <div>
             <x-input-label for="name" :value="__('Name')" />
-            <x-text-input wire:model="name" id="name" name="name" type="text" class="mt-1 block w-full" required autofocus autocomplete="name" />
+            <x-text-input wire:model="name" id="name" name="name" type="text" class="mt-1 block w-full" required autocomplete="name" />
             <x-input-error class="mt-2" :messages="$errors->get('name')" />
         </div>
 

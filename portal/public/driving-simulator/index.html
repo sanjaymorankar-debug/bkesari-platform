@@ -1,18 +1,20 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-project="driving">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Driving Simulator — bkesari</title>
-<meta name="description" content="Driver training on a simulator: practising the situations that are unsafe to rehearse on a real road.">
+<meta name="description" content="Driver training on a simulator: practise emergency braking, skids, night and fog, the situations that are unsafe to rehearse on a real road.">
+<link rel="canonical" href="https://bkesari.com/driving-simulator/">
 <link rel="icon" href="/icons/icon-192.png" type="image/png">
-<link rel="preload" href="/kesari-ui/1.0.0/fonts/mukta-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/kesari-ui/1.0.0/kesari.css">
-<link rel="stylesheet" href="/shared/page.css">
+<link rel="preload" href="/kesari-ui/1.1.0/fonts/mukta-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/kesari-ui/1.1.0/kesari.css">
 <link rel="stylesheet" href="/shared/hub.css">
-<script src="/kesari-ui/1.0.0/kesari.js"></script>
+<script src="/kesari-ui/1.1.0/kesari.js"></script>
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#C2560A">
+<meta name="theme-color" content="#0369A1">
+<meta property="og:title" content="Driving Simulator — bkesari">
+<meta property="og:description" content="Practise the moments you cannot rehearse on a real road.">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="bkesari">
@@ -20,14 +22,11 @@
 <body>
 <div data-bkesari-menu></div>
 
-<main id="main">
+<main id="main" class="k-main sp-page">
   <noscript>
-    <div class="nojs">The menu at the top needs JavaScript.
-    <a href="/">Go to the bkesari home page</a> for the full list of projects.</div>
+    <div class="k-banner k-banner--warning"><p>The menu at the top needs JavaScript.
+    <a href="/">Go to the bkesari home page</a> for the full list of projects.</p></div>
   </noscript>
-  <h1>Driving simulator</h1>
-  <p class="lead">Driver training on a simulator: a way to practise the situations that are
-  genuinely unsafe to rehearse on a real road.</p>
 
   <!--
     EDITORIAL NOTE — READ BEFORE PUBLISHING.
@@ -36,56 +35,143 @@
     deliberately free of any specific claim about this service: no prices, no
     location, no hours, no booking process, no equipment model, and no figures
     about results. None of that was known when the page was written, and
-    inventing it on a public page would be worse than leaving it out.
+    inventing it on a public page would be worse than leaving it out (D-020).
 
-    The "Still to be filled in" panel lists exactly what is missing. Replace it
-    with the real details and delete the panel.
+    When the owner supplies the details (location and hours, how to book and
+    whom to contact, session length and price, the setup, any certificate,
+    photos), add a "Book a session" section and change the hero's call to action.
+    Until then the only action is "Register your interest" (the contact form,
+    topic: Driving Simulator).
   -->
 
-  <h2>Why a simulator and not just more road time</h2>
-  <p>Road practice can only teach what happens to come up. A learner might finish a course having
-  never met a blown tyre, a wet corner taken too fast, or a child stepping out from between parked
-  vehicles &mdash; the situations that most need a trained response.</p>
-  <p>A simulator can put those in front of a driver deliberately, repeat them until the response
-  is automatic, and do it without risk to anyone. It can also be stopped mid-incident and replayed,
-  which a real road cannot.</p>
+  <nav class="k-breadcrumbs" aria-label="Breadcrumb"><ol>
+    <li><a href="/">Home</a></li><li><span aria-current="page">Driving Simulator</span></li>
+  </ol></nav>
 
-  <div class="panel">
-    <h3>What it does well</h3>
-    <ul class="plain">
-      <li><strong>Hazards on demand.</strong> Emergency braking, skids, sudden obstacles and
-      brake failure, rehearsed as often as needed.</li>
-      <li><strong>Conditions that cannot be arranged.</strong> Night, fog, heavy rain and glare,
-      without waiting for the weather or the season.</li>
-      <li><strong>Repetition without cost.</strong> The same junction a dozen times over, with no
-      fuel burnt and nothing to damage.</li>
-      <li><strong>Mistakes made safely.</strong> Getting it wrong is how the lesson lands, and
-      here getting it wrong is free.</li>
-      <li><strong>Calm first attempts.</strong> Controls and clutch work can be learnt before
-      traffic is added to the problem.</li>
+  <section class="k-hero" aria-labelledby="ds-h">
+    <div>
+      <p class="k-eyebrow"><svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-driving"/></svg> Driving Simulator · Coming soon</p>
+      <h1 id="ds-h">Practise the moments you can&rsquo;t rehearse on a real road</h1>
+      <p class="k-hero__lead">Driver training on a simulator: emergency braking, skids, night and fog,
+      repeated until the right response is automatic, with no risk to anyone.</p>
+      <div class="k-hero__actions">
+        <a class="k-btn" href="/contact?topic=driving">Register your interest
+          <svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-arrow-right"/></svg></a>
+        <a class="k-link-arrow" href="#practise">What you can practise
+          <svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-chevron-down"/></svg></a>
+      </div>
+      <p class="sp-note"><svg class="k-icon k-icon--sm" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-info"/></svg>
+      The place, hours and how to book are being finalised. Register your interest and we will tell you first.</p>
+    </div>
+    <div class="k-hero__art">
+      <!-- The view from the driver's seat: a wet road at dusk, a hazard ahead. Decorative. -->
+      <svg class="sp-art sp-art--drive" viewBox="0 0 480 360" aria-hidden="true" focusable="false">
+        <defs><clipPath id="sp-frame"><rect width="480" height="360" rx="28"/></clipPath></defs>
+        <g clip-path="url(#sp-frame)">
+        <rect class="sp-sky" x="0" y="0" width="480" height="360"/>
+        <circle class="sp-sun" cx="360" cy="112" r="34"/>
+        <path class="sp-hill" d="M0 170c70-40 140-48 210-26s120 18 170-6 80-20 100-12v34H0z"/>
+        <path class="sp-ground" d="M0 158h480v202H0z"/>
+        <path class="sp-road" d="M214 158h52l150 202H64z"/>
+        <path class="sp-lane" d="M238 168h4l1 18h-6zM235 198h10l2 30h-14zM229 246h22l4 50h-30z"/>
+        <path class="sp-edge" d="M214 158 64 360M266 158l150 202"/>
+        <g class="sp-hazard" transform="translate(268 196)">
+          <path d="M22 0 44 38H0z"/><path class="sp-hazard-mark" d="M22 13v12M22 30v1"/>
+        </g>
+        <g class="sp-rain"><path d="M60 40l-8 22M120 70l-8 22M176 30l-8 22M300 50l-8 22M420 36l-8 22M440 120l-8 22M40 110l-8 22"/></g>
+        <path class="sp-dash" d="M0 300c80-22 160-30 240-30s160 8 240 30v60H0z"/>
+        <g class="sp-wheel" transform="translate(240 352)">
+          <circle r="96"/><circle class="sp-wheel-hub" r="22"/><path d="M-96 -8h74M22 -8h74M0 22v74"/>
+        </g>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <section class="k-section sp-split" aria-labelledby="why-h">
+    <div>
+      <h2 id="why-h">Why a simulator and not just more road time</h2>
+      <p>Road practice can only teach what happens to come up. A learner might finish a course having
+      never met a blown tyre, a wet corner taken too fast, or a child stepping out from between parked
+      vehicles &mdash; the situations that most need a trained response.</p>
+      <p>A simulator can put those in front of a driver deliberately, repeat them until the response
+      is automatic, and do it without risk to anyone. It can also be stopped mid-incident and replayed,
+      which a real road cannot.</p>
+    </div>
+    <aside class="k-card sp-callout" aria-labelledby="not-h">
+      <span class="k-picon"><svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-alert"/></svg></span>
+      <h3 id="not-h">What it does not replace</h3>
+      <p>A simulator does not reproduce the full feel of a real vehicle, real road surfaces, or the
+      judgement of other drivers around you. It is preparation for road practice and a way to drill
+      specific situations &mdash; not a substitute for supervised driving or for the legal
+      requirements of a licence.</p>
+    </aside>
+  </section>
+
+  <section id="practise" class="k-section sp-anchor" aria-labelledby="well-h">
+    <div class="k-section-head"><h2 id="well-h">What it does well</h2>
+      <p>Six things a simulator gives a driver that ordinary road time cannot.</p></div>
+    <ul class="k-features sp-grid3" role="list">
+      <li class="k-feature"><span class="k-picon"><svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-stop"/></svg></span>
+        <h3>Hazards on demand</h3><p>Emergency braking, skids, sudden obstacles and brake failure, rehearsed as often as needed.</p></li>
+      <li class="k-feature"><span class="k-picon"><svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-cloud"/></svg></span>
+        <h3>Conditions that cannot be arranged</h3><p>Night, fog, heavy rain and glare, without waiting for the weather or the season.</p></li>
+      <li class="k-feature"><span class="k-picon"><svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-repeat"/></svg></span>
+        <h3>Repetition without cost</h3><p>The same junction a dozen times over, with no fuel burnt and nothing to damage.</p></li>
+      <li class="k-feature"><span class="k-picon"><svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-shield"/></svg></span>
+        <h3>Mistakes made safely</h3><p>Getting it wrong is how the lesson lands, and here getting it wrong is free.</p></li>
+      <li class="k-feature"><span class="k-picon"><svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-heart"/></svg></span>
+        <h3>Calm first attempts</h3><p>Controls and clutch work can be learnt before traffic is added to the problem.</p></li>
+      <li class="k-feature"><span class="k-picon"><svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-play"/></svg></span>
+        <h3>Stop and replay</h3><p>An incident can be paused at the moment it goes wrong and played again, which a real road never allows.</p></li>
     </ul>
-  </div>
+  </section>
 
-  <div class="panel">
-    <h3>What it does not replace</h3>
-    <p>A simulator does not reproduce the full feel of a real vehicle, real road surfaces, or the
-    judgement of other drivers around you. It is preparation for road practice and a way to drill
-    specific situations &mdash; not a substitute for supervised driving or for the legal
-    requirements of a licence.</p>
-  </div>
+  <section class="k-section" aria-labelledby="how-h">
+    <div class="k-section-head"><h2 id="how-h">How simulator practice builds up</h2>
+      <p>Skills are added one at a time, so each new demand meets a driver who is already calm with the last.</p></div>
+    <ol class="k-steps">
+      <li><h3>Learn the controls</h3><p>Seat, mirrors, steering, clutch and brakes, with no traffic yet.</p></li>
+      <li><h3>Add the road</h3><p>Junctions, lanes and other vehicles, introduced one at a time.</p></li>
+      <li><h3>Meet the hazards</h3><p>Emergency braking, skids, a child stepping out, night and fog.</p></li>
+      <li><h3>Replay and repeat</h3><p>Watch what happened, then try again until the response is automatic.</p></li>
+    </ol>
+  </section>
 
-  <h2>Who it tends to suit</h2>
-  <ul class="plain">
-    <li><strong>New drivers</strong>, building the basics before facing traffic.</li>
-    <li><strong>Returning drivers</strong>, rebuilding confidence after a long gap or after a
-    collision.</li>
-    <li><strong>Commercial and fleet drivers</strong>, where refresher training on hazards is part
-    of the job.</li>
-    <li><strong>Anyone nervous about a specific situation</strong> &mdash; a particular junction,
-    night driving, reversing &mdash; who wants to practise just that, repeatedly.</li>
-  </ul>
+  <section class="k-section" aria-labelledby="suit-h">
+    <div class="k-section-head"><h2 id="suit-h">Who it tends to suit</h2></div>
+    <ul class="k-features sp-people" role="list">
+      <li class="k-feature"><span class="k-picon k-picon--sm"><svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-user"/></svg></span>
+        <h3>New drivers</h3><p>Building the basics before facing traffic.</p></li>
+      <li class="k-feature"><span class="k-picon k-picon--sm"><svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-repeat"/></svg></span>
+        <h3>Returning drivers</h3><p>Rebuilding confidence after a long gap or after a collision.</p></li>
+      <li class="k-feature"><span class="k-picon k-picon--sm"><svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-route"/></svg></span>
+        <h3>Commercial and fleet drivers</h3><p>Where refresher training on hazards is part of the job.</p></li>
+      <li class="k-feature"><span class="k-picon k-picon--sm"><svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-heart"/></svg></span>
+        <h3>Anyone nervous about one situation</h3><p>A particular junction, night driving, reversing &mdash; practised on its own, repeatedly.</p></li>
+    </ul>
+  </section>
+
+  <section class="k-section" aria-labelledby="faq-h">
+    <div class="k-section-head"><h2 id="faq-h">Questions</h2></div>
+    <div class="k-faq">
+      <details><summary>Where is it, and when can I book?</summary>
+        <p>The place, the hours and how to book are being finalised. <a href="/contact?topic=driving">Register your interest</a>
+        and we will write to you as soon as they are set.</p></details>
+      <details><summary>Does it count towards a driving licence?</summary>
+        <p>No. It is preparation for supervised road practice, not a substitute for it or for the legal requirements of a licence.</p></details>
+      <details><summary>Can I practise just one situation?</summary>
+        <p>That is what simulators do best: a particular junction, night driving or reversing, repeated as often as you need.</p></details>
+    </div>
+  </section>
+
+  <section class="k-cta" aria-labelledby="cta-h">
+    <div><h2 id="cta-h">Be the first to know when it opens</h2>
+      <p>Leave your name and how to reach you. We will only use it to tell you about the Driving Simulator.</p></div>
+    <a class="k-btn" href="/contact?topic=driving">Register your interest
+      <svg class="k-icon" aria-hidden="true"><use href="/kesari-ui/1.1.0/icons.svg#k-i-arrow-right"/></svg></a>
+  </section>
 </main>
-
 
 <script src="/shared/menu.js" defer></script>
 </body>
