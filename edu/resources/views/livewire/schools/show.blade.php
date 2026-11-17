@@ -192,7 +192,7 @@ new #[Layout('layouts.app')] class extends Component
             @if ($school->latestQualityScore)
                 <p class="edu-score__value">{{ $school->latestQualityScore->score }}</p>
                 <p class="edu-score__label">{{ __('School Quality Index') }}</p>
-                <p class="edu-score__meta">{{ __(':level confidence', ['level' => str_replace('_', ' ', $school->latestQualityScore->confidence)]) }}</p>
+                <p class="edu-score__meta">{{ __(':level confidence', ['level' => __(ucfirst(str_replace('_', ' ', $school->latestQualityScore->confidence)))]) }}</p>
             @else
                 <p class="edu-score__label">{{ __('Not enough data for a School Quality Index yet') }}</p>
             @endif

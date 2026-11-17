@@ -37,7 +37,7 @@ new #[Layout('layouts.app')] class extends Component
         $continue = match (true) {
             $mySchools->isEmpty() => ['title' => __('Link your school'), 'text' => __('Your school approves the link, then your growth record and reports open up.'), 'href' => route('onboarding'), 'action' => __('Link my school')],
             ! $mySchools->contains('status', 'verified') => ['title' => __('Waiting for your school'), 'text' => __('Your school has not approved your link yet. You can still look around.'), 'href' => route('schools.index'), 'action' => __('Find a school')],
-            $openReport !== null => ['title' => __('Your report :number', ['number' => $openReport->complaint_number]), 'text' => __('Status: :status. See what has happened since.', ['status' => str_replace('_', ' ', $openReport->status)]), 'href' => route('complaints.show', $openReport), 'action' => __('Open report')],
+            $openReport !== null => ['title' => __('Your report :number', ['number' => $openReport->complaint_number]), 'text' => __('Status: :status. See what has happened since.', ['status' => __(ucfirst(str_replace('_', ' ', $openReport->status)))]), 'href' => route('complaints.show', $openReport), 'action' => __('Open report')],
             default => ['title' => __('My growth'), 'text' => __('What you are doing well, and what you are working on this term.'), 'href' => route('growth.show', $user->id), 'action' => __('Open my growth')],
         };
 

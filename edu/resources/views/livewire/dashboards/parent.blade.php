@@ -70,7 +70,7 @@ new #[Layout('layouts.app')] class extends Component
         $next = match (true) {
             $mySchools->isEmpty() => ['title' => __('Link your school'), 'text' => __('Your school approves the link. Then you can rate it, raise a concern and, with your consent, follow your child’s growth.'), 'href' => route('onboarding'), 'action' => __('Link my school')],
             ! $mySchools->contains('status', 'verified') => ['title' => __('Waiting for your school'), 'text' => __('Your school has not approved your link yet. You can still look around.'), 'href' => route('schools.index'), 'action' => __('Find a school')],
-            $openComplaint !== null => ['title' => __('Your complaint :number', ['number' => $openComplaint->complaint_number]), 'text' => __('Status: :status. See what has happened since.', ['status' => str_replace('_', ' ', $openComplaint->status)]), 'href' => route('complaints.show', $openComplaint), 'action' => __('Open complaint')],
+            $openComplaint !== null => ['title' => __('Your complaint :number', ['number' => $openComplaint->complaint_number]), 'text' => __('Status: :status. See what has happened since.', ['status' => __(ucfirst(str_replace('_', ' ', $openComplaint->status)))]), 'href' => route('complaints.show', $openComplaint), 'action' => __('Open complaint')],
             default => ['title' => __('Something not right at school?'), 'text' => __('Raise it privately. The school sees that a verified parent raised it, never who.'), 'href' => route('complaints.create'), 'action' => __('Report a problem')],
         };
 

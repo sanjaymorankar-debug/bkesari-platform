@@ -128,7 +128,7 @@ new #[Layout('layouts.app')] class extends Component
                 <div class="edu-tei">
                     <div>
                         <p class="edu-score__value">{{ $myEffectivenessScore->score }}</p>
-                        <p class="edu-rows__sub">{{ str_replace('_', ' ', $myEffectivenessScore->confidence) }} {{ __('confidence') }} &middot; {{ trans_choice(':count response|:count responses', $myEffectivenessScore->response_count) }}</p>
+                        <p class="edu-rows__sub">{{ __(':level confidence', ['level' => __(ucfirst(str_replace('_', ' ', $myEffectivenessScore->confidence)))]) }} &middot; {{ trans_choice(':count response|:count responses', $myEffectivenessScore->response_count) }}</p>
                     </div>
                     <ul class="k-bars edu-bars--grid" role="list">
                         @foreach (($myEffectivenessScore->component_breakdown ?? []) as $key => $dimension)

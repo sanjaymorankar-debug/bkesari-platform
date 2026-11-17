@@ -275,7 +275,7 @@ new #[Layout('layouts.app')] class extends Component
                                             <span class="edu-sqi__value">{{ $school->latestQualityScore->score }}</span>
                                             <span class="edu-sqi__label">{{ __('School Quality Index') }}</span>
                                         </p>
-                                        <span class="k-chip">{{ __(':level confidence', ['level' => str_replace('_', ' ', $school->latestQualityScore->confidence)]) }}</span>
+                                        <span class="k-chip">{{ __(':level confidence', ['level' => __(ucfirst(str_replace('_', ' ', $school->latestQualityScore->confidence)))]) }}</span>
                                     @else
                                         <p class="edu-sqi edu-sqi--none">{{ __('No rating data yet') }}</p>
                                     @endif

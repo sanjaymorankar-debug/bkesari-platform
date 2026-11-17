@@ -2,6 +2,9 @@
 
 namespace Tests\Feature\Platform;
 
+use App\Models\Complaint;
+use App\Models\SchoolQualityScore;
+use App\Models\TeacherEffectivenessScore;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Volt\Volt;
 use Tests\Feature\Platform\Concerns\SetsUpPlatformData;
@@ -89,5 +92,61 @@ class KesariScreensTest extends TestCase
         // The pager Livewire ships put an aria-label on a bare <span>, which
         // has no role to carry it (axe: aria-prohibited-attr).
         $this->assertDoesNotMatchRegularExpression('/<span[^>]*aria-label=/', $html);
+    }
+
+    public function test_a_confidence_level_is_in_the_page_language(): void
+    {
+        // The level is a stored value (high, medium, low, insufficient_data);
+        // put into a translated sentence as it is, a Marathi or Hindi page
+        // read "विश्वासार्हता: high".
+        $school = $this->makeSchool();
+        SchoolQualityScore::create(['school_id' => $school->id, 'score' => 72.5, 'confidence' => 'high',
+            'response_count' => 40, 'component_breakdown' => [], 'calculated_at' => now()->subDay()]);
+
+        $this->withUnencryptedCookie('k_lang', 'mr')->get(route('schools.show', $school))->assertOk()
+            ->assertSee('विश्वासार्हता: उच्च')
+            ->assertDontSee('विश्वासार्हता: high');
+        $this->withUnencryptedCookie('k_lang', 'hi')->get(route('schools.index'))->assertOk()
+            ->assertSee('विश्वसनीयता: उच्च');
+        $this->withUnencryptedCookie('k_lang', 'en')->get(route('schools.index'))->assertOk()->assertSee('High confidence');
+
+        SchoolQualityScore::create(['school_id' => $school->id, 'score' => 0, 'confidence' => 'insufficient_data',
+            'response_count' => 2, 'component_breakdown' => [], 'calculated_at' => now()]);
+        $this->withUnencryptedCookie('k_lang', 'mr')->get(route('schools.index'))->assertOk()
+            ->assertSee('विश्वासार्हता: अपुरी माहिती');
+
+        $teacher = $this->makeVerifiedTeacher($school);
+        TeacherEffectivenessScore::create(['teacher_user_id' => $teacher->id, 'score' => 61, 'confidence' => 'medium',
+            'response_count' => 12, 'component_breakdown' => [], 'calculated_at' => now()]);
+        $this->actingAs($teacher)->withUnencryptedCookie('k_lang', 'hi')->get(route('dashboard.teacher'))->assertOk()
+            ->assertSee('विश्वसनीयता: मध्यम')
+            ->assertDontSee('medium विश्वसनीयता');
+    }
+
+    public function test_the_next_step_names_a_complaints_status_in_the_page_language(): void
+    {
+        $school = $this->makeSchool();
+        $category = $this->makeCategory();
+        $parent = $this->makeVerifiedParent($school);
+        $student = $this->makeVerifiedStudent($school);
+
+        foreach ([[$parent, 'parent', 'under_review'], [$student, 'student', 'school_responded']] as [$user, $role, $status]) {
+            Complaint::createNumbered($school->state, $school->district, [
+                'school_id' => $school->id, 'complaint_category_id' => $category->id,
+                'district_id' => $school->district_id, 'state_id' => $school->state_id,
+                'anonymous_ref' => $user->anonymousRefFor($school, $role), 'submitted_role' => $role,
+                'subject' => 'Broken bench', 'description' => 'The bench in class 4 is broken.',
+                'severity' => 'medium', 'status' => $status,
+            ]);
+        }
+
+        $this->actingAs($parent)->withUnencryptedCookie('k_lang', 'mr')->get(route('dashboard.parent'))->assertOk()
+            ->assertSee('स्थिती: तपासणी सुरू.')
+            ->assertDontSee('स्थिती: under review');
+        $this->actingAs($parent)->withUnencryptedCookie('k_lang', 'en')->get(route('dashboard.parent'))->assertOk()
+            ->assertSee('Status: Under review.');
+        $this->actingAs($student)->withUnencryptedCookie('k_lang', 'hi')->get(route('dashboard.student'))->assertOk()
+            ->assertSee('स्थिति: स्कूल ने जवाब दिया.')
+            ->assertDontSee('स्थिति: school responded');
     }
 }
