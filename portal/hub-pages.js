@@ -324,10 +324,11 @@ const ROLE_KEYS = Object.keys(strings.en).filter((k) => k.startsWith('role.')).m
  */
 function account({ lang, isOwner }) {
   const rows = SIGN_IN.map((p) => ({ ...p, me: { ladwani: '/ladwani/api/v1/auth/session', education: '/edu/shell/me', tasklist: '/tasklist/api/auth/me' }[p.key] }));
-  const words = Object.fromEntries(['checking', 'signedIn', 'as', 'level', 'signedOut', 'pending', 'pendingNote', 'error', 'errorNote', 'retry', 'open', 'signIn', 'request', 'seeStatus']
+  const words = Object.fromEntries(['checking', 'signedIn', 'as', 'level', 'signedOut', 'pending', 'pendingNote', 'confirm', 'confirmNote', 'attention', 'attentionNote',
+    'finish', 'finishNote', 'error', 'errorNote', 'retry', 'open', 'signIn', 'request', 'seeStatus']
     .map((k) => [k, t(lang, `account.${k}`)]));
   words.roles = Object.fromEntries(ROLE_KEYS.map((r) => [r, t(lang, `role.${r}`)]));
-  const row = (p) => `<li class="k-statusrow" data-project="${p.key}" data-account-row data-me="${p.me}" data-name="${esc(p.name)}" data-open="${p.key === 'ladwani' ? '/ladwani/' : p.key === 'education' ? '/edu/dashboard' : '/tasklist/'}" data-signin="${p.signIn}" data-request="/request-access?project=${p.key}"${p.key === 'ladwani' ? ' data-pending="/ladwani/pending/"' : ''}>
+  const row = (p) => `<li class="k-statusrow" data-project="${p.key}" data-account-row data-me="${p.me}" data-name="${esc(p.name)}" data-open="${p.key === 'ladwani' ? '/ladwani/' : p.key === 'education' ? '/edu/dashboard' : '/tasklist/'}" data-signin="${p.signIn}" data-request="/request-access?project=${p.key}"${p.key === 'ladwani' ? ' data-pending="/ladwani/pending/" data-verify="/ladwani/verify/"' : ''}>
   ${picon(p.key)}
   <div><h3>${esc(p.name)}</h3><div class="k-statusrow__meta" data-account-status aria-live="polite"><span class="k-skel k-skel--line hub-skel-chip" aria-hidden="true"></span><span class="k-sr-only">${esc(words.checking)}</span></div>
   <p data-account-note>${esc(t(lang, `access.${p.key}.how`))}</p></div>

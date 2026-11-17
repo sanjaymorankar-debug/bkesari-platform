@@ -230,7 +230,13 @@
     "role.national_admin": "National administrator",
     "role.researcher": "Researcher",
     "role.data_protection_officer": "Data protection officer",
-    "role.system_admin": "System administrator"
+    "role.system_admin": "System administrator",
+    "account.confirm": "Confirm your email",
+    "account.confirmNote": "Enter the code LadWani sent you to continue.",
+    "account.attention": "Needs your attention",
+    "account.attentionNote": "Your ID proof could not be confirmed. Upload it again.",
+    "account.finish": "Finish signing up",
+    "account.finishNote": "Add your details and ID proof so an operator can verify you."
   },
   "mr": {
     "site.title": "bkesari",
@@ -459,7 +465,13 @@
     "role.national_admin": "राष्ट्रीय प्रशासक",
     "role.researcher": "संशोधक",
     "role.data_protection_officer": "डेटा संरक्षण अधिकारी",
-    "role.system_admin": "प्रणाली प्रशासक"
+    "role.system_admin": "प्रणाली प्रशासक",
+    "account.confirm": "ईमेल निश्चित करा",
+    "account.confirmNote": "पुढे जाण्यासाठी LadWani ने पाठवलेला कोड टाका.",
+    "account.attention": "आपले लक्ष हवे",
+    "account.attentionNote": "आपला ओळखीचा पुरावा निश्चित करता आला नाही. तो पुन्हा अपलोड करा.",
+    "account.finish": "साइन अप पूर्ण करा",
+    "account.finishNote": "ऑपरेटरला पडताळणी करता यावी म्हणून आपली माहिती आणि ओळखीचा पुरावा जोडा."
   },
   "hi": {
     "site.title": "bkesari",
@@ -688,6 +700,12 @@
     "role.national_admin": "राष्ट्रीय प्रशासक",
     "role.researcher": "शोधकर्ता",
     "role.data_protection_officer": "डेटा संरक्षण अधिकारी",
-    "role.system_admin": "सिस्टम प्रशासक"
+    "role.system_admin": "सिस्टम प्रशासक",
+    "account.confirm": "ईमेल की पुष्टि करें",
+    "account.confirmNote": "आगे बढ़ने के लिए LadWani का भेजा कोड डालें।",
+    "account.attention": "आपका ध्यान चाहिए",
+    "account.attentionNote": "आपका पहचान प्रमाण पुष्ट नहीं हो सका। उसे फिर से अपलोड करें।",
+    "account.finish": "साइन अप पूरा करें",
+    "account.finishNote": "अपनी जानकारी और पहचान प्रमाण जोड़ें ताकि ऑपरेटर आपकी पुष्टि कर सकें।"
   }
 }

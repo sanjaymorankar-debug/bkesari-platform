@@ -36,12 +36,20 @@
     if (state === 'in') {
       const user = me.user;
       const display = user.name || user.email || user.mobile || '';
-      const pending = String(user.status || '').toUpperCase() === 'PENDING' && row.hasAttribute('data-pending');
-      if (pending) {
-        status.append(chip('k-chip--soon', W.pending));
-        note.textContent = W.pendingNote;
-        action.append(link('k-btn k-btn--secondary', row.getAttribute('data-pending'), W.seeStatus));
-        return;
+      // LadWani has two steps before a member is in: confirming the email or
+      // mobile (account status PENDING), then an operator checking the ID proof
+      // (verification). Each shows where the person stands and where to go next.
+      if (row.hasAttribute('data-pending')) {
+        const step = String(user.status || '').toUpperCase() === 'PENDING' ? ['k-chip--soon', W.confirm, W.confirmNote, row.getAttribute('data-verify')]
+          : { UNDER_REVIEW: ['k-chip--soon', W.pending, W.pendingNote], NEEDS_ATTENTION: ['k-chip--danger', W.attention, W.attentionNote],
+            NOT_SUBMITTED: ['k-chip--soon', W.finish, W.finishNote] }[String(user.verification || '').toUpperCase()];
+        if (step) {
+          status.append(chip(step[0], step[1]));
+          if (display) status.append(el('span', 'k-small', fill(W.as, { name: display })));
+          note.textContent = step[2];
+          action.append(link('k-btn k-btn--secondary', step[3] || row.getAttribute('data-pending'), W.seeStatus));
+          return;
+        }
       }
       status.append(chip('k-chip--live', W.signedIn));
       if (display) status.append(el('span', 'k-small', fill(W.as, { name: display })));
