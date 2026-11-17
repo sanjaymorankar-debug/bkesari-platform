@@ -102,6 +102,17 @@
         color: var(--k-accent-hover, #0B5C56);
     }
 
+    /* ...except in breadcrumbs, which keep Kesari's quieter links. */
+    .k-breadcrumbs a:not([class]) {
+        color: var(--k-muted, #57534E);
+        text-decoration: none;
+    }
+
+    .k-breadcrumbs a:not([class]):hover {
+        color: var(--k-ink, #1C1917);
+        text-decoration: underline;
+    }
+
     /* 3. Education's pieces. */
     .edu-page-head {
         margin: 0 0 var(--k-4, 16px);

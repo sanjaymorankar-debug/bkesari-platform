@@ -20,6 +20,11 @@ new #[Layout('layouts.app')] class extends Component
             ],
         ];
     }
+
+    public function rendering($view): void
+    {
+        $view->title(__('System administration'));
+    }
 }; ?>
 
 <div>

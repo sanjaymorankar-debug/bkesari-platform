@@ -30,14 +30,27 @@ new #[Layout('layouts.app')] class extends Component
             'hasUnverified' => $service->hasUnverifiedSources(),
         ];
     }
+
+    public function rendering($view): void
+    {
+        $view->title(__('How India compares'));
+    }
 }; ?>
 
 <div>
     <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">How India Compares</h2>
+        <nav class="k-breadcrumbs" aria-label="{{ __('Breadcrumb') }}">
+            <ol>
+                <li><a href="{{ route('home') }}" wire:navigate>{{ __('Education') }}</a></li>
+                <li><span aria-current="page">{{ __('How India compares') }}</span></li>
+            </ol>
+        </nav>
+        <p class="k-eyebrow"><x-k-icon name="globe" /> {{ __('How India compares') }}</p>
+        <h1>{{ __('What other school systems do, and what is measured here') }}</h1>
+        <p class="edu-page-head__lead">{{ __('A structural comparison, not a scoreboard: no country is ranked, and no school or child is compared with another country’s.') }}</p>
     </x-slot>
 
-    <div class="py-8 max-w-4xl mx-auto sm:px-6 lg:px-8 space-y-6">
+    <div class="max-w-4xl space-y-6">
 
         {{-- The limitation comes first, not last. --}}
         <div class="bg-white rounded-lg shadow border-l-4 border-indigo-500 p-6">

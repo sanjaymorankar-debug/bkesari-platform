@@ -29,7 +29,7 @@ Devanagari) and Tiro Devanagari Marathi for display headings, self-hosted under 
 |---|---|---|
 | Project accents | LadWani, Education, TaskList, Environment | + **Driving Simulator** sky `#0369A1`, **ATIP** slate `#475569`, **home** (the brand) |
 | Environment text colour | `#15803D` (4.45:1 on its own tint: fails AA) | `#166534` (6.3:1); its button fill stays `#15803D` |
-| Icons | ten inline paths inside the shell | **one icon set**, 46 icons on a 24 px grid: `icons.json` → `icons.svg` sprite and `icons/*.svg`; the shell's inline copies are tested to be identical |
+| Icons | ten inline paths inside the shell | **one icon set**, 51 icons on a 24 px grid: `icons.json` → `icons.svg` sprite and `icons/*.svg`; the shell's inline copies are tested to be identical |
 | Motion | one duration | `--k-motion-fast` 120 ms, `--k-motion` 160 ms, `--k-motion-slow` 280 ms, `--k-ease`, `--k-ease-out` |
 | Type | up to `--k-text-3xl` | + `--k-text-4xl` (3.052 rem) for heroes, fluid from 2 rem at 360 px |
 | Components | — | project icon `.k-picon`, project card `.k-pcard`, breadcrumbs, hero, section head, eyebrow, arrow link, soft button, features, stats, numbered steps, call-to-action band, questions (`.k-faq`), bars, status list |
@@ -92,7 +92,7 @@ so Marathi and Hindi (often 20–40 % longer) fit without changes.
 
 ## Icon set
 
-46 icons, one source: `packages/kesari-ui/src/icons.json`. 24 × 24 grid, 2 px safe area, stroke
+51 icons, one source: `packages/kesari-ui/src/icons.json`. 24 × 24 grid, 2 px safe area, stroke
 1.75, round caps and joins, no fills, drawn in `currentColor`, so an icon takes the colour of where
 it sits (the project accent on a tile, ink in a menu, white on a solid button).
 
@@ -110,7 +110,7 @@ My projects, app icons):
 | `atip` | rising line with an arrow | slate |
 
 **Interface icons:** grid, theme (moon), sun, globe, external, arrow-left, arrow-right,
-chevron-down, plus, close, check, search, user, users, sign-in, lock, shield, pending, alert, info,
+chevron-down, plus, close, check, search, user, users, sign-in, sign-out, lock, shield, pending, alert, info, bell, flag, chat, rupee,
 stop, clock, calendar, mail, phone, map-pin, heart, play, repeat, road, route, thermometer,
 droplet, waves, cloud, sprout, bolt, book, school.
 

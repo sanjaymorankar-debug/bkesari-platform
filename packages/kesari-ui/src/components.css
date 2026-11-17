@@ -18,7 +18,7 @@
 .k-btn--danger{--_bg:var(--k-danger);--_fg:var(--k-on-brand)}
 .k-btn--danger:hover{--_bg:var(--k-danger);filter:brightness(.92)}
 .k-btn--block{display:flex;width:100%}
-.k-btn--sm{min-height:40px;padding:0 var(--k-3);font-size:var(--k-text-sm)}
+.k-btn--sm{min-height:44px;padding:0 var(--k-3);font-size:var(--k-text-sm)}
 .k-btn--icon{padding:0;width:var(--k-target)}
 .k-btn:disabled,.k-btn[aria-disabled="true"]{opacity:.55;cursor:not-allowed;filter:none}
 .k-btn[aria-busy="true"]{position:relative;color:transparent!important;pointer-events:none}
@@ -160,7 +160,7 @@
 
 /* ---- Pagination --------------------------------------------------------- */
 .k-pager{display:flex;gap:var(--k-2);align-items:center;justify-content:center;margin:var(--k-6) 0;flex-wrap:wrap}
-.k-pager a,.k-pager button,.k-pager span{min-width:var(--k-target);min-height:var(--k-target);display:inline-grid;place-items:center;padding:0 var(--k-3);
+.k-pager>a,.k-pager>button,.k-pager>span{min-width:var(--k-target);min-height:var(--k-target);display:inline-grid;place-items:center;padding:0 var(--k-3);
   border-radius:var(--k-radius-sm);border:1px solid var(--k-border);background:var(--k-surface);color:var(--k-ink);text-decoration:none;font:inherit;cursor:pointer}
 .k-pager [aria-current="page"]{background:var(--k-accent);color:var(--k-on-accent);border-color:var(--k-accent)}
 
@@ -353,3 +353,7 @@ a:hover .k-picon,.k-pcard:hover .k-picon{transform:translateY(-1px)}
 .k-statusrow__action{grid-column:1 / -1}
 .k-statusrow__action .k-btn{width:100%}
 @media (min-width:768px){.k-statusrow{grid-template-columns:auto minmax(0,1fr) auto}.k-statusrow__action{grid-column:auto}.k-statusrow__action .k-btn{width:auto}}
+
+/* Headings inside components carry their own weight: a page that resets
+   headings (Tailwind's preflight in Education) still gets Kesari's. */
+.k-hero h1,.k-section-head h2,.k-pcard__name,.k-feature h3,.k-steps h3,.k-cta h2,.k-statusrow h2,.k-statusrow h3,.k-card h2,.k-card h3,.k-tile__name,.k-empty h1,.k-empty h2,.k-empty h3,.k-dialog__head h2{font-weight:700;line-height:1.2}

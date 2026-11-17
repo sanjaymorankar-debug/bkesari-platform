@@ -265,6 +265,10 @@
 @media (max-width:480px){.ks-bar[data-project] .ks-brand-name{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
   .ks-bar[data-project] .ks-brand{padding:0 4px;gap:4px}.ks-bar .ks-proj{min-width:3.5em}.ks-env{font-size:10px;padding:1px 5px}
   .ks-proj-full{display:none}.ks-proj-short{display:inline}.ks-back .ks-ico{width:18px;height:18px}
+  /* Signed in, four controls sit beside the logo and the project's name: at 44 px each
+     (the brief's minimum target) they leave the name room at 360 px and nothing scrolls sideways. */
+  .ks-tools .ks-btn{min-width:44px;min-height:44px;padding:0 6px}.ks-lang select{width:44px;min-height:44px}.ks-lang .ks-ico{left:11px}
+  .ks-account .ks-btn{padding:0 6px}
   /* Signed out, every project page carries its own sign-in; the header link would not fit. */
   .ks-account .ks-signin{display:none}}
 .ks-foot{border-top:1px solid var(--ks-line);color:var(--ks-muted);font-size:14px;padding:24px 16px 20px;margin-top:auto}
