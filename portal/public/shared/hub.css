@@ -158,12 +158,37 @@
 .k-stat .k-picon{margin-bottom:var(--k-2)}
 
 
-/* The bkesari ID (D-039): sign-in, my projects, the admin's access page. */
-.hub-google { margin-bottom: var(--k-space-3, 12px); }
-.hub-or { text-align: center; margin: var(--k-space-3, 12px) 0; font-size: .9em; }
-.hub-me { display: flex; gap: var(--k-space-3, 12px); align-items: center; }
-.hub-avatar { border-radius: 50%; }
-.hub-filters { gap: var(--k-space-2, 8px); align-items: flex-end; margin-bottom: var(--k-space-3, 12px); flex-wrap: wrap; }
-.hub-filters label { display: flex; flex-direction: column; font-size: .85em; gap: 2px; }
-.k-input--sm { padding: 4px 8px; min-height: 36px; width: auto; }
-.k-table-wrap { overflow-x: auto; }
+/* The bkesari ID (D-039) screens on Kesari 1.1.0: sign-in, request access,
+   My projects, the admin's access queue. */
+.hub-auth{display:grid;gap:var(--k-6);align-items:start}
+@media (min-width:1024px){.hub-auth{grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:var(--k-10)}}
+.hub-auth__main h1{margin-bottom:var(--k-2)}
+.hub-auth__card{padding:var(--k-6);max-width:520px}
+.hub-auth__note{display:flex;gap:var(--k-2);align-items:flex-start;max-width:520px;margin-top:var(--k-4)}
+.hub-auth__note svg{margin-top:3px;flex:none}
+.hub-auth__aside{border-top:4px solid var(--k-brand)}
+.hub-auth__aside h2{font-size:var(--k-text-lg);margin-top:0}
+.hub-auth__projects{list-style:none;margin:var(--k-4) 0 0;padding:0;display:grid;gap:var(--k-2)}
+.hub-auth__projects li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--k-3);align-items:center;min-height:44px;font-weight:600}
+.hub-google{gap:var(--k-3);min-height:52px;font-size:var(--k-text-md)}
+.hub-or{display:flex;align-items:center;gap:var(--k-3);margin:var(--k-4) 0;font-size:var(--k-text-sm)}
+.hub-or::before,.hub-or::after{content:"";flex:1;border-top:1px solid var(--k-border)}
+.hub-code{font-size:var(--k-text-xl);letter-spacing:.3em;font-variant-numeric:tabular-nums;max-width:12ch}
+.hub-me{display:flex;gap:var(--k-4);align-items:center;margin-bottom:var(--k-6)}
+.hub-me p{margin:0;min-width:0}
+/* Email addresses are one long word: they wrap rather than push the page sideways. */
+.hub-me p,.hub-req-head p,.k-statusrow p,.k-table--stack td,.hub-auth__note{overflow-wrap:anywhere}
+.hub-req-head>div{min-width:0}
+.hub-avatar{border-radius:50%;flex:none}
+.hub-req-stepper{margin-bottom:var(--k-6)}
+.hub-empty{padding:var(--k-6) var(--k-4)}
+.hub-empty svg{width:40px;height:40px}
+.hub-account-foot{margin-top:var(--k-8);gap:var(--k-3)}
+.hub-tile__access{margin:0}
+.hub-admin-access{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--k-4);align-items:center;margin:var(--k-6) 0;color:var(--k-ink)}
+.hub-admin-access>svg:first-child{width:40px;height:40px;padding:8px;border-radius:12px;background:var(--k-brand-tint);color:var(--k-accent-ink)}
+.hub-filters{gap:var(--k-3);align-items:flex-end;margin-bottom:var(--k-4);flex-wrap:wrap}
+.hub-filters label{display:flex;flex-direction:column;font-size:var(--k-text-sm);font-weight:600;gap:var(--k-1)}
+.k-input--sm{padding:var(--k-1) var(--k-2);min-height:44px;width:auto}
+.hub-access-admin .k-table td .k-row{gap:var(--k-2)}
+.k-table-wrap{overflow-x:auto}

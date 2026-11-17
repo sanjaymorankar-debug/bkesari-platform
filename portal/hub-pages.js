@@ -205,28 +205,42 @@ function home({ lang, tiles, announcement, states = [], user = null }) {
 function signIn({ lang, next = '/', google = null, error = null }) {
   const known = ['cancelled', 'state', 'failed', 'unverified', 'unconfirmed', 'conflict', 'builtin', 'status', 'rate_limited', 'retry'];
   const msg = error ? t(lang, `id.err.${known.includes(error) ? error : 'failed'}`) : '';
-  return `<div class="k-main--narrow">
+  // One primary action: Google when it is on, else sending the code.
+  const sendClass = google ? 'k-btn k-btn--secondary k-btn--block' : 'k-btn k-btn--brand k-btn--block';
+  const projects = [['ladwani', 'LadWani', true], ['education', 'Education', true], ['tasklist', 'TaskList', true],
+    ['driving', 'Driving Simulator', false], ['environment', t(lang, 'contact.topic.environment'), false]];
+  return `${crumbs(lang, t(lang, 'id.title'))}
+<div class="hub-auth">
+<section class="hub-auth__main" aria-labelledby="id-h">
 <h1 id="id-h">${esc(t(lang, 'id.title'))}</h1>
-<p class="k-muted">${esc(t(lang, 'id.lead'))}</p>
+<p class="k-lead">${esc(t(lang, 'id.lead'))}</p>
 ${msg ? `<div class="k-banner k-banner--danger" role="alert"><p>${esc(msg)}</p></div>` : ''}
-<div class="k-card hub-form" data-signin data-next="${esc(next)}">
-${google ? `<a class="k-btn k-btn--brand k-btn--block hub-google" href="${esc(google)}">${esc(t(lang, 'id.google'))}</a>
+<div class="k-card hub-form hub-auth__card" data-signin data-next="${esc(next)}">
+${google ? `<a class="k-btn k-btn--brand k-btn--block hub-google" href="${esc(google)}"><svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="#fff" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.3z"/><path fill="#fff" d="M12 22c2.7 0 5-.9 6.6-2.4l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z" opacity=".85"/><path fill="#fff" d="M6.4 14c-.2-.6-.3-1.3-.3-2s.1-1.4.3-2V7.4H3.1A10 10 0 0 0 2 12c0 1.6.4 3.1 1.1 4.6z" opacity=".7"/><path fill="#fff" d="M12 6c1.5 0 2.8.5 3.9 1.5l2.9-2.9A10 10 0 0 0 3.1 7.4L6.4 10C7.2 7.8 9.4 6 12 6z" opacity=".55"/></svg>${esc(t(lang, 'id.google'))}</a>
 <p class="hub-or k-muted"><span>${esc(t(lang, 'id.or'))}</span></p>` : ''}
 <form id="si-send" novalidate>
 <div class="k-field"><label class="k-label" for="si-email">${esc(t(lang, 'id.email'))}</label>
 <input class="k-input" id="si-email" type="text" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" required aria-describedby="si-err"></div>
 <div class="k-field" id="si-pass-field" hidden><label class="k-label" for="si-pass">${esc(t(lang, 'id.password'))}</label>
 <input class="k-input" id="si-pass" type="password" autocomplete="current-password" aria-describedby="si-err"></div>
-<button class="k-btn k-btn--block" type="submit" id="si-send-btn">${esc(t(lang, 'id.sendCode'))}</button></form>
+<button class="${sendClass}" type="submit" id="si-send-btn">${ico('mail')}${esc(t(lang, 'id.sendCode'))}</button></form>
 <form id="si-verify" novalidate hidden>
 <p id="si-sent" class="k-muted" role="status" data-template="${esc(t(lang, 'id.codeSent'))}"></p>
 <div class="k-field"><label class="k-label" for="si-code">${esc(t(lang, 'id.code'))}</label>
-<input class="k-input" id="si-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required aria-describedby="si-err"></div>
+<input class="k-input hub-code" id="si-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required aria-describedby="si-err"></div>
 <button class="k-btn k-btn--block k-btn--brand" type="submit">${esc(t(lang, 'id.verify'))}</button></form>
 <p class="k-error" id="si-err" role="alert"></p>
 <p class="k-banner k-banner--warning" id="si-dev" role="status" hidden></p>
 </div>
-<p class="k-small k-muted">${esc(t(lang, 'home.accountsBody'))}</p>
+<p class="k-small k-muted hub-auth__note">${ico('lock', 'k-icon k-icon--sm')}<span>${esc(t(lang, 'home.accountsBody'))}</span></p>
+</section>
+<aside class="k-card hub-auth__aside" aria-labelledby="id-aside-h">
+<h2 id="id-aside-h">${esc(t(lang, 'id.asideT'))}</h2>
+<p class="k-muted">${esc(t(lang, 'id.aside'))}</p>
+<ul class="hub-auth__projects" role="list">
+${projects.map(([key, name, approval]) => `<li${projectAttr(key)}>${picon(key, 'k-picon--sm')}<span>${esc(name)}</span><span class="k-chip ${approval ? 'k-chip--soon' : 'k-chip--live'}">${esc(t(lang, approval ? 'id.chipApproval' : 'id.chipOpen'))}</span></li>`).join('\n')}
+</ul>
+</aside>
 </div>`;
 }
 
@@ -307,7 +321,7 @@ const terms = ({ lang }) => prose(lang, 'terms', [1, 2, 3, 4, 5].map((i) => [`te
 
 /** Breadcrumbs: Home / here. */
 function crumbs(lang, here) {
-  return `<nav class="k-breadcrumbs" aria-label="Breadcrumb"><ol><li><a href="/">${ico('home', 'k-icon k-icon--sm')}${esc(t(lang, 'account.home'))}</a></li><li><span aria-current="page">${esc(here)}</span></li></ol></nav>`;
+  return `<nav class="k-breadcrumbs" aria-label="Breadcrumb"><ol><li><a href="/">${ico('home', 'k-icon k-icon--sm')}${esc(t(lang, 'crumb.home'))}</a></li><li><span aria-current="page">${esc(here)}</span></li></ol></nav>`;
 }
 
 /** Shortcut tiles for the error pages: every public project, by its icon. */

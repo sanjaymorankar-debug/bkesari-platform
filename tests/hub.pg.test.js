@@ -105,35 +105,17 @@ describe('the hub on PostgreSQL', { skip }, () => {
     assert.equal((await html(b, '/education')).location, '/edu');
   });
 
-  test('request access: step 1 chooses a project (no scripts needed), step 2 says what it asks, then hands over to its own sign-up', async () => {
-    const b = new Browser(base);
-    const one = await html(b, '/request-access');
-    assert.equal(one.status, 200);
-    assert.match(one.text, /<form class="hub-req" method="get" action="\/request-access"/);
-    for (const key of ['ladwani', 'education', 'tasklist']) assert.match(one.text, new RegExp(`<input type="radio" name="project" value="${key}" required>`));
-    assert.doesNotMatch(one.text, /value="atip"/, 'ATIP has no request path');
-    assert.match(one.text, /aria-current="step">Choose a project</);
-    const none = await html(b, '/request-access?step=2');
-    assert.equal(none.status, 400, 'continuing without a project says so');
-    assert.match(none.text, /role="alert">Choose a project to continue\./);
-    const lw = await html(b, '/request-access?project=ladwani&step=2');
-    assert.equal(lw.status, 200);
-    assert.match(lw.text, /Joining LadWani: what happens next/);
-    assert.match(lw.text, /An operator verifies you/, 'LadWani keeps its operator verification');
-    assert.match(lw.text, /href="\/ladwani\/sign-up\/">Continue to LadWani/);
-    assert.match((await html(b, '/request-access?project=tasklist')).text, /No approval needed/);
-    assert.match((await html(b, '/request-access?project=atip')).text, /Request access to a project/, 'an unknown project is step 1 again');
-  });
-
-  test('My projects asks each project itself, from the browser; the hub sends no one\'s details', async () => {
-    const r = await html(new Browser(base), '/account');
+  test('the bkesari ID sign-in on Kesari 1.1.0: every hook signin.js needs, one primary action, the projects explained beside it', async () => {
+    const r = await html(new Browser(base), '/auth/sign-in?next=%2Fladwani%2F');
     assert.equal(r.status, 200);
-    assert.equal(r.headers.get('x-robots-tag'), 'noindex');
-    for (const me of ['/ladwani/api/v1/auth/session', '/edu/shell/me', '/tasklist/api/auth/me']) assert.ok(r.text.includes(`data-me="${me}"`), me);
-    assert.match(r.text, /<script src="\/shared\/account\.js" defer><\/script>/);
-    assert.match(r.text, /data-words="\{&quot;checking&quot;/, 'its words travel as data, not an inline script');
-    assert.doesNotMatch(r.text, /data-project="atip"/, 'ATIP\'s row is only for the owner');
-    assert.match(r.text, /<noscript>/);
+    for (const id of ['si-send', 'si-email', 'si-pass-field', 'si-pass', 'si-send-btn', 'si-verify', 'si-sent', 'si-code', 'si-err', 'si-dev']) assert.ok(r.text.includes(`id="${id}"`), id);
+    assert.match(r.text, /<div class="k-card hub-form hub-auth__card" data-signin data-next="/);
+    assert.match(r.text, /<nav class="k-breadcrumbs"/);
+    assert.match(r.text, /<aside class="k-card hub-auth__aside"/);
+    for (const key of ['ladwani', 'education', 'tasklist', 'driving', 'environment']) assert.match(r.text, new RegExp(`<li data-project="${key}"><span class="k-picon k-picon--sm">`), key);
+    // Without Google set up, sending the code is the one primary action.
+    assert.match(r.text, /<button class="k-btn k-btn--brand k-btn--block" type="submit" id="si-send-btn">/);
+    assert.doesNotMatch(r.text, /hub-google/);
   });
 
   test('read in another language without scripts: /lang/xx sets k_lang and goes back to a path on this site only', async () => {

@@ -363,6 +363,8 @@ function createAccess({ db, id, env = process.env, notify = {}, log = console, p
     }));
   }
   const t = (lang, k, v) => pages.t(lang, k, v);
+  /** A project's key (hub_projects) to its Kesari icon and accent. */
+  const PROJECT_ICON = { ladwani: 'ladwani', edu: 'education', tasklist: 'tasklist', atip: 'atip', driving: 'driving', environment: 'environment' };
   const STATE_CHIP = { open: 'k-chip--live', approved: 'k-chip--live', awaiting: 'k-chip--beta', pending: 'k-chip--beta', declined: 'k-chip--plain', revoked: 'k-chip--plain', request: 'k-chip--soon', signin: 'k-chip--soon' };
 
   function stateLabel(lang, s) {
@@ -398,21 +400,33 @@ function createAccess({ db, id, env = process.env, notify = {}, log = console, p
       const s = list.find((p) => p.key === key);
       if (!s || s.visibility !== 'approval') return res.redirect(302, '/account');
       if (s.state === 'approved' || s.state === 'awaiting') return res.redirect(302, s.path);
+      // Kesari 1.1.0: the project's own icon and accent, the steps the request
+      // goes through (LadWani's second, its operators, when it has one), one
+      // primary action. The form's ids and data hooks are /shared/access.js's.
+      const icon = PROJECT_ICON[s.key] || s.key;
       send(req, res, {
         title: `${t(pages.langOf(req), 'access.title', { name: s.name })} — bkesari`, csrf: user.csrf, scripts: ['/shared/access.js'],
-        body: (lang) => `<div class="k-main--narrow"><h1>${esc(t(lang, 'access.title', { name: s.name }))}</h1>
-<p class="k-muted">${esc(t(lang, 'access.lead', { email: user.email }))}</p>
-${s.state === 'pending' ? `<div class="k-banner k-banner--info" role="status"><p>${esc(t(lang, 'access.waiting'))}</p></div><p><a class="k-btn" href="/account">${esc(t(lang, 'account.title'))}</a></p>` : `
+        body: (lang) => {
+          const steps = ['request', 'approve', ...(s.twoStep ? ['verify'] : []), 'open'];
+          const current = s.state === 'pending' ? 1 : 0;
+          return `<div class="hub-narrow" data-project="${esc(icon)}">
+${pages.crumbs(lang, t(lang, 'access.title', { name: s.name }))}
+<div class="hub-req-head">${pages.picon(icon, 'k-picon--lg')}<div><h1>${esc(t(lang, 'access.title', { name: s.name }))}</h1>
+<p class="k-muted">${esc(t(lang, 'access.lead', { email: user.email }))}</p></div></div>
+<h2 class="hub-h2-sm">${esc(t(lang, 'access.stepsT'))}</h2>
+<ol class="k-stepper hub-req-stepper">${steps.map((k, i) => `<li${i < current ? ' data-done' : ''}${i === current ? ' aria-current="step"' : ''}>${esc(t(lang, `access.step.${k}`, { name: s.name }))}</li>`).join('')}</ol>
+${s.state === 'pending' ? `<div class="k-banner k-banner--info" role="status"><p>${esc(t(lang, 'access.waiting'))}</p></div><p><a class="k-btn k-btn--brand" href="/account">${esc(t(lang, 'account.title'))}</a></p>` : `
 ${s.state === 'declined' ? `<div class="k-banner k-banner--warning" role="status"><p>${esc(t(lang, 'access.declinedWas', { reason: s.reason || '—' }))}</p></div>` : ''}
 ${s.state === 'revoked' ? `<div class="k-banner k-banner--warning" role="status"><p>${esc(t(lang, 'access.revokedWas', { reason: s.reason || '—' }))}</p></div>` : ''}
 <form class="k-card hub-form" data-access-request="${esc(s.key)}" novalidate>
 <div class="k-field"><label class="k-label" for="ar-role">${esc(t(lang, 'access.role'))}</label>
-<select class="k-input" id="ar-role">${s.roles.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}</select></div>
+<select class="k-select" id="ar-role">${s.roles.map((r) => `<option value="${esc(r)}">${esc(pages.roleName(lang, r))}</option>`).join('')}</select></div>
 <div class="k-field"><label class="k-label" for="ar-note">${esc(t(lang, 'access.note'))}</label>
-<textarea class="k-input" id="ar-note" rows="3" maxlength="500"></textarea></div>
+<textarea class="k-textarea" id="ar-note" rows="3" maxlength="500"></textarea></div>
 <p class="k-error" id="ar-err" role="alert"></p>
 <button class="k-btn k-btn--brand k-btn--block" type="submit">${esc(t(lang, 'access.send'))}</button></form>`}
-<p><a href="/">${esc(t(lang, 'access.back'))}</a></p></div>`,
+<p class="hub-req-back"><a class="k-link-arrow" href="/">${pages.ico('arrow-left')}${esc(t(lang, 'access.back'))}</a></p></div>`;
+        },
       });
     }));
 
@@ -441,23 +455,36 @@ ${s.state === 'revoked' ? `<div class="k-banner k-banner--warning" role="status"
       const names = Object.fromEntries(list.map((p) => [p.key, p.name]));
       send(req, res, {
         title: `${t(pages.langOf(req), 'account.title')} — bkesari`, csrf: user.csrf,
-        body: (lang) => `<h1>${esc(t(lang, 'account.title'))}</h1>
-<div class="k-card hub-me">${user.picture ? `<img class="hub-avatar" src="${esc(user.picture)}" alt="" width="48" height="48" referrerpolicy="no-referrer">` : ''}
-<p><strong>${esc(user.name || user.email)}</strong><br><span class="k-muted">${esc(user.email)}</span>${user.role !== 'member' ? ` <span class="k-chip">${esc(user.role)}</span>` : ''}</p></div>
-<h2>${esc(t(lang, 'account.projects'))}</h2>
-<div class="k-table-wrap"><table class="k-table"><thead><tr><th>${esc(t(lang, 'account.project'))}</th><th>${esc(t(lang, 'account.status'))}</th><th>${esc(t(lang, 'account.approvedBy'))}</th><th></th></tr></thead><tbody>
-${list.map((p) => `<tr><td>${esc(p.name)}</td><td><span class="k-chip ${STATE_CHIP[p.state] || ''}">${esc(stateLabel(lang, p))}</span>${p.reason ? `<br><span class="k-small k-muted">${esc(p.reason)}</span>` : ''}</td>
-<td>${p.approvedBy ? `${esc(p.approvedBy)}<br><span class="k-small k-muted">${esc(ist(p.approvedAt))}</span>` : (p.owner ? esc(t(lang, 'account.builtin')) : '—')}</td>
-<td>${['approved', 'awaiting', 'open'].includes(p.state) ? `<a class="k-btn k-btn--sm" href="${esc(p.path)}">${esc(t(lang, 'tile.open'))}</a>`
-    : ['request', 'declined', 'revoked'].includes(p.state) && p.visibility === 'approval' ? `<a class="k-btn k-btn--sm k-btn--secondary" href="/access/request?project=${esc(p.key)}">${esc(t(lang, 'access.state.request'))}</a>` : ''}</td></tr>`).join('')}
-</tbody></table></div>
-<h2>${esc(t(lang, 'account.history'))}</h2>
-${requests.length ? `<div class="k-table-wrap"><table class="k-table"><thead><tr><th>${esc(t(lang, 'account.when'))}</th><th>${esc(t(lang, 'account.project'))}</th><th>${esc(t(lang, 'access.role'))}</th><th>${esc(t(lang, 'account.status'))}</th></tr></thead><tbody>
-${requests.map((r) => `<tr><td>${esc(ist(r.created_at))}</td><td>${esc(names[r.project_key] || r.project_key)}</td><td>${esc(r.role_granted || r.role_wanted)}</td>
-<td>${esc(r.status)}${r.decided_by ? ` · ${esc(r.decided_by)} · ${esc(ist(r.decided_at))}` : ''}${r.decline_reason ? `<br><span class="k-small k-muted">${esc(r.decline_reason)}</span>` : ''}</td></tr>`).join('')}
-</tbody></table></div>` : `<p class="k-muted">${esc(t(lang, 'account.noHistory'))}</p>`}
-${user.role === 'owner' || user.role === 'admin' ? `<p><a class="k-btn k-btn--brand" href="/admin/access">${esc(t(lang, 'account.adminLink'))}</a></p>` : ''}
-<form data-signout><button class="k-btn k-btn--ghost" type="button" data-signout-btn>${esc(t(lang, 'id.signOut'))}</button></form>`,
+        // Kesari 1.1.0: who you are, then one row per project with its icon, your
+        // access in words and the one thing you can do next; your requests below.
+        body: (lang) => {
+          const initials = String(user.name || user.email || '?').trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+          const action = (p) => (['approved', 'awaiting', 'open'].includes(p.state)
+            ? `<a class="k-btn k-btn--soft" href="${esc(p.path)}">${esc(t(lang, 'tile.openName', { name: p.name }))}${pages.ico('arrow-right')}</a>`
+            : ['request', 'declined', 'revoked'].includes(p.state) && p.visibility === 'approval'
+              ? `<a class="k-btn k-btn--secondary" href="/access/request?project=${esc(p.key)}">${esc(t(lang, 'access.state.request'))}</a>` : '');
+          const label = (p) => stateLabel(lang, { ...p, role: pages.roleName(lang, p.role) });
+          return `<div class="hub-mid">
+${pages.crumbs(lang, t(lang, 'account.title'))}
+<h1>${esc(t(lang, 'account.title'))}</h1>
+<div class="k-card hub-me">${user.picture ? `<img class="hub-avatar" src="${esc(user.picture)}" alt="" width="56" height="56" referrerpolicy="no-referrer">` : `<span class="k-avatar k-avatar--lg" aria-hidden="true">${esc(initials)}</span>`}
+<p><strong>${esc(user.name || user.email)}</strong><br><span class="k-muted">${esc(user.email)}</span>${user.role !== 'member' ? ` <span class="k-chip k-chip--accent">${esc(pages.roleName(lang, user.role))}</span>` : ''}</p></div>
+<h2 class="hub-h2-sm">${esc(t(lang, 'account.projects'))}</h2>
+<ul class="k-statuslist" role="list">
+${list.map((p) => `<li class="k-statusrow" data-project="${esc(PROJECT_ICON[p.key] || p.key)}">${pages.picon(PROJECT_ICON[p.key] || p.key)}
+<div><h3>${esc(p.name)}</h3><div class="k-statusrow__meta"><span class="k-chip ${STATE_CHIP[p.state] || ''}">${esc(label(p))}</span></div>
+${p.approvedBy ? `<p>${esc(t(lang, 'account.approvedBy'))}: ${esc(p.approvedBy)} · ${esc(ist(p.approvedAt))}</p>` : (p.owner ? `<p>${esc(t(lang, 'account.builtin'))}</p>` : '')}${p.reason ? `<p>${esc(p.reason)}</p>` : ''}</div>
+<div class="k-statusrow__action">${action(p)}</div></li>`).join('\n')}
+</ul>
+<h2 class="hub-h2-sm">${esc(t(lang, 'account.history'))}</h2>
+${requests.length ? `<table class="k-table k-table--stack"><thead><tr><th>${esc(t(lang, 'account.when'))}</th><th>${esc(t(lang, 'account.project'))}</th><th>${esc(t(lang, 'access.role'))}</th><th>${esc(t(lang, 'account.status'))}</th></tr></thead><tbody>
+${requests.map((r) => `<tr><td data-label="${esc(t(lang, 'account.when'))}">${esc(ist(r.created_at))}</td><td data-label="${esc(t(lang, 'account.project'))}">${esc(names[r.project_key] || r.project_key)}</td><td data-label="${esc(t(lang, 'access.role'))}">${esc(pages.roleName(lang, r.role_granted || r.role_wanted))}</td>
+<td data-label="${esc(t(lang, 'account.status'))}">${esc(r.status)}${r.decided_by ? ` · ${esc(r.decided_by)} · ${esc(ist(r.decided_at))}` : ''}${r.decline_reason ? `<br><span class="k-small k-muted">${esc(r.decline_reason)}</span>` : ''}</td></tr>`).join('')}
+</tbody></table>` : `<div class="k-empty hub-empty">${pages.ico('clock', 'k-icon')}<p>${esc(t(lang, 'account.noHistory'))}</p></div>`}
+<div class="k-row hub-account-foot">${user.role === 'owner' || user.role === 'admin' ? `<a class="k-btn k-btn--secondary" href="/admin/access">${esc(t(lang, 'account.adminLink'))}</a>` : ''}
+<form data-signout><button class="k-btn k-btn--ghost" type="button" data-signout-btn>${pages.ico('sign-out')}${esc(t(lang, 'id.signOut'))}</button></form></div>
+</div>`;
+        },
         scripts: ['/shared/access.js'],
       });
     }));
@@ -478,39 +505,41 @@ ${user.role === 'owner' || user.role === 'admin' ? `<p><a class="k-btn k-btn--br
       const filters = { project: typeof q.project === 'string' ? q.project : '', status: typeof q.status === 'string' ? q.status : 'pending', from: q.from, to: q.to };
       const [list, reqs, users, pending] = await Promise.all([projects(), listRequests(filters), listUsers(), pendingCount()]);
       const approvalProjects = list.filter((p) => p.visibility === 'approval');
-      const roleSelect = (p, selected, attrs = '') => `<select class="k-input k-input--sm" ${attrs}>${rolesOf(p).map((r) => `<option${r === selected ? ' selected' : ''}>${esc(r)}</option>`).join('')}</select>`;
+      const roleSelect = (p, selected, attrs = '') => `<select class="k-select k-input--sm" ${attrs}>${rolesOf(p).map((r) => `<option value="${esc(r)}"${r === selected ? ' selected' : ''}>${esc(pages.roleName('en', r))}</option>`).join('')}</select>`;
       const byKey = Object.fromEntries(list.map((p) => [p.key, p]));
       send(req, res, {
         title: 'Access requests — bkesari admin', csrf: admin.csrf, scripts: ['/shared/access-admin.js'],
-        body: () => `<h1>Access requests <span class="k-chip k-chip--beta" aria-label="${pending} waiting">${pending}</span></h1>
+        body: () => `<div class="hub-admin hub-access-admin">
+<nav class="k-breadcrumbs" aria-label="Breadcrumb"><ol><li><a href="/">Home</a></li><li><a href="/admin">Hub admin</a></li><li><span aria-current="page">Access requests</span></li></ol></nav>
+<h1>Access requests <span class="k-chip k-chip--beta" aria-label="${pending} waiting">${pending}</span></h1>
 <p class="k-muted">Signed in as ${esc(admin.email)} (${esc(admin.role)}). Times are IST. <a href="/admin">Tiles, banner and inbox</a></p>
-<form class="k-row hub-filters" method="get" action="/admin/access">
+<form class="k-card k-row hub-filters" method="get" action="/admin/access">
 <label>Project <select class="k-input k-input--sm" name="project"><option value="">All</option>${approvalProjects.map((p) => `<option value="${esc(p.key)}"${filters.project === p.key ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
 <label>Status <select class="k-input k-input--sm" name="status">${['pending', 'approved', 'declined', ''].map((s) => `<option value="${s}"${filters.status === s ? ' selected' : ''}>${s || 'All'}</option>`).join('')}</select></label>
 <label>From <input class="k-input k-input--sm" type="date" name="from" value="${esc(q.from || '')}"></label>
 <label>To <input class="k-input k-input--sm" type="date" name="to" value="${esc(q.to || '')}"></label>
 <button class="k-btn k-btn--sm" type="submit">Filter</button></form>
 <p class="k-error" id="ax-err" role="alert"></p>
-<div class="k-table-wrap"><table class="k-table"><thead><tr><th>When</th><th>Person</th><th>Project</th><th>Role wanted</th><th>Note</th><th>Status / decision</th></tr></thead><tbody>
+<table class="k-table k-table--stack"><thead><tr><th>When</th><th>Person</th><th>Project</th><th>Role wanted</th><th>Note</th><th>Status / decision</th></tr></thead><tbody>
 ${reqs.map((r) => {
     const p = byKey[r.project_key];
-    return `<tr data-request="${Number(r.id)}"><td>${esc(ist(r.created_at))}</td><td>${esc(r.user_name || '')}<br><span class="k-small">${esc(r.email)}</span></td><td>${esc(p ? p.name : r.project_key)}</td>
-<td>${esc(r.role_wanted)}</td><td>${esc(r.note || '')}</td><td>${r.status === 'pending' && p ? `<div class="k-row">${roleSelect(p, r.role_wanted, 'data-role')}
+    return `<tr data-request="${Number(r.id)}"><td data-label="When">${esc(ist(r.created_at))}</td><td data-label="Person">${esc(r.user_name || '')}<br><span class="k-small">${esc(r.email)}</span></td><td data-label="Project">${esc(p ? p.name : r.project_key)}</td>
+<td data-label="Role wanted">${esc(pages.roleName('en', r.role_wanted))}</td><td data-label="Note">${esc(r.note || '')}</td><td data-label="Decision">${r.status === 'pending' && p ? `<div class="k-row">${roleSelect(p, r.role_wanted, 'data-role aria-label="Role to grant"')}
 <button class="k-btn k-btn--sm k-btn--brand" type="button" data-approve>Approve</button>
 <input class="k-input k-input--sm" data-reason placeholder="Reason to decline" maxlength="500" aria-label="Reason to decline">
 <button class="k-btn k-btn--sm k-btn--secondary" type="button" data-decline>Decline</button></div>`
     : `${esc(r.status)}${r.role_granted ? ` as ${esc(r.role_granted)}` : ''}${r.decided_by ? `<br><span class="k-small">${esc(r.decided_by)}, ${esc(ist(r.decided_at))}</span>` : ''}${r.decline_reason ? `<br><span class="k-small k-muted">${esc(r.decline_reason)}</span>` : ''}`}</td></tr>`;
-  }).join('') || '<tr><td colspan="6">Nothing here.</td></tr>'}
-</tbody></table></div>
+  }).join('') || '<tr><td colspan="6"><div class="k-empty hub-empty"><p>Nothing here: no requests match these filters.</p></div></td></tr>'}
+</tbody></table>
 <h2>People</h2>
-<div class="k-table-wrap"><table class="k-table"><thead><tr><th>Person</th><th>Signed in</th><th>Access</th><th>Grant</th><th>Account</th></tr></thead><tbody>
-${users.map((u) => `<tr data-user="${Number(u.id)}"><td>${esc(u.name || '')}<br><span class="k-small">${esc(u.email)}</span>${u.role !== 'member' ? ` <span class="k-chip">${esc(u.role)}</span>` : ''}</td>
-<td class="k-small">${u.google ? 'Google · ' : ''}${esc(ist(u.last_login_at)) || '—'}</td>
-<td>${u.grants.map((g) => `<div class="k-row k-small" data-grant="${Number(g.id)}">${esc(byKey[g.project_key] ? byKey[g.project_key].name : g.project_key)}: ${g.status === 'active' ? `${byKey[g.project_key] ? roleSelect(byKey[g.project_key], g.role, 'data-grant-role') : esc(g.role)}
+<table class="k-table k-table--stack"><thead><tr><th>Person</th><th>Signed in</th><th>Access</th><th>Grant</th><th>Account</th></tr></thead><tbody>
+${users.map((u) => `<tr data-user="${Number(u.id)}"><td data-label="Person">${esc(u.name || '')}<br><span class="k-small">${esc(u.email)}</span>${u.role !== 'member' ? ` <span class="k-chip">${esc(u.role)}</span>` : ''}</td>
+<td class="k-small" data-label="Signed in">${u.google ? 'Google · ' : ''}${esc(ist(u.last_login_at)) || '—'}</td>
+<td data-label="Access">${u.grants.map((g) => `<div class="k-row k-small" data-grant="${Number(g.id)}">${esc(byKey[g.project_key] ? byKey[g.project_key].name : g.project_key)}: ${g.status === 'active' ? `${byKey[g.project_key] ? roleSelect(byKey[g.project_key], g.role, 'data-grant-role') : esc(g.role)}
 <button class="k-btn k-btn--sm" type="button" data-change-role>Change</button><button class="k-btn k-btn--sm k-btn--secondary" type="button" data-revoke>Revoke</button>${byKey[g.project_key] && byKey[g.project_key].two_step ? ` <span class="k-chip">${g.project_state === 'verified' ? 'verified in project' : 'awaiting project'}</span>` : ''}` : `revoked ${esc(ist(g.revoked_at))}`}</div>`).join('') || '<span class="k-muted">none</span>'}</td>
-<td><div class="k-row"><select class="k-input k-input--sm" data-grant-project>${approvalProjects.map((p) => `<option value="${esc(p.key)}" data-roles="${esc(rolesOf(p).join(','))}">${esc(p.name)}</option>`).join('')}</select>
+<td data-label="Grant"><div class="k-row"><select class="k-select k-input--sm" data-grant-project aria-label="Project">${approvalProjects.map((p) => `<option value="${esc(p.key)}" data-roles="${esc(rolesOf(p).join(','))}">${esc(p.name)}</option>`).join('')}</select>
 <input class="k-input k-input--sm" data-grant-new-role placeholder="role" aria-label="Role" value="${esc(rolesOf(approvalProjects[0] || { roles: '' })[0] || '')}"><button class="k-btn k-btn--sm" type="button" data-grant-btn>Grant</button></div></td>
-<td>${u.role === 'owner' ? 'built-in' : `${esc(u.status)} <button class="k-btn k-btn--sm k-btn--secondary" type="button" data-status="${u.status === 'suspended' ? 'active' : 'suspended'}">${u.status === 'suspended' ? 'Restore' : 'Suspend'}</button>`}</td></tr>`).join('')}
+<td data-label="Account">${u.role === 'owner' ? 'built-in' : `${esc(u.status)} <button class="k-btn k-btn--sm k-btn--secondary" type="button" data-status="${u.status === 'suspended' ? 'active' : 'suspended'}">${u.status === 'suspended' ? 'Restore' : 'Suspend'}</button>`}</td></tr>`).join('')}
 </tbody></table></div>`,
       });
     }));

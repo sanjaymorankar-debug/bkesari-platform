@@ -182,6 +182,8 @@
 .k-node--expired{border-style:dashed;background:var(--k-surface-2);color:var(--k-muted)}
 .k-node--expired .k-node__name::after{content:" †";color:var(--k-muted)}
 .k-node--spouse{border-color:var(--k-accent);border-style:double;border-width:3px}
+/* A spouse who has passed away keeps the dashed outline that says so. */
+.k-node--spouse.k-node--expired{border-style:dashed}
 .k-node__meta{display:block;font-size:var(--k-text-xs);color:var(--k-muted)}
 
 /* ---- Progress ring ------------------------------------------------------ */
@@ -192,7 +194,7 @@
 
 /* ---- Navigation: side nav (desktop), bottom nav (phones) ----------------- */
 .k-layout{display:flex;flex:1;width:100%;max-width:var(--k-content);margin:0 auto}
-.k-layout>.k-main{max-width:none;margin:0}
+.k-layout>.k-main{max-width:none;margin:0;min-width:0}
 .k-sidenav{width:232px;flex:none;padding:var(--k-6) var(--k-3);border-right:1px solid var(--k-border)}
 .k-sidenav ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;position:sticky;top:80px}
 .k-sidenav a{display:flex;align-items:center;gap:var(--k-3);min-height:var(--k-target);padding:0 var(--k-3);border-radius:var(--k-radius-sm);

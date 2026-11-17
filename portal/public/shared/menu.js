@@ -248,7 +248,7 @@
 .ks-all:hover{background:var(--ks-tint);border-radius:0 0 10px 10px}
 .ks-panel a.ks-homeitem{border-bottom:1px solid var(--ks-line);border-radius:10px 10px 0 0;margin-bottom:4px}
 .ks-homeitem .ks-dot{background:var(--ks-brand)}
-.ks-avatar{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--ks-accent);color:#fff;font-weight:700;font-size:14px;flex:none}
+.ks-avatar{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--ks-accent);color:var(--ks-surface);font-weight:700;font-size:14px;flex:none}
 .ks-acct-head{padding:8px 10px 10px;border-bottom:1px solid var(--ks-line);margin-bottom:6px}
 .ks-acct-head strong{display:block}.ks-acct-head small{color:var(--ks-muted)}
 .ks-panel button.ks-item,.ks-panel a.ks-plain{display:flex;width:100%;align-items:center;min-height:48px;padding:0 10px;border:0;border-radius:10px;
