@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import type { Request, Response } from 'express'
-import { AuthService, LoginResult, OTP_TTL_MINUTES } from './auth.service'
+import { AuthService, HubSignInResult, LoginResult, OTP_TTL_MINUTES } from './auth.service'
 import { CodeDeliveryService } from './code-delivery.service'
 import { langOf } from './code-email'
 import { RegisterDto } from './dto/register.dto'
@@ -12,18 +12,30 @@ import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto'
 import { SameOriginGuard } from './same-origin.guard'
 import { appBase, clearSessionCookie, readSessionCookie, setSessionCookie } from './session-cookie'
 import { clientAddress } from '../common/visitor-throttler.guard'
+import { PROJECT_STATE_HEADER, hubContextOf, verifyHubIdentity } from './hub-identity'
+import { ProjectStateService } from './project-state.service'
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000
 
 /** The language the shell is showing (cookie k_lang), for the email with the code. English unless chosen. */
 const langFrom = (req: Request) => langOf(req.cookies?.k_lang)
 
+/**
+ * Under the hub (a valid identity on this request, hub-identity.ts): only the
+ * session of the LadWani user joined to the hub person's id counts.
+ */
+const hubOnly = (req: Request) => {
+  const hub = hubContextOf(req)
+  return hub ? { userId: hub.localUserId } : undefined
+}
+
 /** The shell's account menu links, in the language the shell is showing (cookie k_lang). */
 const PROFILE_LABEL: Record<string, string> = { en: 'My profile', mr: 'माझी प्रोफाइल', hi: 'मेरी प्रोफ़ाइल' }
 
 /**
  * LadWani's own sign-in, end to end: its users, its codes, its session cookie
- * (session-cookie.ts). Every route refuses cross-site requests (SameOriginGuard).
+ * (session-cookie.ts), and the bkesari hub's sign-in on top of it (POST
+ * /auth/hub, D-039). Every route refuses cross-site requests (SameOriginGuard).
  * One-time codes go by email (CodeDeliveryService). An answer carries the code
  * itself (`devOtp`) only on the dev tier or a local run with no mail provider
  * configured: AuthService returns it only then, and it is passed on as it is.
@@ -35,7 +47,46 @@ export class AuthController {
   constructor(
     private auth: AuthService,
     private delivery: CodeDeliveryService,
+    private states: ProjectStateService,
   ) {}
+
+  /**
+   * The bkesari hub's sign-in (docs/design/bkesari-id.md, D-039). The web app
+   * calls it first on every load. With a valid signed identity on this request
+   * (hub-identity.ts: only the hub, in this process, can add one; it removes
+   * any a client sent), it signs that person in without a password, exactly as
+   * /auth/login does: the lw_sid cookie and { data: { accessToken, user } },
+   * plus `created` when it made the LadWani account. Whatever session this
+   * browser held ends first (AuthService.hubSignIn), and the answer carries
+   * X-Bkesari-Project-State for the account as it now is.
+   *
+   * Refused: 409 when the email belongs to a LadWani account it may not take
+   * (never confirmed, or joined to another bkesari ID), 403 for a suspended or
+   * removed account; `reason` names which. The session cookie is cleared then too.
+   *
+   * No valid identity (the hub's secret unset here, or anything wrong with
+   * the headers): { data: null } and nothing changes; LadWani's own sign-in
+   * works as before.
+   */
+  @Post('hub')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 30, ttl: 60 * 1000 } })
+  async hub(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    res.set('Cache-Control', 'no-store')
+    const identity = hubContextOf(req)?.identity ?? verifyHubIdentity(req.headers)
+    if (!identity) return { data: null }
+    const presented = readSessionCookie(req)
+    let result: HubSignInResult
+    try {
+      result = await this.auth.hubSignIn(identity, presented, clientAddress(req))
+    } catch (err) {
+      if (presented) clearSessionCookie(req, res)
+      throw err
+    }
+    res.setHeader(PROJECT_STATE_HEADER, await this.states.ofUser(result.user.id))
+    const { data } = this.signedIn(req, res, result)
+    return { data: { ...data, created: result.created } }
+  }
 
   /**
    * Creates the account and emails it a code (409 with reason EMAIL_TAKEN or
@@ -132,7 +183,7 @@ export class AuthController {
 
     let result: LoginResult
     try {
-      result = await this.auth.refresh(token)
+      result = await this.auth.refresh(token, hubOnly(req))
     } catch (err) {
       clearSessionCookie(req, res)
       throw err
@@ -163,7 +214,7 @@ export class AuthController {
     res.set('Cache-Control', 'no-store')
     const base = appBase()
     const live = { mailLive: this.delivery.live('email'), smsLive: this.delivery.live('sms') }
-    const person = await this.auth.sessionPerson(readSessionCookie(req))
+    const person = await this.auth.sessionPerson(readSessionCookie(req), hubOnly(req))
     // Signed out is an answer, not an error: a 401 here would be logged to the
     // browser's console on every page a visitor opens.
     if (!person) return { user: null, signInUrl: `${base}/sign-in/`, ...live }

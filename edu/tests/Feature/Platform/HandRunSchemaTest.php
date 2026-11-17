@@ -53,4 +53,15 @@ class HandRunSchemaTest extends TestCase
         $this->assertTrue(str_contains($sql, 'mobile character varying(16)'), 'users.mobile is missing');
         $this->assertTrue(str_contains($sql, 'ADD CONSTRAINT users_mobile_unique UNIQUE (mobile);'), 'users_mobile_unique is missing');
     }
+
+    public function test_the_hand_run_schema_has_the_hub_role_column(): void
+    {
+        if (! is_file(self::SCHEMA)) {
+            $this->markTestSkipped('database/edu/ is not beside this copy of the app');
+        }
+        $sql = file_get_contents(self::SCHEMA);
+
+        // The Education role the hub granted (D-039, HubIdentitySignIn); no index, no constraint.
+        $this->assertTrue(str_contains($sql, 'hub_role character varying(64)'), 'users.hub_role is missing');
+    }
 }

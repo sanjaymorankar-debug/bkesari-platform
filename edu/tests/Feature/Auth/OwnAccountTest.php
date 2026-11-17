@@ -18,9 +18,11 @@ use Tests\TestCase;
 
 /**
  * Education keeps its own accounts, end to end: its own session cookie, its
- * own sign-in screens and lockout, and nothing forwarded by the bkesari hub is
- * taken as an identity. The shell above the page asks /shell/me who is signed
- * in, and signs out through POST /logout.
+ * own sign-in screens and lockout. Of what the bkesari hub forwards, only its
+ * signed X-Bkesari-* identity headers sign anyone in (D-039,
+ * HubIdentitySignInTest); the retired X-Bkesari-Token does not. The shell
+ * above the page asks /shell/me who is signed in, and signs out through
+ * POST /logout.
  */
 class OwnAccountTest extends TestCase
 {

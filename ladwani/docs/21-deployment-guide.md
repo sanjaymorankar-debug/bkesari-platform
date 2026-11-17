@@ -22,6 +22,7 @@ Deploys onto the existing Hostinger account already running `devmiladwani.agtci.
 | `PORT` | No | Defaults to 4000 |
 | `NODE_ENV` | Yes | Must be `production` — gates the JWT secret check and the secure cookie flag |
 | `APP_ENV` | Yes on a tier | `dev`, `test` or `prod` (the hub's tier setting). Decides whether a one-time code may appear in an answer (`devOtp`): only on `dev`, or locally with `APP_ENV` unset and `NODE_ENV` not `production`, and only with no mail provider. Never on `test` or `prod`. |
+| `HUB_PROXY_SECRET` | Yes inside the bkesari hub | The hub's own setting, read from the same process (a `LADWANI_HUB_PROXY_SECRET` would win). LadWani believes the hub's signed `X-Bkesari-*` identity headers only when it is set and matches; unset, they are ignored and only LadWani's own sign-in works (see "The bkesari hub's sign-in" below). |
 | `MAIL_HOST` | Yes on test and production | SMTP host, `smtp.hostinger.com`. Unset: no mail; on test and production, sending a code then answers 503. |
 | `MAIL_PORT` | No | `465` (TLS from the first byte, the default) or `587` (STARTTLS, then required) |
 | `MAIL_USERNAME` / `MAIL_PASSWORD` | Yes with `MAIL_HOST` | The mailbox and its password |
@@ -70,10 +71,10 @@ npm run start --workspace=apps/web
 ## LadWani's own sign-in (2026-11-03)
 
 LadWani signs people in itself, end to end: its own `users` table in its own
-database, nothing shared with the bkesari hub. The hub puts no gate in front of
-`/ladwani/` and sends no `X-Bkesari-Token`; `POST /auth/hub`, `HUB_JWKS_URL` and
-`HUB_JWKS` are gone (the `users.hub_user_id` column from migration
-`20261025000000_hub_user_id` stays, unused, so the migration history holds).
+database. Since 17 Nov 2026 (D-039) the bkesari hub can also vouch for who a
+person is, in signed headers; see "The bkesari hub's sign-in" below. The old
+hub token (`X-Bkesari-Token`, `HUB_JWKS_URL`, `HUB_JWKS`) is gone and never
+honoured.
 
 - Session cookie `lw_sid`: HttpOnly, SameSite=Lax, Path=`LADWANI_COOKIE_PATH`
   (default `/ladwani`; set `/` when the web app runs at the root), Secure except
@@ -93,3 +94,62 @@ database, nothing shared with the bkesari hub. The hub puts no gate in front of
   the web offers them only when `GET /auth/session` says `smsLive: true`.
   Without a mail provider, the dev tier and local runs return the code as
   `devOtp`; test and production answer 503 and never return it.
+
+## The bkesari hub's sign-in (2026-11-17, D-039)
+
+The contract is `docs/design/bkesari-id.md` at the repository root (§2 and §3).
+The hub signs the person in once at bkesari.com, checks their LadWani grant on
+every request under `/ladwani/`, removes any `X-Bkesari-*` header the browser
+sent, and adds `X-Bkesari-User`, `-Email`, `-Role`, `-Name`, `-Project`, `-Ts`
+and `-Sig` (HMAC-SHA256 with `HUB_PROXY_SECRET`).
+
+- **When LadWani believes them** (`apps/api/src/auth/hub-identity.ts`):
+  `HUB_PROXY_SECRET` is set, the signature matches (constant-time), the project
+  is `ladwani`, the time stamp is less than 60 seconds from now, and every field
+  has its form (digits, a lower-case email, one of member, karta, operator,
+  admin, base64url UTF-8 name). Otherwise they are ignored entirely and
+  LadWani's own sign-in works as above.
+- **`POST /auth/hub`** (same-origin only, like every `/auth` route): the web app
+  calls it first on every load (`apps/web/src/lib/auth-context.tsx`). With a
+  valid identity it signs the person in with no password and answers exactly as
+  `/auth/login` does (`lw_sid` cookie, `{ data: { accessToken, user } }`, plus
+  `created`). Without one it answers `{ data: null }` and the web app goes on to
+  `/auth/session` and the sign-in page.
+- **Which account**: the one whose `users.hub_user_id` is the hub id; else the
+  one with that email **only if LadWani confirmed it** (`email_verified`), which
+  is then joined to the hub id; else a new one (ACTIVE, email confirmed, member
+  row named from `X-Bkesari-Name` split at the first space, or the email's local
+  part; MEMBER role; random password). An account whose email LadWani never
+  confirmed is neither joined nor duplicated: `409 HUB_EMAIL_UNCONFIRMED` (D-035);
+  a code sent to that email on LadWani's sign-in page confirms it, and the next
+  load joins it. Also refused: an email joined to another hub id (409
+  `HUB_EMAIL_TAKEN`), a suspended or blocked account (403 `SUSPENDED`), a
+  removed one (403 `REMOVED`), and a reserved address that is not a built-in
+  administrator (403 `RESERVED_EMAIL`). The hub's built-in administrators
+  (`<name>@builtin.bkesari.com`, role admin) get LadWani's built-in account for
+  that username (`builtin-admins.ts`), made on first use.
+- **Roles**: member → MEMBER; karta → KARTA + MEMBER; operator → OPERATOR +
+  MEMBER; admin → ADMIN + MEMBER. Added at each hub sign-in, never removed, so a
+  role changed inside LadWani stays. A hub `karta` holds KARTA without a family;
+  a family's own Karta row still comes from LadWani's family approval.
+- **One person per browser**: `POST /auth/hub` ends whatever `lw_sid` session
+  the browser held before it starts the new one (and after a refusal leaves
+  none). On every request with a valid identity, an access token, a refresh
+  (`/auth/refresh`) or a `GET /auth/session` that belongs to anyone but the LadWani
+  account joined to that hub id is refused (401) or reported as no session.
+- **Audit**: `audit_logs` rows `auth.hub.sign_in` (a new session in this
+  browser, or an account joined, made or given a role; a renewal of the person's
+  own session is not written) and `auth.hub.refused` (with `reason`), entity type
+  `hub_user`, entity id the hub id.
+- **LadWani's second step**: every API answer to a request with a valid identity
+  carries `X-Bkesari-Project-State: verified | pending`
+  (`apps/api/src/auth/hub-identity.middleware.ts`). `verified` means the account
+  joined to that hub id is ACTIVE and either its newest ID-proof review
+  (`member.id_proof.verify`, sign-up step 4) was APPROVED by an Operator or Admin,
+  or it holds LadWani's OPERATOR or ADMIN role
+  (`apps/api/src/auth/project-state.service.ts`). The hub stores it on the grant and
+  removes the header before the answer leaves bkesari.com. For a person whose
+  account the hub sign-in just made, the web app records sign-up as under way
+  (step 2), so the dashboard asks for their ID proof, as it does for anyone
+  part-way through sign-up, and `/sign-up` carries on with profile, place and
+  ID proof.

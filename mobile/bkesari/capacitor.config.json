@@ -1,0 +1,32 @@
+{
+  "appId": "in.bkesari.app",
+  "appName": "bkesari",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor",
+    "hostname": "localhost",
+    "cleartext": false,
+    "allowNavigation": [
+      "bkesari.com"
+    ],
+    "errorPath": "offline.html"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#FAF8F5",
+    "appendUserAgent": "bkesariApp/1.1.0 (android)"
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "backgroundColor": "#FAF8F5",
+    "limitsNavigationsToAppBoundDomains": true,
+    "appendUserAgent": "bkesariApp/1.1.0 (ios)"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "backgroundColor": "#C2560A",
+      "launchShowDuration": 600
+    }
+  }
+}

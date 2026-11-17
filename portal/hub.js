@@ -3,17 +3,18 @@
 /* ============================================================
    The hub: bkesari.com's own pages and its admin.
 
-   Since 3 Nov 2026 the hub signs NO end users in. Each project (LadWani,
-   Education, TaskList) owns its accounts in its own database; the hub only
-   points people to them. What the hub keeps:
+   Since 17 Nov 2026 (D-039) people sign in once, here, with the bkesari ID
+   (portal/bkesari-id.js: Google, the email code, the built-in
+   administrators), and each project opens by admin approval
+   (portal/access.js: requests, the admin's queue, the gate). This file
+   keeps the hub's own pages:
 
-     /                     home: hero, the project tiles, announcement
+     /                     home: hero, the project tiles (each with the
+                           person's access state), announcement
      /about /privacy /terms   prose pages
      /contact              form -> hub_contact_messages (spam-protected)
-     /auth/sign-in         "Choose a project to sign in" (the old shared
-                           sign-in's address, kept so links and bookmarks land
-                           somewhere useful); /auth/* and the old access pages
-                           redirect here
+     /auth/sign-in         the bkesari ID's sign-in page; /auth goes there
+                           and /access to /account (portal/access.js)
      /admin                the hub's separate admin login (hub_admin_* tables,
                            no sign-up) and the editor for tiles, the
                            announcement and the contact inbox
@@ -63,7 +64,7 @@ function hubSecret(env, log) {
  * @param envName  (req) => 'dev' | 'test' | 'prod'
  * @param notify   { sms?, mail? } (notify.js) for admin password resets
  */
-function createHub({ db, env = process.env, log = console, envName = () => 'prod', notify = {} } = {}) {
+function createHub({ db, env = process.env, log = console, envName = () => 'prod', notify = {}, id = null, access = null } = {}) {
   const secret = hubSecret(env, log);
   const admin = createProjectAuth({
     db, key: 'hub-admin', name: 'bkesari hub admin', base: '/admin', cookie: 'hub_admin_sid', cookiePath: '/',
@@ -106,8 +107,12 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
   }
   const invalidate = () => { cache = { at: 0, tiles: null, announcement: null }; };
 
-  /** Is this request the owner's (hub admin with the owner role)? For ATIP. */
+  /** Is this request the owner's? For ATIP: a built-in administrator signed in to the bkesari ID, or a hub admin with the owner role. */
   async function isOwner(req) {
+    if (id) {
+      const u = await id.currentUser(req);
+      if (u && u.role === 'owner') return true;
+    }
     const s = await admin.currentSession(req);
     return Boolean(s && s.user.role === 'owner');
   }
@@ -163,22 +168,35 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
   }
 
   function mount(app) {
-    // Old shared sign-in and access pages: everyone lands on the chooser.
-    app.get(['/auth', '/auth/*', '/access/request', '/access', '/access/*'], (req, res, next) => {
-      if (req.path === '/auth/sign-in') return next();
-      res.redirect(301, '/auth/sign-in');
-    });
-    app.get(['/admin/access', '/admin/access/*'], (req, res) => res.redirect(301, '/admin'));
-    app.all(['/hub/api/me', '/hub/api/access-requests', '/hub/api/admin/*'], (req, res) =>
-      res.status(410).json({ error: 'The shared bkesari ID has been retired. Each project now has its own sign-in.', chooser: '/auth/sign-in' }));
+    // The bkesari ID's sign-in (D-039): Google first, then the email code; a
+    // built-in administrator types the username and gets a password box.
+    app.get(['/auth', '/auth/'], (req, res) => res.redirect(302, '/auth/sign-in'));
+    app.get('/auth/sign-in', wrap(async (req, res) => {
+      const user = id ? await id.currentUser(req) : null;
+      const next = id ? id.safeNext(req.query.next) : '/';
+      if (user && !req.query.error) return res.redirect(302, next);
+      const lang = pages.langOf(req);
+      const err = /^google_[a-z_]{1,30}$/.test(String(req.query.error || '')) ? String(req.query.error).slice(7) : null;
+      send(req, res, {
+        title: `${pages.t(lang, 'id.title')} — bkesari`, pathname: '/auth/sign-in', scripts: ['/shared/signin.js'],
+        body: (l) => pages.signIn({ lang: l, next, google: id ? id.googleEntry(req, next) : null, error: err }),
+        isOwner: await isOwner(req),
+      });
+    }));
+    app.get('/access', (req, res) => res.redirect(302, '/account'));
     // The old key set: nothing verifies hub tokens any more.
     app.get('/.well-known/jwks.json', (req, res) => res.status(410).json({ keys: [], note: 'retired 3 Nov 2026' }));
 
-    app.get('/', page('home.title', pages.home, { data: () => content() }));
+    app.get('/', page('home.title', pages.home, { data: async (req) => {
+      const c = await content();
+      const user = id ? await id.currentUser(req) : null;
+      const states = access ? await access.statusList(user) : [];
+      return { ...c, user, states };
+    } }));
     app.get('/about', page('about.title', pages.about, { data: () => content() }));
     app.get('/privacy', page('privacy.title', pages.privacy));
     app.get('/terms', page('terms.title', pages.terms));
-    app.get('/auth/sign-in', page('chooser.title', pages.chooser));
+
 
     app.get('/contact', wrap(async (req, res) => {
       const lang = pages.langOf(req);

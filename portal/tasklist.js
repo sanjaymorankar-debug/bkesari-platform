@@ -132,7 +132,39 @@ const TASK_COLS = `t.id, t.project_id AS list_id, t.parent_id, t.title, t.descri
   (SELECT COUNT(*) FROM comments WHERE entity_type = 'task' AND entity_id = t.id) AS comment_count`;
 
 function createTaskList({ db, notify = {}, tier = () => 'prod', log = console, secret, realtime, report }) {
+  /**
+   * The bkesari ID (D-039): the hub's gate has checked the person's session and
+   * TaskList grant on this request (req.bkesariIdentity, set in this process
+   * only, never from a header). Their TaskList account is the one linked to
+   * their hub id, else the one with their CONFIRMED email (then linked), else a
+   * new one. An unconfirmed account with that email is not adopted (D-035): the
+   * person then meets TaskList's own sign-in.
+   */
+  async function hubSession(req) {
+    const idn = req.bkesariIdentity;
+    if (!idn || idn.project !== 'tasklist' || !idn.csrf) return null;
+    const hubId = String(idn.userId);
+    const role = idn.role === 'owner' ? 'owner' : 'member';
+    let user = await db.get('SELECT * FROM tl_users WHERE hub_user_id = $1', [hubId]);
+    if (!user) {
+      const byEmail = await db.get('SELECT * FROM tl_users WHERE lower(email) = $1', [idn.email]);
+      if (byEmail) {
+        if (!byEmail.email_verified || byEmail.hub_user_id) return null;
+        user = await db.get('UPDATE tl_users SET hub_user_id = $2 WHERE id = $1 AND hub_user_id IS NULL RETURNING *', [byEmail.id, hubId]);
+      } else {
+        user = await db.get(`INSERT INTO tl_users (email, name, role, email_verified, hub_user_id) VALUES ($1,$2,$3,TRUE,$4)
+          ON CONFLICT DO NOTHING RETURNING *`, [idn.email, idn.name || null, role, hubId]);
+      }
+      if (!user) user = await db.get('SELECT * FROM tl_users WHERE hub_user_id = $1', [hubId]);
+    }
+    if (!user || user.status !== 'active') return null;
+    // The role is the hub's, read from its database on this request.
+    if (user.role !== role) user = await db.get('UPDATE tl_users SET role = $2 WHERE id = $1 RETURNING *', [user.id, role]);
+    return { user, sessionId: null, csrf: idn.csrf, hub: true };
+  }
+
   const auth = createProjectAuth({
+    resolveSession: hubSession,
     db, key: 'tasklist', name: 'TaskList', base: BASE, cookie: 'tl_sid', prefix: 'tl_',
     allowSignUp: true, methods: ['otp', 'password'], notify, tier, log, secret,
     builtinAdmins: { role: 'owner' },

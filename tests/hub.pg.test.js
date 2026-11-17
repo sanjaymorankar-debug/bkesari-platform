@@ -1,6 +1,6 @@
 /**
- * The hub on a real PostgreSQL: home tiles, the old shared sign-in's address
- * as a project chooser, the contact form and its spam protection, the hub's
+ * The hub on a real PostgreSQL: home tiles, the bkesari ID sign-in page
+ * (D-039), the contact form and its spam protection, the hub's
  * own admin login and editor, the ATIP viewer (owner only), languages, error
  * pages and security headers.
  *
@@ -53,7 +53,7 @@ describe('the hub on PostgreSQL', { skip }, () => {
     return b;
   }
 
-  test('the home page is rendered on the server: six tiles with status chips, no shared sign-in', async () => {
+  test('the home page is rendered on the server: six tiles with status chips and each project\'s access state (D-039)', async () => {
     const r = await html(new Browser(base), '/');
     assert.equal(r.status, 200);
     const tiles = [...r.text.matchAll(/<h3 class="k-tile__name">([^<]+)/g)].map((m) => m[1].trim());
@@ -61,7 +61,10 @@ describe('the hub on PostgreSQL', { skip }, () => {
     for (const chip of ['Live', 'Beta', 'Coming soon', 'Private']) assert.match(r.text, new RegExp(`class="k-chip[^"]*">${chip}<`));
     assert.match(r.text, /href="\/ATIP\/"[^>]*target="_blank" rel="noopener"/, 'ATIP only links out');
     assert.match(r.text, /href="\/tasklist\/"/);
-    assert.doesNotMatch(r.text, /One bkesari ID|\/hub\/api\/me/, 'nothing of the shared sign-in is left');
+    // A visitor: the projects that need approval ask them to sign in first (D-039).
+    assert.match(r.text, /One bkesari ID/);
+    for (const p of ['%2Fladwani%2F', '%2Fedu%2F', '%2Ftasklist%2F']) assert.ok(r.text.includes(`href="/auth/sign-in?next=${p}"`), p);
+    assert.match(r.text, /data-access-state="signin"/);
     assert.match(r.text, /<html lang="en"/);
     assert.match(r.text, /\/kesari-ui\/1\.0\.0\/kesari\.css/);
     assert.match(r.text, /<header class="ks-bar/, 'the shell header is in the page, not added by script');
@@ -81,15 +84,23 @@ describe('the hub on PostgreSQL', { skip }, () => {
     assert.match(accept.text, /<html lang="en"/, 'English until the visitor picks a language, whatever the browser says (D-030)');
   });
 
-  test('the old shared sign-in\'s addresses land on "choose a project"; its APIs are gone', async () => {
+  test('the bkesari ID\'s sign-in page replaces "choose a project"; the access pages need a sign-in (D-039)', async () => {
     const b = new Browser(base);
-    const chooser = await html(b, '/auth/sign-in');
-    assert.equal(chooser.status, 200);
-    assert.match(chooser.text, /Choose a project to sign in/);
-    for (const href of ['/ladwani/sign-in/', '/edu/sign-in', '/tasklist/sign-in']) assert.ok(chooser.text.includes(`href="${href}"`), href);
-    for (const p of ['/auth/sign-up', '/auth/sign-in/x', '/access/request?project=ladwani']) assert.equal((await html(b, p)).location, '/auth/sign-in', p);
-    assert.equal((await html(b, '/admin/access')).location, '/admin');
-    for (const p of ['/hub/api/me', '/hub/api/admin/requests', '/.well-known/jwks.json']) assert.equal((await b.fetch('GET', p)).status, 410, p);
+    const page = await html(b, '/auth/sign-in?next=%2Ftasklist%2F');
+    assert.equal(page.status, 200);
+    assert.match(page.text, /Sign in to bkesari/);
+    assert.match(page.text, /data-next="\/tasklist\/"/);
+    assert.match(page.text, /src="\/shared\/signin\.js"/);
+    assert.doesNotMatch(page.text, /Continue with Google/, 'no Google button while GOOGLE_CLIENT_ID is unset');
+    assert.equal((await html(b, '/auth/sign-in?next=https%3A%2F%2Fevil.example')).text.match(/data-next="([^"]*)"/)[1], '/', 'only a path on this site');
+    for (const p of ['/access/request?project=ladwani', '/account', '/admin/access']) assert.match((await html(b, p)).location, /^\/auth\/sign-in\?next=/, p);
+    assert.equal((await html(b, '/access')).location, '/account');
+    assert.equal((await html(b, '/auth')).location, '/auth/sign-in');
+    assert.equal((await b.fetch('GET', '/auth/google/start')).status, 404, 'Google is off without its client');
+    const me = (await b.fetch('GET', '/hub/api/me')).json;
+    assert.equal(me.user, null);
+    assert.deepEqual(me.projects.map((p) => `${p.key}:${p.state}`), ['ladwani:signin', 'edu:signin', 'tasklist:signin', 'driving:open', 'environment:open']);
+    assert.equal((await b.fetch('GET', '/.well-known/jwks.json')).status, 410);
     assert.equal((await html(b, '/education/sign-in')).location, '/edu/sign-in');
     assert.equal((await html(b, '/education')).location, '/edu');
   });
