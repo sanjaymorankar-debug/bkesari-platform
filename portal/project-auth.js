@@ -93,6 +93,9 @@ class AuthError extends Error {
  * @param o.tier      () => 'dev'|'test'|'prod' for this request; dev/test may echo codes
  * @param o.secret    HMAC secret for OTP codes (string, 32+ chars)
  * @param o.log       console-like
+ * @param o.tables    override table names: { users, sessions, resets, otp, audit, limits } (the bkesari ID uses `users`)
+ * @param o.allowPasswordSignUp  whether /sign-up with a password is open (default: allowSignUp)
+ * @param o.resolveSession  async (req) => { user, sessionId: null, csrf } | null: a session established elsewhere
  */
 function createProjectAuth(o) {
   const {
@@ -108,7 +111,12 @@ function createProjectAuth(o) {
   const T = {
     users: `${prefix}users`, sessions: `${prefix}sessions`, resets: `${prefix}password_resets`,
     otp: `${prefix}otp_codes`, audit: `${prefix}audit_log`, limits: `${prefix}rate_limits`,
+    ...(o.tables || {}),
   };
+  for (const t of Object.values(T)) if (!/^[a-z_]+$/.test(t)) throw new Error(`bad table name ${t}`);
+  const allowPasswordSignUp = o.allowPasswordSignUp === undefined ? allowSignUp : Boolean(o.allowPasswordSignUp);
+  // The line in the code email that says whose account this is.
+  const codeNote = typeof o.codeNote === 'string' ? o.codeNote : `This is a separate account for ${name}.`;
 
   /* ---------- helpers ---------- */
   const clientIp = (req) => String(req.ip || req.socket?.remoteAddress || '').slice(0, 45);
@@ -177,6 +185,11 @@ function createProjectAuth(o) {
   async function currentSession(req) {
     const cacheKey = `__auth_${key}`;
     if (req[cacheKey] !== undefined) return req[cacheKey];
+    // A session vouched for by the caller (TaskList: the hub's bkesari ID, D-039) wins.
+    if (o.resolveSession) {
+      const outside = await o.resolveSession(req);
+      if (outside) { req[cacheKey] = outside; return outside; }
+    }
     const token = readCookie(req, cookie);
     let found = null;
     if (token && token.length >= 20 && token.length <= 100) {
@@ -376,7 +389,7 @@ function createProjectAuth(o) {
   }));
 
   router.post('/sign-up', wrap(async (req, res) => {
-    if (!allowSignUp || !methods.includes('password')) throw new AuthError(403, 'closed', 'New accounts are not open here.');
+    if (!allowSignUp || !allowPasswordSignUp || !methods.includes('password')) throw new AuthError(403, 'closed', 'New accounts are not open here.');
     const body = req.body || {};
     const email = normalizeEmail(body.email);
     const nm = String(body.name || '').trim().slice(0, 120);
@@ -456,7 +469,7 @@ function createProjectAuth(o) {
     if (mode !== 'none' && channel === 'mail') {
       out = await deliver(req, 'mail', target, `${code} is your ${name} code`,
         `Your ${name} code is ${code}\n\nIt works for ${OTP_MINUTES} minutes, once. Never share it with anyone.\n\n`
-        + `This is a separate account for ${name}.\nIf you did not ask for this code, ignore this email.\n\n- bkesari`, code);
+        + `${codeNote}\nIf you did not ask for this code, ignore this email.\n\n- bkesari`, code);
     } else if (mode !== 'none') {
       out = await deliver(req, 'sms', target, null,
         `${code} is your ${name} code. It works for ${OTP_MINUTES} minutes. Never share it. - bkesari`, code);
@@ -623,6 +636,7 @@ function createProjectAuth(o) {
 
   return {
     mount, router, requireUser, csrfGuard, checkCsrf, currentSession, publicUser, audit, limit, tables: T, readCookie,
+    startSession, clientIp, plainLocal,
     setCookie: (req, res, v, opt) => setCookie(req, res, v, opt),
     cookie, cookiePath, AuthError,
     /** For the migration and admin tools: create a user directly. */

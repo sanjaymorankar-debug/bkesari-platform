@@ -154,3 +154,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_user_due ON tasks (user_id, due_date);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks (parent_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_tags ON tasks USING GIN (tags);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tasks_client ON tasks (user_id, client_id) WHERE client_id IS NOT NULL;
+
+-- The bkesari ID (D-039): the hub user this TaskList account belongs to.
+ALTER TABLE tl_users ADD COLUMN IF NOT EXISTS hub_user_id VARCHAR(80) NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tl_users_hub ON tl_users (hub_user_id) WHERE hub_user_id IS NOT NULL;

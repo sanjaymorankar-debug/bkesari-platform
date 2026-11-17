@@ -95,7 +95,11 @@ safe to re-run.
 | `DATABASE_URL_UNPOOLED` | the same, with *Connection pooling* **off**. Used only to create the tables |
 | `HUB_AUTH_SECRET` | long random secret (`openssl rand -hex 32`), **different per tier**. Seals the hub's forms and codes; TaskList's and LadWani's secrets are derived from it unless `TASKLIST_AUTH_SECRET` / `LADWANI_JWT_SECRET` are set |
 | `APP_ENV` | **`test` on test.bkesari.com, `prod` on bkesari.com** (`dev` on dev.bkesari.com). The hub can tell the tier from the host name without it, but LadWani reads only `APP_ENV`, and a blank one there counts as a local run. Only `dev` ever shows a sign-in code on screen, and only when no mail is set (D-029) |
-| `HUB_PROXY_SECRET` | **The same random value as `HUB_PROXY_SECRET` in this tier's Education `.env`** (`openssl rand -hex 32`, different per tier). The hub sends it with every request it forwards to Education, together with the visitor's address, so Education believes that address and nobody else's (D-038). Blank: Education trusts every proxy, as before, and a client can choose the address its rate limits count |
+| `HUB_PROXY_SECRET` | **The same random value as `HUB_PROXY_SECRET` in this tier's Education `.env`** (`openssl rand -hex 32`, different per tier). The hub sends it with every request it forwards to Education, together with the visitor's address, so Education believes that address and nobody else's (D-038). **Since D-039 it also signs the `X-Bkesari-*` identity headers** the access gate gives LadWani (same process, reads the same variable) and Education: without it both ignore the bkesari ID and fall back to their own sign-in, while the hub still enforces access. Blank: Education trusts every proxy, as before, and a client can choose the address its rate limits count |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | **"Continue with Google" for the bkesari ID (D-039).** The same OAuth client as gokesari.com (GoKesari's `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`; those names are read too). Server environment only, never in the repository. Google Cloud Console → that client → **Authorized redirect URIs**: `https://bkesari.com/auth/google/callback`, `https://test.bkesari.com/auth/google/callback`, `https://dev.bkesari.com/auth/google/callback`; **Authorized JavaScript origins**: the three hosts. Either one blank: no Google button, the email code and the built-in administrators still work |
+| `HUB_OWNER_EMAILS` | comma-separated; default `agtcipl@gmail.com`. A **confirmed** address on it is the bkesari **admin**: decides access requests at `/admin/access`. It is also the hub admin's owner (below) |
+| `HUB_ADMIN_NOTIFY_EMAILS` | optional, comma-separated: more addresses told about each new access request (the owners always are). Mail goes from the `MAIL_*` mailbox, `code@agtci.com` |
+| `MOBILE_APP_SCHEMES` | optional, comma-separated: app URL schemes, besides `in.bkesari.app` (the bkesari app, `mobile/bkesari/`), allowed to receive a sign-in code from `/mobile-auth/complete` |
 | `HUB_ADMIN_EMAIL`, `HUB_ADMIN_PASSWORD_HASH` | the first hub admin, made at start when there is none (bcrypt hash: `node -e "console.log(require('bcryptjs').hashSync(process.argv[1], 11))" 'the password'`). `HUB_ADMIN_PASSWORD` (plain) also works; remove it after the first start. An address on `HUB_OWNER_EMAILS` (default `agtcipl@gmail.com`) gets the owner role, which also opens `/ATIP/` |
 | `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | **Hostinger email (SMTP), required on test and production.** One-time sign-in codes, password resets and verification links go by email (D-029). `MAIL_HOST=smtp.hostinger.com`, `MAIL_PORT=465`, `MAIL_USERNAME` = the mailbox, **`code@agtci.com`** (the owner's choice, 4 Nov 2026), `MAIL_PASSWORD` = its password (from the owner; never in the repository), `MAIL_FROM_ADDRESS` = the same address (Hostinger sends only as the signed-in mailbox), `MAIL_FROM_NAME` optional (each project sets its own: "TaskList · bkesari", "LadWani · bkesari"). Without them on test or production, code sign-in answers "could not send" and only password sign-in works; **no code is ever shown on screen there** — only the dev tier shows one, and only when no mail is set. Per project: `TASKLIST_MAIL_…`, `LADWANI_MAIL_…`, `HUB_MAIL_…`. **The hub and LadWani also accept `SMTP_USER` and `SMTP_PASSWORD`** (as set on bkesari.com on 4 Nov 2026), plus `SMTP_HOST` / `SMTP_PORT`; a mailbox with no host means `smtp.hostinger.com` on 465. Education (Laravel) reads only the `MAIL_*` names |
 | `SMS_WEBHOOK_URL`, `SMS_WEBHOOK_TOKEN` | **On hold (D-029); leave unset.** When an SMS gateway is chosen: POST `{"to":"+91…","text":"…"}` with `Authorization: Bearer <token>`. While unset, the sign-in screens offer codes by email only |
@@ -110,7 +114,7 @@ in place of `DATABASE_URL` for a database that is not on Neon; `.env.example` li
 Redeploy. Check (same checks for dev.bkesari.com and test.bkesari.com — add a **DEV** badge
 alongside the existing **TEST** one in `portal/` if you want the two visually distinguishable):
 - the site shows the menu
-- `/tasklist/` sends you to TaskList's own sign-in, and `/admin` shows the hub admin's sign-in
+- `/tasklist/` sends you to the bkesari ID's sign-in (`/auth/sign-in?next=%2Ftasklist%2F`), and `/admin` shows the hub admin's sign-in
 - `/ATIP/` asks for a login, then says *No dashboard snapshot has been published yet*
   (`/atip/` still resolves, for old bookmarks)
 
@@ -942,10 +946,46 @@ read (no mailbox access); the test account was marked verified directly.
 
 ---
 
-## Part 9: Accounts, one per project (since 3 Nov 2026)
+## Part 9: The bkesari ID and project access (since 17 Nov 2026, D-039)
 
-There is **no shared bkesari ID**. Each project signs its own people in, in its own database,
-with its own cookie; signing in to one grants nothing in another.
+One account per person, signed in once at bkesari.com, and each project opened by the
+admin's approval. The contract: `docs/design/bkesari-id.md`.
+
+| Piece | Where |
+|---|---|
+| Sign-in | `/auth/sign-in`: **Continue with Google** (`GOOGLE_CLIENT_ID`/`_SECRET`), the **email code**, or a built-in administrator's username + password. Session `bk_sid`, Path=/, HttpOnly, Secure, SameSite=Lax, 30 days; it never leaves the hub (the proxy drops it) |
+| Accounts | the hub database: `users`, `hub_sessions`, `hub_otp_codes`, `hub_password_resets`, `hub_rate_limits`, `hub_auth_audit_log` |
+| Access | `hub_projects` (which projects need approval, their roles; LadWani `two_step`), `project_access` (grants), `access_requests`, `audit_log` (every decision) |
+| Asking | `/access/request?project=ladwani\|edu\|tasklist`: one pending request per project; a declined person may ask again after 24 hours |
+| Deciding | `/admin/access` (an address on `HUB_OWNER_EMAILS`, or a built-in administrator): approve with a role, decline with a reason, change a role, revoke, grant directly, suspend or restore a person. Each one is emailed (`code@agtci.com`) and written to `audit_log` |
+| My projects | `/account`: each project's state, role, who approved and when (IST) |
+| The gate | in front of `/ladwani/`, `/edu/` and `/tasklist/` on every request: no session → sign-in; no active grant → the request page (APIs: 401 / 403 JSON). It strips any `X-Bkesari-*` header the browser sent and sets signed ones (`HUB_PROXY_SECRET`); roles are read from the database each time |
+| Mobile | the bkesari app (`mobile/bkesari/`, scheme `in.bkesari.app`): `/mobile-auth/start` → Google in the system browser → `/mobile-auth/complete` → `in.bkesari.app://auth-callback?code=` → `/mobile-auth/finish` gives the app's WebView its own `bk_sid` |
+
+LadWani's approval has two steps: after the admin approves, the person is "Approved — awaiting
+LadWani verification" until LadWani's own operators verify them (LadWani reports it in
+`X-Bkesari-Project-State`, which the hub stores and removes).
+
+**Day one, once per tier** (after this release is deployed there), so nobody has to ask for a
+project they already use:
+
+```bash
+# 1. See the plan (changes nothing):
+HUB_DATABASE_URL="<hub, direct>" TASKLIST_DATABASE_URL="<tasklist, direct>" \
+  LADWANI_DATABASE_URL="<ladwani>" EDU_DATABASE_URL="<edu>" \
+  node tools/link_accounts_to_hub.mjs --csv ~/link-plan.csv
+# 2. Apply: a bkesari ID and the matching grant for every account with a confirmed email.
+node tools/link_accounts_to_hub.mjs --apply
+```
+
+Accounts without a confirmed email, inactive accounts and roles with no hub equivalent are
+listed and left alone; those people sign in and ask, like anyone new. Each project links its
+own account to the bkesari ID on the person's first visit, by the same confirmed email.
+
+### Before 17 Nov 2026: accounts, one per project (3–17 Nov 2026)
+
+There was **no shared bkesari ID**. Each project signed its own people in, in its own database,
+with its own cookie. Those accounts and sign-in pages remain as each project's fallback.
 
 | Project | Accounts (its own database) | Sign-in | Session cookie |
 |---|---|---|---|
@@ -984,6 +1024,7 @@ own, so each project still signs them in and out by itself:
 
 | Where | Sign-in page | Role there |
 |---|---|---|
+| bkesari ID (D-039) | `/auth/sign-in` (type the username in the first box) | owner: every project opens with its top role, ATIP, and `/admin/access` |
 | Hub admin | `/admin` (type the username in "Email or username") | owner: tiles, banner, inbox, and ATIP |
 | TaskList | `/tasklist/sign-in`, *Email + password* tab | owner |
 | LadWani | `/ladwani/sign-in/` | admin |

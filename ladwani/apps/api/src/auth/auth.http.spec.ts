@@ -169,6 +169,9 @@ describe('LadWani auth over HTTP', () => {
     }
     delete process.env.LADWANI_HUB_JWKS
     delete process.env.HUB_JWKS_URL
+    // The hub process may hold the real one; hub-identity.http.spec.ts sets its own.
+    delete process.env.HUB_PROXY_SECRET
+    delete process.env.LADWANI_HUB_PROXY_SECRET
     delete process.env.LADWANI_COOKIE_PATH
     delete process.env.COOKIE_PATH
     // The hub process may hold the real one; a case sets its own.
@@ -200,9 +203,15 @@ describe('LadWani auth over HTTP', () => {
     process.env = { ...savedEnv }
   })
 
-  describe('the hub sign-in is gone', () => {
-    it('starts without LADWANI_HUB_JWKS and has no POST /auth/hub', async () => {
-      expect((await call('POST', '/auth/hub', { headers: { 'x-bkesari-token': 'a.b.c' } })).status).toBe(404)
+  describe('the old hub token is gone', () => {
+    it('starts without LADWANI_HUB_JWKS, and POST /auth/hub ignores an X-Bkesari-Token', async () => {
+      // POST /auth/hub now reads only the signed X-Bkesari-* identity (hub-identity.http.spec.ts).
+      await addUser(db, { hubUserId: 'hub-asha' })
+      const r = await call('POST', '/auth/hub', { body: {}, headers: { 'x-bkesari-token': 'a.b.c' } })
+      expect(r.status).toBe(200)
+      expect(r.body).toEqual({ data: null })
+      expect(sid(r)).toBe('')
+      expect(db.refreshToken.rows).toHaveLength(0)
     })
   })
 

@@ -3,17 +3,18 @@
 /* ============================================================
    The hub: bkesari.com's own pages and its admin.
 
-   Since 3 Nov 2026 the hub signs NO end users in. Each project (LadWani,
-   Education, TaskList) owns its accounts in its own database; the hub only
-   points people to them. What the hub keeps:
+   Since 17 Nov 2026 (D-039) people sign in once, here, with the bkesari ID
+   (portal/bkesari-id.js: Google, the email code, the built-in
+   administrators), and each project opens by admin approval
+   (portal/access.js: requests, the admin's queue, the gate). This file
+   keeps the hub's own pages:
 
-     /                     home: hero, the project tiles, announcement
+     /                     home: hero, the project tiles (each with the
+                           person's access state), announcement
      /about /privacy /terms   prose pages
      /contact              form -> hub_contact_messages (spam-protected)
-     /auth/sign-in         "Choose a project to sign in" (the old shared
-                           sign-in's address, kept so links and bookmarks land
-                           somewhere useful); /auth/* and the old access pages
-                           redirect here
+     /auth/sign-in         the bkesari ID's sign-in page; /auth goes there
+                           and /access to /account (portal/access.js)
      /admin                the hub's separate admin login (hub_admin_* tables,
                            no sign-up) and the editor for tiles, the
                            announcement and the contact inbox
@@ -63,7 +64,7 @@ function hubSecret(env, log) {
  * @param envName  (req) => 'dev' | 'test' | 'prod'
  * @param notify   { sms?, mail? } (notify.js) for admin password resets
  */
-function createHub({ db, env = process.env, log = console, envName = () => 'prod', notify = {} } = {}) {
+function createHub({ db, env = process.env, log = console, envName = () => 'prod', notify = {}, id = null, access = null } = {}) {
   const secret = hubSecret(env, log);
   const admin = createProjectAuth({
     db, key: 'hub-admin', name: 'bkesari hub admin', base: '/admin', cookie: 'hub_admin_sid', cookiePath: '/',
@@ -106,8 +107,12 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
   }
   const invalidate = () => { cache = { at: 0, tiles: null, announcement: null }; };
 
-  /** Is this request the owner's (hub admin with the owner role)? For ATIP. */
+  /** Is this request the owner's? For ATIP: a built-in administrator signed in to the bkesari ID, or a hub admin with the owner role. */
   async function isOwner(req) {
+    if (id) {
+      const u = await id.currentUser(req);
+      if (u && u.role === 'owner') return true;
+    }
     const s = await admin.currentSession(req);
     return Boolean(s && s.user.role === 'owner');
   }
@@ -163,35 +168,23 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
     return { values, errors };
   }
 
-  /**
-   * Who approves access, project by project. Each project keeps its own
-   * accounts and its own queue (no project reads another's), so the hub admin
-   * sees where each queue is and opens it with that project's own account.
-   */
-  const APPROVALS_PANEL = `<section class="k-card hub-approvals" aria-labelledby="appr-h">
-<h2 id="appr-h">Access approvals</h2>
-<p class="k-muted">Each project approves its own people, in its own queue, with its own administrator account. Open a queue to approve or decline.</p>
-<ul class="k-statuslist" role="list">
-<li class="k-statusrow" data-project="ladwani">${pages.ico('ladwani', 'k-icon hub-appr-ico')}<div><h3>LadWani: new members</h3><div class="k-statusrow__meta"><span class="k-chip k-chip--soon">Operator verification</span></div>
-<p>An operator or administrator checks each new member's details before they can see family records.</p></div>
-<div class="k-statusrow__action"><a class="k-btn k-btn--soft" href="/ladwani/approvals/">Open LadWani's queue</a></div></li>
-<li class="k-statusrow" data-project="education">${pages.ico('education', 'k-icon hub-appr-ico')}<div><h3>Education: schools and their people</h3><div class="k-statusrow__meta"><span class="k-chip k-chip--soon">School and officer approval</span></div>
-<p>A school's administrator approves its parents, students and teachers; district officers verify new schools.</p></div>
-<div class="k-statusrow__action"><a class="k-btn k-btn--soft" href="/edu/verification">Open Education's queue</a></div></li>
-<li class="k-statusrow" data-project="tasklist">${pages.ico('tasklist', 'k-icon hub-appr-ico')}<div><h3>TaskList</h3><div class="k-statusrow__meta"><span class="k-chip k-chip--live">Open sign-up</span></div>
-<p>Anyone may create an account; nothing to approve.</p></div>
-<div class="k-statusrow__action"><a class="k-btn k-btn--secondary" href="/tasklist/">Open TaskList</a></div></li>
-</ul></section>`;
-
   function mount(app) {
-    // Old shared sign-in and access pages: everyone lands on the chooser.
-    app.get(['/auth', '/auth/*', '/access/request', '/access', '/access/*'], (req, res, next) => {
-      if (req.path === '/auth/sign-in') return next();
-      res.redirect(301, '/auth/sign-in');
-    });
-    app.get(['/admin/access', '/admin/access/*'], (req, res) => res.redirect(301, '/admin'));
-    app.all(['/hub/api/me', '/hub/api/access-requests', '/hub/api/admin/*'], (req, res) =>
-      res.status(410).json({ error: 'The shared bkesari ID has been retired. Each project now has its own sign-in.', chooser: '/auth/sign-in' }));
+    // The bkesari ID's sign-in (D-039): Google first, then the email code; a
+    // built-in administrator types the username and gets a password box.
+    app.get(['/auth', '/auth/'], (req, res) => res.redirect(302, '/auth/sign-in'));
+    app.get('/auth/sign-in', wrap(async (req, res) => {
+      const user = id ? await id.currentUser(req) : null;
+      const next = id ? id.safeNext(req.query.next) : '/';
+      if (user && !req.query.error) return res.redirect(302, next);
+      const lang = pages.langOf(req);
+      const err = /^google_[a-z_]{1,30}$/.test(String(req.query.error || '')) ? String(req.query.error).slice(7) : null;
+      send(req, res, {
+        title: `${pages.t(lang, 'id.title')} — bkesari`, pathname: '/auth/sign-in', scripts: ['/shared/signin.js'],
+        body: (l) => pages.signIn({ lang: l, next, google: id ? id.googleEntry(req, next) : null, error: err }),
+        isOwner: await isOwner(req),
+      });
+    }));
+    app.get('/access', (req, res) => res.redirect(302, '/account'));
     // The old key set: nothing verifies hub tokens any more.
     app.get('/.well-known/jwks.json', (req, res) => res.status(410).json({ keys: [], note: 'retired 3 Nov 2026' }));
 
@@ -214,32 +207,18 @@ ${PUBLIC_PAGES.map((p) => `  <url><loc>${origin}${p}</loc></url>`).join('\n')}
 `);
     });
 
-    // The home page's heading is in the display face: fetching it with the HTML
-    // lets the heading paint once, in its own face, so nothing below it moves.
-    app.get('/', page('home.title', pages.home, { data: () => content(), head: pages.DISPLAY_FONT_PRELOAD }));
+    // The home page: each tile shows the person's access (D-039). Its heading is
+    // in the display face, fetched with the HTML so it paints once and nothing
+    // below it moves.
+    app.get('/', page('home.title', pages.home, { head: pages.DISPLAY_FONT_PRELOAD, data: async (req) => {
+      const c = await content();
+      const user = id ? await id.currentUser(req) : null;
+      const states = access ? await access.statusList(user) : [];
+      return { ...c, user, states };
+    } }));
     app.get('/about', page('about.title', pages.about, { data: () => content() }));
     app.get('/privacy', page('privacy.title', pages.privacy));
     app.get('/terms', page('terms.title', pages.terms));
-    app.get('/auth/sign-in', page('chooser.title', pages.chooser));
-
-    // Request access: step 1 picks a project, step 2 (?project=) says what
-    // that project asks and who approves, then hands over to its own sign-up.
-    app.get('/request-access', wrap(async (req, res) => {
-      const lang = pages.langOf(req);
-      const project = pages.SIGN_IN.some((p) => p.key === req.query.project) ? req.query.project : null;
-      const error = !project && req.query.step === '2';
-      send(req, res, { title: `${pages.t(lang, 'request.title')} — bkesari`, status: error ? 400 : 200,
-        body: (l) => pages.requestAccess({ lang: l, project, error }), isOwner: await isOwner(req) });
-    }));
-
-    // My projects and access: each project is asked from the browser (/shared/account.js).
-    app.get('/account', wrap(async (req, res) => {
-      const lang = pages.langOf(req);
-      const owner = await isOwner(req);
-      res.set('X-Robots-Tag', 'noindex');
-      send(req, res, { title: `${pages.t(lang, 'account.title')} — bkesari`, body: (l) => pages.account({ lang: l, isOwner: owner }),
-        isOwner: owner, scripts: ['/shared/account.js'] });
-    }));
 
     // Read the site in another language without scripts: set k_lang, go back.
     // Only a path on this site is followed, never another host.
@@ -313,7 +292,7 @@ ${PUBLIC_PAGES.map((p) => `  <url><loc>${origin}${p}</loc></url>`).join('\n')}
       send(req, res, {
         title: `${pages.t(lang, 'admin.title')} — bkesari`, pathname: '/admin', isOwner: s.user.role === 'owner', scripts: ['/shared/admin.js'],
         body: () => `<div class="hub-admin" data-admin-app><h1>Hub admin</h1><p class="k-muted">Signed in as ${escapeHtml(s.user.email || '')} (${escapeHtml(s.user.role)}).</p>
-${APPROVALS_PANEL}
+<a class="k-card k-card--link hub-admin-access" href="/admin/access">${pages.ico('users', 'k-icon')}<span><strong>Access requests</strong><br><span class="k-muted">Approve or decline who may open LadWani, Education and TaskList (bkesari ID admin)</span></span>${pages.ico('arrow-right', 'k-icon')}</a>
 <div class="hub-admin-grid" id="admin-root"><div class="k-skel k-skel--card"></div><div class="k-skel k-skel--card"></div></div></div>`,
       });
     }));

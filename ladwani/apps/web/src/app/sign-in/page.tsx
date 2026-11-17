@@ -28,7 +28,7 @@ function goTo(path: string) {
 
 export default function SignInPage() {
   const t = useT()
-  const { user, loading, smsLive } = useAuth()
+  const { user, loading, smsLive, hubNotice } = useAuth()
   const tabsId = useId()
   const [method, setMethod] = useState<Method>('email')
   // The SMS tab exists only while the API has an SMS provider.
@@ -58,6 +58,8 @@ export default function SignInPage() {
         </p>
       }
     >
+      {/* Why bkesari.com's sign-in could not open LadWani for this person (POST /auth/hub refused). */}
+      <ErrorBanner message={hubNotice} />
       <Tabs<Method>
         id={tabsId}
         label={t('signIn.methods')}

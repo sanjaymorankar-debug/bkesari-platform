@@ -105,9 +105,6 @@
 .hub-admin .k-table td{vertical-align:middle}
 .hub-admin textarea{min-height:60px}
 .hub-admin-grid{display:grid;gap:var(--k-6)}
-.hub-approvals{margin:var(--k-6) 0}
-.hub-approvals h2{font-size:var(--k-text-xl)}
-.hub-appr-ico{width:40px;height:40px;padding:8px;border-radius:12px;background:var(--k-accent-tint);color:var(--k-accent-ink)}
 
 /* ---- Static project pages (Driving Simulator, Environment) --------------- */
 .sp-page .k-hero{padding-top:var(--k-2)}
@@ -159,3 +156,14 @@
 .sp-co2 h3{font-size:var(--k-text-md);margin-bottom:var(--k-4)}
 .sp-co2 .k-stat__source{margin-top:var(--k-4)}
 .k-stat .k-picon{margin-bottom:var(--k-2)}
+
+
+/* The bkesari ID (D-039): sign-in, my projects, the admin's access page. */
+.hub-google { margin-bottom: var(--k-space-3, 12px); }
+.hub-or { text-align: center; margin: var(--k-space-3, 12px) 0; font-size: .9em; }
+.hub-me { display: flex; gap: var(--k-space-3, 12px); align-items: center; }
+.hub-avatar { border-radius: 50%; }
+.hub-filters { gap: var(--k-space-2, 8px); align-items: flex-end; margin-bottom: var(--k-space-3, 12px); flex-wrap: wrap; }
+.hub-filters label { display: flex; flex-direction: column; font-size: .85em; gap: 2px; }
+.k-input--sm { padding: 4px 8px; min-height: 36px; width: auto; }
+.k-table-wrap { overflow-x: auto; }

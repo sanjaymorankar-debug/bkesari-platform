@@ -6,6 +6,9 @@
  * closed to everyone else.
  *
  * Needs TEST_DATABASE_URL (a database it may WIPE); works in a schema of its own.
+ * TaskList is driven on its own (`enforceAccess: false`): since D-039 the site
+ * puts the hub's access gate in front of it (tests/access.pg.test.js), where the
+ * built-in administrators are owners at the hub.
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -34,7 +37,7 @@ describe('built-in administrators on PostgreSQL', { skip }, () => {
       BUILTIN_ADMIN_PASSWORD_HASH: await hashPassword(PASSWORD, { N: 2 ** 14, r: 8, p: 1 }),
     });
     const notify = () => ({ mail: async () => true });
-    const made = createApp(db, { notify, log: quiet });
+    const made = createApp(db, { notify, log: quiet, enforceAccess: false });
     server = await new Promise((r) => { const s = made.app.listen(0, '127.0.0.1', () => r(s)); });
     base = `http://127.0.0.1:${server.address().port}`;
   });
@@ -90,7 +93,7 @@ describe('built-in administrators on PostgreSQL', { skip }, () => {
     const keep = process.env.BUILTIN_ADMIN_PASSWORD_HASH;
     process.env.BUILTIN_ADMIN_PASSWORD_HASH = 'not-a-hash';
     try {
-      const made = createApp(db, { notify: () => ({}), log: quiet });
+      const made = createApp(db, { notify: () => ({}), log: quiet, enforceAccess: false });
       const s2 = await new Promise((r) => { const s = made.app.listen(0, '127.0.0.1', () => r(s)); });
       try {
         const b = new Browser(`http://127.0.0.1:${s2.address().port}`);
@@ -198,7 +201,7 @@ describe('built-in administrators on PostgreSQL', { skip }, () => {
     const keep = { HUB_ADMIN_EMAIL: process.env.HUB_ADMIN_EMAIL, HUB_ADMIN_PASSWORD: process.env.HUB_ADMIN_PASSWORD };
     Object.assign(process.env, { HUB_ADMIN_EMAIL: 'Agtcipl@Gmail.com', HUB_ADMIN_PASSWORD: 'first-admin-local-1' });
     try {
-      const made = createApp(db, { notify: () => ({}), log: quiet });
+      const made = createApp(db, { notify: () => ({}), log: quiet, enforceAccess: false });
       assert.ok(await made.hub.bootstrapAdmin(), 'the first admin is made');
       assert.equal(await made.hub.bootstrapAdmin(), null, 'and only once');
       const { r } = await signIn('/admin/api/auth', 'agtcipl@gmail.com', 'first-admin-local-1', '203.0.113.19');

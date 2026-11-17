@@ -10,7 +10,7 @@
 - **A code on screen (`devOtp`)**: only on the dev tier (`APP_ENV=dev`) or a local run (`APP_ENV` unset and `NODE_ENV` not `production`), and only when no mail provider is configured. Never on the test or production tiers (`APP_ENV=test`/`prod`, or no `APP_ENV` with `NODE_ENV=production`): there, without a provider, sending answers 503 "We could not send the email right now. Try again later or sign in with your password." (`apps/api/src/common/tier.ts`).
 - **Login rate limiting**: `@nestjs/throttler` per visitor on every auth route, plus 5 wrong passwords per account → password sign-in locked for 15 minutes (`failed_attempts`/`locked_until`). A code still signs in during a lock, and a reset clears it.
 - **Cross-site requests**: every `/auth` route refuses them (`auth/same-origin.guard.ts`): an `Origin` must name the host, and `Sec-Fetch-Site: cross-site` is refused.
-- **Own accounts only**: LadWani never trusts another bkesari project's sign-in; the hub's app shell only reads `GET /auth/session` to show who is signed in.
+- **Own accounts, and the bkesari hub's identity (D-039)**: LadWani never trusts another bkesari project's sign-in. Inside bkesari.com it does trust the hub's signed identity headers (`X-Bkesari-User`, `-Email`, `-Role`, `-Name`, `-Project`, `-Ts`, `-Sig`; HMAC-SHA256 with `HUB_PROXY_SECRET`, project `ladwani`, less than 60 seconds old; `auth/hub-identity.ts`) and nothing else from the hub. `POST /auth/hub` turns a valid set into the person's own LadWani session, with no password: the account joined to the hub id, else the one with that email only if LadWani confirmed it (then joined), else a new one; an unconfirmed email is refused (409), never joined or duplicated (D-035). The hub's role is added (member → MEMBER, karta/operator/admin → that role + MEMBER), never removed. Under a valid identity only that person's own session is believed (`JwtStrategy`, `/auth/refresh`, `/auth/session`), and every answer carries `X-Bkesari-Project-State: verified | pending` (`auth/project-state.service.ts` defines verified). Without a valid set the headers are ignored and everything below works as before. Details: `21-deployment-guide.md`, "The bkesari hub's sign-in"; the contract: `docs/design/bkesari-id.md` at the repository root.
 
 ## 2. Authorization
 
@@ -59,7 +59,7 @@ Some actions are permission-gated *and* approval-gated simultaneously (e.g. `mem
 
 - Access token: in-memory (a React context/store), never `localStorage` — eliminates a whole class of XSS-driven token theft.
 - Refresh token: httpOnly cookie, inaccessible to JavaScript entirely.
-- On app load, silently attempt `/auth/refresh` using the cookie to re-establish an access token; a 401 there means genuinely logged out. With an access token already held, `GET /auth/session` checks the cookie still holds a session (the app shell may have signed out) without rotating it.
+- On app load, first `POST /auth/hub`: inside bkesari.com it signs in the person the hub vouches for and the app is done. Otherwise (`{ data: null }`), silently attempt `/auth/refresh` using the cookie to re-establish an access token; a 401 there means genuinely logged out. With an access token already held, `GET /auth/session` checks the cookie still holds a session (the app shell may have signed out) without rotating it.
 
 ## 4. What Explicitly Never Changes Based on Role
 

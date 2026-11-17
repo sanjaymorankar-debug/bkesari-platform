@@ -182,8 +182,10 @@ function stripPrefix(route, url) {
   return (path.slice(route.base.length) || '/') + suffix;
 }
 
-// Cookies only the hub may read: the admin's session and its CSRF pair.
-const HUB_PRIVATE_COOKIES = ['hub_admin_sid', 'hub_admin_sid_csrf'];
+// Cookies only the hub may read: the hub admin's session and the bkesari ID's
+// (D-039), each with its CSRF pair. A project learns who the person is from the
+// gate's signed X-Bkesari-* headers, never from the hub's session token.
+const HUB_PRIVATE_COOKIES = ['hub_admin_sid', 'hub_admin_sid_csrf', 'bk_sid', 'bk_sid_csrf'];
 
 /**
  * Removes the named cookies from the request's Cookie header, keeping every

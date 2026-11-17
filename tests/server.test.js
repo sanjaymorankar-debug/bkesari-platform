@@ -181,6 +181,11 @@ test('the hub is an installable PWA: manifest, icons, service worker, offline pa
     assert.match(home, /apple-touch-icon/);
     // TaskList installs on its own, scoped to /tasklist/.
     const tm = await (await fetch(`${base}/tasklist/manifest.webmanifest`)).json();
+    // The access gate (D-039) guards all of /tasklist/, the manifest too, and a
+    // browser fetches a manifest without cookies unless its link asks for them.
+    for (const p of ['/tasklist/app.html', '/tasklist/sign-in']) {
+      assert.match(await (await fetch(base + p)).text(), /<link rel="manifest" href="\/tasklist\/manifest\.webmanifest" crossorigin="use-credentials">/, p);
+    }
     assert.equal(tm.scope, '/tasklist/');
     assert.equal(tm.start_url.split('?')[0], '/tasklist/');
     const tsw = await fetch(`${base}/tasklist/sw.js`);

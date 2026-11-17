@@ -14,6 +14,8 @@ const storage = require('./storage');
 const realtime = require('./realtime');
 // The hub's own pages and its admin; TaskList with its own accounts.
 const { createHub } = require('./hub');
+const { createBkesariId } = require('./bkesari-id');
+const { createAccess } = require('./access');
 const { createTaskList } = require('./tasklist');
 const { createNotifier } = require('./notify');
 const pages = require('./hub-pages');
@@ -216,9 +218,27 @@ function createApp(db, extra = {}) {
   // response that is already encoded (a proxied app's) is left as it is.
   app.use(compression());
 
+  // The bkesari ID (D-039, docs/design/bkesari-id.md): one sign-in at the hub
+  // (Google, the email code, the built-in administrators), and project access
+  // by admin approval, enforced here on every request to a project.
+  const notifyHub = extra.notify ? extra.notify('HUB') : createNotifier('HUB', env, { fromName: 'bkesari' });
+  const id = createBkesariId({
+    db: hubDb, env, secret: projectSecret('HUB'), notify: notifyHub, tier: currentEnv, log: extra.log || console, fetch: extra.fetch,
+  });
+  const access = createAccess({ db: hubDb, id, env, notify: notifyHub, log: extra.log || console, pages, envName: currentEnv });
+  // The gate: before each project is mounted, and before any body parser (it
+  // reads nothing from the body). Only LadWani's immutable build files skip it.
+  // `extra.enforceAccess === false` exists for the suites that test a project's
+  // own module on its own (tests/tasklist.pg.test.js); the site always has it.
+  if (extra.enforceAccess !== false) {
+    app.use('/ladwani', access.gate('ladwani', { exempt: (p) => p.startsWith('/_next/static/') }));
+    app.use('/edu', access.gate('edu'));
+    app.use('/tasklist', access.gate('tasklist'));
+  }
+
   // LadWani runs in this process (portal/ladwani.js) when its build is here:
-  // main() asks for it, tests pass their own options. It signs its own people
-  // in; the hub adds nothing. BEFORE THE BODY PARSERS: its API reads the body.
+  // main() asks for it, tests pass their own options. It learns who the person
+  // is from the gate's signed headers. BEFORE THE BODY PARSERS: its API reads the body.
   const ladwaniTab = extra.ladwani ? ladwani.mount(app, { ...extra.ladwani }) : null;
 
   // The projects that live in their own apps, each under its own tab path.
@@ -244,8 +264,7 @@ function createApp(db, extra = {}) {
     renderMenu: (pathname, req) => menu.renderHtml({ pathname, env: currentEnv(req), lang: pages.langOf(req) }),
   });
 
-  const notifyHub = extra.notify ? extra.notify('HUB') : createNotifier('HUB', env, { fromName: 'bkesari' });
-  const hub = createHub({ db: hubDb, env, envName: currentEnv, notify: notifyHub, log: extra.log || console });
+  const hub = createHub({ db: hubDb, env, envName: currentEnv, notify: notifyHub, log: extra.log || console, id, access });
 
   const tasklist = createTaskList({
     db, tier: currentEnv, log: extra.log || console,
@@ -266,6 +285,8 @@ function createApp(db, extra = {}) {
 
   // TaskList and the hub parse their own bodies, route by route.
   tasklist.mount(app);
+  id.mount(app);
+  access.mount(app);
   hub.mount(app);
 
   // ATIP belongs to the owner: the hub admin with the owner role. Without a
@@ -425,7 +446,7 @@ function createApp(db, extra = {}) {
     res.status(status).json({ error: message });
   });
 
-  return { app, proxied, ladwaniTab, hub, tasklist };
+  return { app, proxied, ladwaniTab, hub, tasklist, id, access };
 }
 
 /**

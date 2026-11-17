@@ -30,10 +30,13 @@ portal-tester agent".
 | The hub's pages and admin | `portal/hub.js`, `portal/hub-pages.js`, `portal/i18n/hub.json` | Node 22, Express 4 |
 | Per-project sign-in (TaskList, hub admin) | `portal/project-auth.js`, `portal/notify.js` | Node 22, bcryptjs |
 | The built-in administrators (D-036): names, reserved domain, scrypt hash, and the script that makes it | `portal/builtin-admins.js`, `scripts/hash-builtin-admin-password.js` (LadWani's port: `ladwani/apps/api/src/auth/builtin-admins.ts`) | Node 22 `crypto.scrypt`, bcryptjs |
+| The bkesari ID (D-039): Google OIDC, the email code, sessions, the mobile hand-off | `portal/bkesari-id.js`, `portal/public/shared/signin.js` | Node 22 `crypto` (RS256 / JWKS, HMAC) |
+| Project access (D-039): requests, the admin's decisions, `/account`, the gate and the signed identity headers | `portal/access.js`, `portal/public/shared/access.js`, `portal/public/shared/access-admin.js` | Node 22, Express 4 |
+| The day-one account linking | `tools/link_accounts_to_hub.mjs` | Node ESM, pg |
 | TaskList | `portal/tasklist.js`, `portal/public/tasklist/**` | Node 22; browser JS |
 | Kesari design system | `packages/kesari-ui/**` (built to `portal/public/kesari-ui/1.1.0/`) | CSS, browser JS, esbuild |
 | The shared-ID migration | `tools/migrate_shared_id.mjs` | Node ESM, pg |
-| Mobile shells | `mobile/**` (Capacitor configs; not built here) | JSON, HTML |
+| Mobile: the bkesari app and the three shells | `mobile/**` (Capacitor; `mobile/bkesari/` has its own tests, `cd mobile && npm ci && npm test`; native builds are not run here) | JSON, HTML, browser JS |
 | Database layer and schema | `portal/db.js`, `portal/sql/schema.sql`, `database/portal/01_portal_schema.sql` | node-postgres 8, PostgreSQL 16 |
 | Proxy to the project tabs | `portal/proxy.js` | http-proxy-middleware 4 |
 | LadWani served by the hub (static export, in-process API, gate) | `portal/ladwani.js` | Node 22, Express 4 |
@@ -114,7 +117,9 @@ them. LadWani's schema goes into its database once per run (2.5).
 
 | Variable | Read by | Safe local value |
 |---|---|---|
-| `TEST_DATABASE_URL` | `tests/db.pg.test.js`, `tests/hub.pg.test.js`, `tests/tasklist.pg.test.js`, `tests/migrate.pg.test.js`, `tests/builtin-admins.pg.test.js` | the suite database. Unset: their six PostgreSQL suites skip, which is a failure at S3 |
+| `TEST_DATABASE_URL` | `tests/db.pg.test.js`, `tests/hub.pg.test.js`, `tests/tasklist.pg.test.js`, `tests/migrate.pg.test.js`, `tests/builtin-admins.pg.test.js`, `tests/access.pg.test.js`, `tests/link-accounts.pg.test.js` | the suite database. Unset: their PostgreSQL suites skip, which is a failure at S3 |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (also `AUTH_GOOGLE_ID` / `_SECRET`) | the bkesari ID's Google sign-in (`portal/bkesari-id.js`) | **unset** in every shell that starts a hub or a test: `access.pg.test.js` sets test-only values and plays Google itself (a key pair it makes, a fake token endpoint). Never the real client's values, and nothing here ever calls Google |
+| `HUB_OWNER_EMAILS`, `HUB_ADMIN_NOTIFY_EMAILS`, `MOBILE_APP_SCHEMES` | who is the bkesari admin, who else hears of requests, extra app schemes (`portal/bkesari-id.js`, `portal/access.js`) | unset (the suites set their own) |
 | `SMOKE_DATABASE_URL` | this spec's S4/S5 commands | the smoke database |
 | `DATABASE_URL` | the app | S4/S5: `$SMOKE_DATABASE_URL`. On Neon the pooled string |
 | `DATABASE_URL_UNPOOLED` | the app, schema setup only | blank is fine (S5 leaves it unset; S7 sets it) |
@@ -205,7 +210,7 @@ Record each command's exit code, counts and duration.
 | 3 | S1 static | `for f in scripts/*.sh .github/deploy/*.sh tools/*.sh; do bash -n "$f" \|\| echo "FAIL $f"; done` | prints nothing |
 | 4 | S1 static | `python3 -c "import sys,yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" .github/workflows/*.yml` | exit 0 |
 | 5 | S1 static | the no-inline-script check below | `inline scripts: 0`, exit 0 |
-| 6 | S2 unit | `set -o pipefail; env -u TEST_DATABASE_URL npm test 2>&1 \| tee /tmp/portal-s2.txt` | exit 0; exactly six `# SKIP` lines, the six PostgreSQL suites (node counts them under `# suites`, not `# skipped`); guard `32 passed, 0 failed` |
+| 6 | S2 unit | `set -o pipefail; env -u TEST_DATABASE_URL npm test 2>&1 \| tee /tmp/portal-s2.txt` | exit 0; exactly eight `# SKIP` lines, the eight PostgreSQL suites (node counts them under `# suites`, not `# skipped`); guard `32 passed, 0 failed` |
 | 6a | S2 LadWani unit | `npm --prefix ladwani test` (Jest, `ladwani/apps/api`; no database) | exit 0; `Tests:` 0 failed, 0 skipped, count at or above section 5 |
 | 6b | S2 LadWani types | `npm --prefix ladwani run typecheck` (api, then web) | exit 0 |
 | 6c | S2 LadWani lint | `npm --prefix ladwani run lint --workspace=apps/web` | exit 0, no `Error:` line; list the warnings in the report (section 5 has the expected ones) |
@@ -213,7 +218,7 @@ Record each command's exit code, counts and duration.
 | 8 | S3 integration | the hand-run SQL load below | exit 0 |
 | 9 | S4 build | the deploy-bundle boot below | `bundle boots: 200` |
 | 9a | S4 LadWani build | the LadWani build below (`build:embedded` without its `npm install`) | exit 0; `ladwani/apps/web/out/index.html` and `ladwani/apps/api/dist/main.js` exist; the route list shows the ten `[param]` pages each built once, as `/…/_` |
-| 10 | S5 smoke | the smoke run below (needs #9a's export) | smoke-dev.sh `0 failed, 0 warnings` (`/edu/` goes to `scripts/edu-standin.js`, as in CI (D-031), whose sign-in page carries Livewire's markup, so the Livewire checks run; the hub serves LadWani); every probe `ok`; `S5 failures: 0` |
+| 10 | S5 smoke | the smoke run below (needs #9a's export) | smoke-dev.sh `0 failed, 0 warnings` (`/edu/` goes to `scripts/edu-standin.js`, as in CI (D-031); since D-039 the gate answers an anonymous `/edu/`, so smoke-dev.sh checks that instead of Livewire's markup; the hub serves LadWani); every probe `ok`; `S5 failures: 0` |
 | 11 | S6 security | the security checks below | `S6 failures: 0` |
 | 12 | S6 hygiene | `npm audit --omit=dev`; `npm --prefix ladwani audit --omit=dev` | report only: list advisories in the report; fix only if trivial. LadWani's run in the hub's process (Nest, Prisma); its Next.js only builds the export |
 | 13 | S7 Neon parity | `bash scripts/neon-parity.sh` (2.6) | `Neon parity passed.`, exit 0 |
@@ -290,10 +295,13 @@ test -f ladwani/apps/web/out/index.html && test -f ladwani/apps/api/dist/main.js
 throwaway settings, then `scripts/smoke-dev.sh` (what CI and the dev deploy run), then the probes
 it cannot make without an account, then the proxy with a throwaway upstream, then LadWani in the
 hub's process with its real API on the LadWani smoke database, then hubs on the test and production
-tiers, which must show no code or link anywhere (D-029). Since 3 Nov 2026 nothing sits in
-front of LadWani or Education: each signs its own people in, so the hub's own `server.js` is
-started every time (there is no signed-in stand-in any more). `/edu/` never leaves the machine:
-every hub here sends it to port 3111 (D-031).
+tiers, which must show no code or link anywhere (D-029). Since 17 Nov 2026 (D-039) the hub's
+access gate stands in front of TaskList, Education and LadWani, so the run signs in to the bkesari
+ID by email code (the dev tier shows it), as the admin (`smoke@example.com`, on
+`HUB_OWNER_EMAILS`) and as a member (`s5@example.com`) who asks for TaskList, is approved, and is
+then granted Education and LadWani; every project line goes through the gate with the member's
+session, which the smoke database keeps across the hub restarts. The hub's own `server.js` is
+started every time. `/edu/` never leaves the machine: every hub here sends it to port 3111 (D-031).
 
 ```bash
 export BASE=http://127.0.0.1:3101 U=smoke PW=smoke-local-only TOKEN=smoke-local-token
@@ -312,37 +320,50 @@ want() { local exp=$1; shift; local got; got=$(code "$@")
 has() { if printf '%s' "$1" | grep -qF -- "$2"; then echo "ok    has '$2'"; else echo "FAIL  missing '$2'"; F=$((F+1)); fi; }
 json() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const o=JSON.parse(s);console.log(process.argv[1].split(".").reduce((a,k)=>a&&a[k],o))})' "$1"; }
 J='content-type: application/json'
+# bk_in <jar> <email>: the bkesari ID's email code (D-039; the dev tier shows the code, as no mail is
+# set), the session left in <jar>. Prints the session's CSRF token, which TaskList takes too.
+bk_in() { local c otp; c=$(curl -s -c "$1" "$BASE/account/api/auth/session" | json csrf)
+  otp=$(curl -s -b "$1" -c "$1" -H "$J" -H "x-csrf-token: $c" -d "{\"email\":\"$2\"}" "$BASE/account/api/auth/otp/send" | json devCode)
+  curl -s -b "$1" -c "$1" -H "$J" -H "x-csrf-token: $c" -d "{\"email\":\"$2\",\"code\":\"$otp\",\"name\":\"S5\"}" "$BASE/account/api/auth/otp/verify" | json csrf; }
 
 node scripts/edu-standin.js 3111 >/dev/null & UP0=$!; sleep 0.5   # /edu/: CI's stand-in, never devedu (D-031)
 start_hub
 bash scripts/smoke-dev.sh "$BASE" --env dev || F=$((F+1))
 has "$(curl -sI "$BASE/" | tr -d '\r')" 'X-Bkesari-Env: dev'
 has "$(curl -s "$BASE/")" 'Driving Simulator';  has "$(curl -s -H 'cookie: k_lang=mr' "$BASE/")" 'lang="mr"'
-# TaskList: its own account, made with mobile + OTP (the dev tier shows the code), its own cookie.
-# The smoke database outlives the run, and the limits hold (CR-23, tested in tasklist.pg and hub.pg):
-# TaskList's 5 codes per mobile an hour, the admin's 10 sign-ins per 15 minutes. Each run signs both in
-# with the same mobile and address, so it starts their counters afresh; else a repeat run is a 429.
-psql "$SMOKE_DATABASE_URL" -XAq -c 'DELETE FROM tl_rate_limits' -c 'DELETE FROM hub_admin_rate_limits' \
+# The smoke database outlives the run, and the limits hold (CR-23, tested in tasklist.pg, hub.pg and
+# access.pg): the bkesari ID's and TaskList's 5 codes per address an hour, the admin's 10 sign-ins per
+# 15 minutes. Each run signs in with the same addresses, so it starts their counters afresh (else a
+# repeat run is a 429), and takes back the access its member was given the last time.
+psql "$SMOKE_DATABASE_URL" -XAq -c 'DELETE FROM tl_rate_limits' -c 'DELETE FROM hub_admin_rate_limits' -c 'DELETE FROM hub_rate_limits' \
+  -c "DELETE FROM project_access WHERE email = 's5@example.com'" -c "DELETE FROM access_requests WHERE email = 's5@example.com'" \
   || { echo "FAIL could not reset the sign-in rate limits"; F=$((F+1)); }
-TL=$(mktemp); C=$(curl -s -c $TL "$BASE/tasklist/api/auth/session" | json csrf)
-OTP=$(curl -s -b $TL -c $TL -H "$J" -H "x-csrf-token: $C" -d '{"mobile":"9876500999","purpose":"sign-up"}' "$BASE/tasklist/api/auth/otp/send" | json devCode)
-C=$(curl -s -b $TL -c $TL -H "$J" -H "x-csrf-token: $C" -d "{\"mobile\":\"9876500999\",\"code\":\"$OTP\",\"name\":\"S5\"}" "$BASE/tasklist/api/auth/otp/verify" | json csrf)
-has "$(awk '$6 == "tl_sid" { print "Path=" $3 }' $TL)" 'Path=/tasklist'   # the session cookie itself, not tl_sid_csrf
-# The sign-in page's first tab: email + code (D-029). Dev shows the code, as no mail is set.
-TE=$(mktemp); C2=$(curl -s -c $TE "$BASE/tasklist/api/auth/session" | json csrf)
-OTP=$(curl -s -b $TE -c $TE -H "$J" -H "x-csrf-token: $C2" -d '{"email":"s5@example.com","purpose":"sign-up"}' "$BASE/tasklist/api/auth/otp/send" | json devCode)
-has "$(curl -s -b $TE -c $TE -H "$J" -H "x-csrf-token: $C2" -d "{\"email\":\"s5@example.com\",\"code\":\"$OTP\",\"name\":\"S5 mail\"}" "$BASE/tasklist/api/auth/otp/verify")" '"email":"s5@example.com"'
-want 201 -b $TL -H "$J" -H "x-csrf-token: $C" -d '{"text":"S5 smoke tomorrow 5pm #s5"}' "$BASE/tasklist/api/quick-add"
+# The bkesari ID (D-039): one sign-in at the hub, its session cookie bk_sid on Path=/. The admin is
+# smoke@example.com (HUB_OWNER_EMAILS); s5@example.com is a member.
+BA=$(mktemp); CA=$(bk_in $BA smoke@example.com)
+TL=$(mktemp); C5=$(bk_in $TL s5@example.com)
+has "$(awk '$6 == "bk_sid" { print "Path=" $3 ";" }' $TL)" 'Path=/;'   # the session cookie itself, not bk_sid_csrf
+has "$(curl -s -b $BA "$BASE/hub/api/me")" '"admin":true'
+# TaskList is behind the gate: no access yet; the member asks, the admin approves (CSRF required), and
+# TaskList opens on the next request, on the bkesari ID's session and its CSRF token.
+has "$(curl -sI -b $TL "$BASE/tasklist/" | tr -d '\r')" 'Location: /access/request?project=tasklist'
+want 403 -b $TL "$BASE/tasklist/api/tasks"
+want 201 -b $TL -H "$J" -H "x-csrf-token: $C5" -d '{"project":"tasklist","role":"editor"}' "$BASE/hub/api/access/requests"
+RID=$(curl -s -b $BA "$BASE/hub/api/admin/access/requests?status=pending&project=tasklist" | json requests.0.id)
+want 403 -b $BA -H "$J" -d '{"role":"editor"}' "$BASE/hub/api/admin/access/requests/$RID/approve"
+want 200 -b $BA -H "$J" -H "x-csrf-token: $CA" -d '{"role":"editor"}' "$BASE/hub/api/admin/access/requests/$RID/approve"
+want 201 -b $TL -H "$J" -H "x-csrf-token: $C5" -d '{"text":"S5 smoke tomorrow 5pm #s5"}' "$BASE/tasklist/api/quick-add"
 has "$(curl -s -b $TL "$BASE/tasklist/api/tasks")" '"due_time":"17:00"'
 want 403 -b $TL -H "$J" -d '{"title":"no token"}' "$BASE/tasklist/api/tasks"
-want 401 -b $TL "$BASE/admin/api/state"          # TaskList's session is no one at the hub
+want 401 -b $TL "$BASE/admin/api/state"          # the bkesari ID is no one at the hub admin
 want 404 -b $TL "$BASE/ATIP/"
+U5=$(curl -s -b $TL "$BASE/hub/api/me" | json user.id)
 want 410 "$BASE/tasks/api/overview";  has "$(curl -sI "$BASE/tasks/" | tr -d '\r')" 'Location: /tasklist/'
 # The hub admin: its own login, Path=/ cookie, and the owner's ATIP.
 AD=$(mktemp); C=$(curl -s -c $AD "$BASE/admin/api/auth/session" | json csrf)
 want 401 -b $AD -H "$J" -H "x-csrf-token: $C" -d '{"identifier":"smoke@example.com","password":"wrong-one-1"}' "$BASE/admin/api/auth/sign-in"
 want 200 -b $AD -c $AD -H "$J" -H "x-csrf-token: $C" -d "{\"identifier\":\"smoke@example.com\",\"password\":\"$PW\"}" "$BASE/admin/api/auth/sign-in"
-want 401 -b $AD "$BASE/tasklist/api/tasks"       # the hub admin is no one in TaskList
+want 401 -b $AD "$BASE/tasklist/api/tasks"       # the hub admin is no one in TaskList (no bkesari ID: the gate)
 want 401 -H 'authorization: Bearer wrong' -H "$J" -d '{"html":"<html><body>x</body></html>"}' "$BASE/ATIP/api/snapshot"
 want 200 -H "authorization: Bearer $TOKEN" -H "$J" -d '{"html":"<html><body><p>S5 snapshot</p></body></html>","trade_date":"2026-10-24"}' "$BASE/ATIP/api/snapshot"
 want 404 "$BASE/ATIP/";  want 404 "$BASE/ATIP"
@@ -351,28 +372,37 @@ has "$V" "connect-src 'none'";  has "$V" 'S5 snapshot';  has "$V" 'class="ks-bar
 kill $HUB; wait $HUB 2>/dev/null; kill $UP0; wait $UP0 2>/dev/null; sleep 0.5
 
 # The proxy, with the real server.js: a throwaway upstream on 3111 that echoes what it got.
-# Nothing gates the tabs any more, and no hub token is ever forwarded, forged or not. Nor is the
-# hub admin's session (D-027): its two Path=/ cookies come off, the project's own pass as sent.
-# With #9a's export built, server.js serves /ladwani/ itself and ignores LADWANI_ORIGIN; the
-# Education lines are the proxy's. The app is told one visitor address, what req.ip resolves
-# with trust proxy at its default (loopback: curl here is a trusted hop, so a chain's last
-# entry), and the hub's secret; neither as the client sent it, also with Expect (D-038).
-node -e 'require("http").createServer((q,r)=>{let b="";q.on("data",c=>b+=c).on("end",()=>{r.setHeader("content-type","application/json");r.end(JSON.stringify({url:q.url,body:b,token:q.headers["x-bkesari-token"]||null,cookie:q.headers.cookie||null,xff:q.headers["x-forwarded-for"]||null,proxy:q.headers["x-bkesari-proxy"]||null}))})}).listen(3111,"127.0.0.1")' & UP=$!
+# Education is behind the gate (D-039): the admin grants the member Education, and every line goes
+# with the member's session. No hub token is ever forwarded, forged or not. Nor are the hub's
+# sessions (D-027, D-039): the admin's and the bkesari ID's Path=/ cookies come off, the project's
+# own pass as sent. Who the person is comes only from the gate, signed with HUB_PROXY_SECRET; a
+# client's own X-Bkesari-* headers never pass. With #9a's export built, server.js serves /ladwani/
+# itself and ignores LADWANI_ORIGIN; the Education lines are the proxy's. The app is told one
+# visitor address, what req.ip resolves with trust proxy at its default (loopback: curl here is a
+# trusted hop, so a chain's last entry), and the hub's secret; neither as the client sent it, also
+# with Expect (D-038).
+node -e 'require("http").createServer((q,r)=>{let b="";q.on("data",c=>b+=c).on("end",()=>{r.setHeader("content-type","application/json");r.end(JSON.stringify({url:q.url,body:b,token:q.headers["x-bkesari-token"]||null,cookie:q.headers.cookie||null,xff:q.headers["x-forwarded-for"]||null,proxy:q.headers["x-bkesari-proxy"]||null,idh:Object.fromEntries(Object.entries(q.headers).filter(([k])=>/^x-bkesari-(user|email|role|name|project|ts|sig)$/.test(k)))}))})}).listen(3111,"127.0.0.1")' & UP=$!
 sleep 0.5
 start_hub EDU_ORIGIN=http://127.0.0.1:3111 HUB_PROXY_SECRET=s5-local-only-proxy-secret
-has "$(curl -s "$BASE/edu/login")" '"url":"/login"'
-has "$(curl -s -H 'x-bkesari-token: forged' "$BASE/edu/login")" '"token":null'
+want 302 "$BASE/edu/login"                        # no bkesari ID: the gate, nothing reaches Education
+want 200 -b $BA -H "$J" -H "x-csrf-token: $CA" -d '{"project":"edu","role":"student"}' "$BASE/hub/api/admin/access/users/$U5/grant"
+has "$(curl -s -b $TL "$BASE/edu/login")" '"url":"/login"'
+has "$(curl -s -b $TL -H 'x-bkesari-token: forged' "$BASE/edu/login")" '"token":null'
 XC='x-forwarded-for: 198.51.100.7, 203.0.113.9'
-has "$(curl -s -H "$XC" -H 'x-bkesari-proxy: forged' "$BASE/edu/login")" '"xff":"203.0.113.9","proxy":"s5-local-only-proxy-secret"'
-has "$(curl -s -H "$XC" -H 'x-bkesari-proxy: forged' -H 'Expect: 100-continue' -H "$J" -d '{"qty":4}' "$BASE/edu/api/orders")" '"xff":"203.0.113.9","proxy":"s5-local-only-proxy-secret"'
+has "$(curl -s -b $TL -H "$XC" -H 'x-bkesari-proxy: forged' "$BASE/edu/login")" '"xff":"203.0.113.9","proxy":"s5-local-only-proxy-secret"'
+has "$(curl -s -b $TL -H "$XC" -H 'x-bkesari-proxy: forged' -H 'Expect: 100-continue' -H "$J" -d '{"qty":4}' "$BASE/edu/api/orders")" '"xff":"203.0.113.9","proxy":"s5-local-only-proxy-secret"'
+ID=$(curl -s -b $TL -H 'x-bkesari-user: 1' -H 'x-bkesari-role: admin' -H 'x-bkesari-email: smoke@example.com' -H 'x-bkesari-sig: forged' "$BASE/edu/login")
+has "$(printf '%s' "$ID" | node -e 'const{verifyIdentityHeaders:v}=require("./portal/access.js");let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const i=v("s5-local-only-proxy-secret",JSON.parse(s).idh,"edu");console.log(i?`signed: ${i.email} as ${i.role}`:"not signed")})')" 'signed: s5@example.com as student'
 want 200 -b $AD "$BASE/admin/api/state"           # the owner's jar is a live session on this hub...
-# ...and of its three Path=/ cookies Education gets only the shell's k_admin hint (not a secret).
-has "$(curl -s -b $AD "$BASE/edu/login")" '"cookie":"k_admin=1"'
-has "$(curl -s -H 'cookie: hub_admin_sid=s5; edu_sid=s5-edu; hub_admin_sid_csrf=s5; k_lang=mr' "$BASE/edu/login")" '"cookie":"edu_sid=s5-edu; k_lang=mr"'
-has "$(curl -s -H "$J" -d '{"qty":3}' "$BASE/edu/api/orders")" '"body":"{\"qty\":3}"'
+# ...and of the hub's Path=/ cookies (the admin's three, the bkesari ID's two) Education gets only
+# the shell's k_admin hint (not a secret).
+AB=$(mktemp); cat $AD $TL > $AB
+has "$(curl -s -b $AB "$BASE/edu/login")" '"cookie":"k_admin=1"'
+has "$(curl -s -H "cookie: bk_sid=$(awk '$6 == "bk_sid" { print $7 }' $TL); hub_admin_sid=s5; edu_sid=s5-edu; hub_admin_sid_csrf=s5; bk_sid_csrf=s5; k_lang=mr" "$BASE/edu/login")" '"cookie":"edu_sid=s5-edu; k_lang=mr"'
+has "$(curl -s -b $TL -H "$J" -d '{"qty":3}' "$BASE/edu/api/orders")" '"body":"{\"qty\":3}"'
 has "$(curl -sI "$BASE/education/sign-in" | tr -d '\r')" 'Location: /edu/sign-in'
 kill $UP; wait $UP 2>/dev/null; sleep 0.5
-E=$(curl -s "$BASE/edu/login"); has "$E" 'not responding'; has "$E" 'data-project="education"'
+E=$(curl -s -b $TL "$BASE/edu/login"); has "$E" 'not responding'; has "$E" 'data-project="education"'
 kill $HUB; wait $HUB 2>/dev/null
 
 # LadWani served by the hub itself (portal/ladwani.js), from #9a's export, with its real API in
@@ -385,16 +415,40 @@ start_hub LADWANI_DATABASE_URL="$LADWANI_SMOKE_DATABASE_URL"
 # The hub answers before LadWani's API has started (it is a 503 until then), so wait for its line.
 for i in $(seq 1 40); do grep -q 'LadWani API:' "$HUBLOG" && break; sleep 0.25; done
 has "$(cat "$HUBLOG")" 'LadWani API: ready (database engine: 2 worker threads; the server shows '
+# LadWani is behind the gate (D-039); its immutable build files are the one exemption. The admin
+# grants the member LadWani; without HUB_PROXY_SECRET LadWani believes no identity header, and its
+# own session API answers as before.
+want 200 -b $BA -H "$J" -H "x-csrf-token: $CA" -d '{"project":"ladwani","role":"member"}' "$BASE/hub/api/admin/access/users/$U5/grant"
 has "$(curl -sI "$BASE/ladwani/$A" | tr -d '\r')" 'Cache-Control: public, max-age=31536000, immutable'
-has "$(curl -sI "$BASE/ladwani?x=1" | tr -d '\r')" 'Location: /ladwani/?x=1'
-has "$(curl -s "$BASE/ladwani/")" 'app/page-'
-has "$(curl -s "$BASE/ladwani/sign-in/")" 'This is a separate account for LadWani.'
-has "$(curl -s "$BASE/ladwani/family/cmv7x2/")" 'app/family/%5Bid%5D/page-'
-has "$(curl -s "$BASE/ladwani/api/v1/health")" '"database":"ok"'
-has "$(curl -s "$BASE/ladwani/api/v1/auth/session")" '"user":null'
-want 404 -X POST "$BASE/ladwani/api/v1/auth/hub"          # the hub login is gone
-has "$(curl -s -H "$J" -H 'x-webhook-signature: s5' -d "{\"id\":\"evt_s5_$(date +%s%N)\",\"event\":\"payment.captured\"}" "$BASE/ladwani/api/v1/webhooks/payments")" '"received":true'
-want 404 --path-as-is "$BASE/ladwani/%2e%2e/%2e%2e/%2e%2e/package.json"
+has "$(curl -sI "$BASE/ladwani/" | tr -d '\r')" 'Location: /auth/sign-in?next=%2Fladwani%2F'
+has "$(curl -sI -b $TL "$BASE/ladwani?x=1" | tr -d '\r')" 'Location: /ladwani/?x=1'
+has "$(curl -s -b $TL "$BASE/ladwani/")" 'app/page-'
+has "$(curl -s -b $TL "$BASE/ladwani/sign-in/")" 'This is a separate account for LadWani.'
+has "$(curl -s -b $TL "$BASE/ladwani/family/cmv7x2/")" 'app/family/%5Bid%5D/page-'
+has "$(curl -s -b $TL "$BASE/ladwani/api/v1/health")" '"database":"ok"'
+has "$(curl -s -b $TL "$BASE/ladwani/api/v1/auth/session")" '"user":null'
+# POST /auth/hub is LadWani's sign-in from the gate's signed headers (D-039); the old hub token opens
+# nothing, and without HUB_PROXY_SECRET nothing at all is believed.
+has "$(curl -s -b $TL -X POST -H 'authorization: Bearer forged-hub-token' "$BASE/ladwani/api/v1/auth/hub")" '{"data":null}'
+has "$(curl -s -b $TL -H "$J" -H 'x-webhook-signature: s5' -d "{\"id\":\"evt_s5_$(date +%s%N)\",\"event\":\"payment.captured\"}" "$BASE/ladwani/api/v1/webhooks/payments")" '"received":true'
+# A caller with no bkesari ID (a payment gateway's own webhook) meets the gate (contract §3; see Known gaps).
+want 401 -H "$J" -H 'x-webhook-signature: s5' -d '{"id":"evt_s5_anon","event":"payment.captured"}' "$BASE/ladwani/api/v1/webhooks/payments"
+want 404 -b $TL --path-as-is "$BASE/ladwani/%2e%2e/%2e%2e/%2e%2e/package.json"
+kill $HUB; wait $HUB 2>/dev/null
+
+# LadWani's second step, with its real API (D-039): given HUB_PROXY_SECRET it signs the member in from
+# the gate's headers (POST /auth/hub, as its web app does on every load), links its account to the
+# hub id, and answers X-Bkesari-Project-State, which the hub stores on the grant (the member stays
+# "awaiting LadWani verification") and never passes to the browser.
+start_hub LADWANI_DATABASE_URL="$LADWANI_SMOKE_DATABASE_URL" HUB_PROXY_SECRET=s5-local-only-proxy-secret
+for i in $(seq 1 40); do grep -q 'LadWani API:' "$HUBLOG" && break; sleep 0.25; done
+psql "$SMOKE_DATABASE_URL" -XAq -c "UPDATE project_access SET project_state = NULL WHERE email = 's5@example.com' AND project_key = 'ladwani'"
+L=$(curl -s -D - -b $TL -X POST "$BASE/ladwani/api/v1/auth/hub" | tr -d '\r')
+has "$L" '"accessToken":'
+has "$(psql "$LADWANI_SMOKE_DATABASE_URL" -XAtc "SELECT 'linked ' || email FROM users WHERE hub_user_id = '$U5'")" 'linked s5@example.com'
+case "$L" in *[Pp]roject-[Ss]tate*) echo "FAIL  LadWani's project state reached the browser"; F=$((F+1));; *) echo "ok    LadWani's project state stays at the hub";; esac
+sleep 0.5; has "$(psql "$SMOKE_DATABASE_URL" -XAtc "SELECT 'state=' || project_state FROM project_access WHERE email = 's5@example.com' AND project_key = 'ladwani'")" 'state=pending'
+has "$(curl -s -b $TL "$BASE/hub/api/me")" '"state":"awaiting"'
 kill $HUB; wait $HUB 2>/dev/null
 
 # No code or link on test or production (D-029): the real server.js, with no mail and no SMS set, as
@@ -407,15 +461,20 @@ nolink() { local exp=$1; shift; local b c; b=$(curl -s -w '\n%{http_code}' --max
 for TIER in test prod; do
   start_hub APP_ENV=$TIER LADWANI_DATABASE_URL="$LADWANI_SMOKE_DATABASE_URL"   # /edu/ to 3111, where nothing listens now
   for i in $(seq 1 40); do grep -q 'LadWani API:' "$HUBLOG" && break; sleep 0.25; done
-  TT=$(mktemp); C=$(curl -s -c $TT "$BASE/tasklist/api/auth/session" | json csrf); N=$(date +%s%N)
-  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"email":"s5@example.com"}' "$BASE/tasklist/api/auth/otp/send"
-  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"mobile":"9876500999"}' "$BASE/tasklist/api/auth/otp/send"
-  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"email":"s5@example.com"}' "$BASE/tasklist/api/auth/password/forgot"
-  nolink 201 -b $TT -H "$J" -H "x-csrf-token: $C" -d "{\"name\":\"S5 $TIER\",\"email\":\"s5-$TIER-$N@example.com\",\"password\":\"s5-local-only-1\"}" "$BASE/tasklist/api/auth/sign-up"
+  # The bkesari ID's own codes and links, signed out.
+  TT=$(mktemp); C=$(curl -s -c $TT "$BASE/account/api/auth/session" | json csrf); N=$(date +%s%N)
+  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"email":"s5@example.com"}' "$BASE/account/api/auth/otp/send"
+  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"mobile":"9876500999"}' "$BASE/account/api/auth/otp/send"
+  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"email":"s5@example.com"}' "$BASE/account/api/auth/password/forgot"
+  # TaskList's and LadWani's own, through the gate with the member's session (the database keeps it).
+  nolink 503 -b $TL -H "$J" -H "x-csrf-token: $C5" -d '{"email":"s5@example.com"}' "$BASE/tasklist/api/auth/otp/send"
+  nolink 503 -b $TL -H "$J" -H "x-csrf-token: $C5" -d '{"mobile":"9876500999"}' "$BASE/tasklist/api/auth/otp/send"
+  nolink 503 -b $TL -H "$J" -H "x-csrf-token: $C5" -d '{"email":"s5@example.com"}' "$BASE/tasklist/api/auth/password/forgot"
+  nolink 201 -b $TL -H "$J" -H "x-csrf-token: $C5" -d "{\"name\":\"S5 $TIER\",\"email\":\"s5-$TIER-$N@example.com\",\"password\":\"s5-local-only-1\"}" "$BASE/tasklist/api/auth/sign-up"
   TA=$(mktemp); C=$(curl -s -c $TA "$BASE/admin/api/auth/session" | json csrf)
   nolink 503 -b $TA -H "$J" -H "x-csrf-token: $C" -d '{"email":"smoke@example.com"}' "$BASE/admin/api/auth/password/forgot"
-  nolink 503 -H "$J" -d "{\"firstName\":\"Sfive\",\"lastName\":\"Run\",\"email\":\"s5-$TIER-$N@example.com\",\"mobile\":\"9$(printf '%09d' $((N % 1000000000)))\"}" "$BASE/ladwani/api/v1/auth/register"
-  nolink 503 -H "$J" -d '{"email":"s5@example.com"}' "$BASE/ladwani/api/v1/auth/otp/send"
+  nolink 503 -b $TL -H "$J" -d "{\"firstName\":\"Sfive\",\"lastName\":\"Run\",\"email\":\"s5-$TIER-$N@example.com\",\"mobile\":\"9$(printf '%09d' $((N % 1000000000)))\"}" "$BASE/ladwani/api/v1/auth/register"
+  nolink 503 -b $TL -H "$J" -d '{"email":"s5@example.com"}' "$BASE/ladwani/api/v1/auth/otp/send"
   kill $HUB; wait $HUB 2>/dev/null; rm -f $TT $TA
 done
 echo "S5 failures: $F"
@@ -428,31 +487,36 @@ F=0; start_hub
 # No tracked secrets.
 git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.example$' && { echo "FAIL tracked .env"; F=$((F+1)); }
 git log --all --name-only --format= | grep -E '(^|/)\.env$' && { echo "FAIL .env in history"; F=$((F+1)); }
-# TaskList's app pages and API need TaskList's own session however the path is spelled.
+# TaskList's app pages and API need a bkesari ID session and a TaskList grant (D-039) however the
+# path is spelled; a forged or another project's cookie opens nothing.
 for p in /tasklist/ /tasklist/board /tasklist/api/tasks /tasklist/api/bootstrap '/%74asklist/api/tasks' '//tasklist/api/tasks' \
          '/./tasklist/api/tasks' '/shared/../tasklist/api/tasks' '/TASKLIST/api/tasks'; do
-  c=$(code --path-as-is -H 'cookie: tl_sid=forged-forged-forged-forged; hub_admin_sid=x' "$BASE$p")
+  c=$(code --path-as-is -H 'cookie: tl_sid=forged-forged-forged-forged; hub_admin_sid=x; bk_sid=forged-forged-forged-forged' "$BASE$p")
   case "$c" in 301|302|401|404) echo "ok    $c  $p";; *) echo "FAIL  $p answered $c"; F=$((F+1));; esac; done
-# A malformed body is a 400 that names no file, line or stack frame.
-for p in /tasklist/api/tasks /tasklist/api/auth/sign-in /admin/api/auth/sign-in /ATIP/api/snapshot; do
-  b=$(curl -s -o - -w '\n%{http_code}' -H "$J" -d '{bad' "$BASE$p")
+# A malformed body is a 400 that names no file, line or stack frame. With the member's session from
+# #10, so TaskList's routes are reached past the gate.
+for p in /tasklist/api/tasks /tasklist/api/auth/sign-in /admin/api/auth/sign-in /ATIP/api/snapshot /account/api/auth/sign-in /hub/api/access/requests; do
+  b=$(curl -s -o - -w '\n%{http_code}' -b $TL -H "$J" -d '{bad' "$BASE$p")
   case "$b" in *node_modules*|*'    at '*|*'&nbsp;at '*) echo "FAIL stack trace from $p"; F=$((F+1));; *) echo "ok    no stack trace from $p";; esac
   [ "${b##*$'\n'}" = 400 ] && echo "ok    400 from $p" || { echo "FAIL want 400 from $p, got ${b##*$'\n'}"; F=$((F+1)); }
 done
 # Security headers: the hub's strict CSP, nosniff, frame denial; ATIP keeps its own policy.
 H=$(curl -sI "$BASE/" | tr -d '\r')
 has "$H" "script-src 'self';";  has "$H" 'X-Content-Type-Options: nosniff';  has "$H" 'X-Frame-Options: DENY'
-# Cross-site sign-in attempts are refused before any password is checked.
-C=$(curl -s "$BASE/tasklist/api/auth/session" | json csrf)
-want 403 -H "$J" -H 'origin: https://evil.example' -H "x-csrf-token: $C" -d '{"identifier":"a@b.co","password":"x"}' "$BASE/tasklist/api/auth/sign-in"
+# Cross-site sign-in attempts are refused before any password is checked: the bkesari ID's, and
+# TaskList's own (behind the gate, with the member's session).
+XS=$(mktemp); C=$(curl -s -c $XS "$BASE/account/api/auth/session" | json csrf)
+want 403 -b $XS -H "$J" -H 'origin: https://evil.example' -H "x-csrf-token: $C" -d '{"identifier":"a@b.co","password":"x"}' "$BASE/account/api/auth/sign-in"
+want 403 -b $TL -H "$J" -H 'origin: https://evil.example' -H "x-csrf-token: $C5" -d '{"identifier":"a@b.co","password":"x"}' "$BASE/tasklist/api/auth/sign-in"
 # No certificate checks switched off, and no local CA baked into the app (Neon uses a public CA).
 grep -rnE "rejectUnauthorized: *false|NODE_TLS_REJECT_UNAUTHORIZED|/etc/neonlike|sslmode=no-verify" portal/ \
   | grep -vF "if (v === 'no-verify') return { rejectUnauthorized: false };" && { echo "FAIL TLS weakened"; F=$((F+1)); }
 # LadWani (portal/ladwani.js, #9a's export): no spelling reaches a file outside the export, and a
-# build-asset miss is a bare 404. (package.json has "name"; the export's 404 page has a <p>.)
+# build-asset miss is a bare 404. (package.json has "name"; the export's 404 page has a <p>.) With
+# the member's session, which holds a LadWani grant from #10, so the spellings get past the gate.
 for p in '/ladwani/%2e%2e/%2e%2e/package.json' '/ladwani/_next/static/missing.js' '/ladwani/_next/static/%2e%2e/%2e%2e/index.html' \
          '/ladwani/_next/static/../../login/' '/ladwani/_next/static/chunks/..%2f..%2f..%2findex.html' '/LADWANI/..%2f..%2fpackage.json'; do
-  b=$(curl -s --path-as-is -w '\n%{http_code}' --max-time 10 "$BASE$p")
+  b=$(curl -s --path-as-is -b $TL -w '\n%{http_code}' --max-time 10 "$BASE$p")
   case "$b" in *'"name":'*) echo "FAIL  $p reached a file outside the export"; F=$((F+1));;
     *) echo "ok    $p stays inside the export (${b##*$'\n'})";; esac; done
 kill $HUB; wait $HUB 2>/dev/null
@@ -494,12 +558,16 @@ fails on a skip.
 | PORTAL-CR-18 | The dev deploy refuses every target but dev (branch, path, host, smoke URL, empty secrets) | `.github/deploy/guard.test.sh` (32 cases) |
 | PORTAL-CR-19 | Neon provisioning: one Singapore PostgreSQL 16 project per app with its tier branches… (unchanged) | `neon-provision.test.js` (all 11) |
 | PORTAL-CR-20 | `database/portal/01_portal_schema.sql` and `02_hub_schema.sql` stay the schemas the app applies; each project's sign-in tables are in its own schema file under its own prefix | `schema-copy.test.js` (all 4); `hub.test.js` :: each project's sign-in tables are in its own schema file…; S3 #8 |
-| PORTAL-CR-21 | LadWani served by the hub (`portal/ladwani.js`): no hub gate and no hub token; no path, however encoded, reaches a file outside the export; a build-asset miss is a bare 404; any id is answered by its `_` page; the hub names the visitor to LadWani's rate limits by address (`ip:<req.ip>`, trust-proxy aware) and drops any visitor header or token a client sent; the API off or failing to start is a 503 while the hub and the pages stay up; the engine's worker-thread cap is set before it loads; `lw_sid` is scoped to `/ladwani` | `ladwani.test.js` (all 16); S5 LadWani step; S6 LadWani loop |
-| PORTAL-CR-22 | **Per-project sign-in.** Each project's session cookie is its own (`tl_sid` Path=/tasklist, `hub_admin_sid` Path=/), HttpOnly, SameSite=Lax, Secure except plain http to localhost; signing in or out of one never affects another; one project's session grants nothing in another; the hub admin's two cookies (Path=/) are removed before a request is forwarded to a project app, whose own cookies pass as sent (D-027). The built-in administrators (`smorankar`, `sonalimorankar`, D-036) are an account of each project's own like anyone's: their username signs them in to the hub admin (owner, ATIP), TaskList (owner) and LadWani (ADMIN) one project at a time, each with that project's own cookie, and none of those sessions opens another project; their rows never stand in for the first hub admin (`HUB_ADMIN_EMAIL` still makes it at start); the old shared-ID sign-in (`/auth/builtin/*`, the `bk_builtin` cookie, the hub token) stays gone | `tasklist.pg.test.js` :: mobile + OTP…; email + code: a new address gets an account…; accounts are isolated…; `hub.pg.test.js` :: the hub admin has its own login…; `ladwani.test.js` :: LadWani's own session cookie…; `proxy.test.js` :: the hub admin's session cookie never reaches a project app…; `builtin-admins.pg.test.js` :: each signs in to the hub admin as owner…, each signs in to TaskList as its owner…, a built-in administrator's row is not a first hub admin…; #6a `auth.http.spec.ts` :: sign in with the username, however it is typed: LadWani's ADMIN, with LadWani's own session; S5 TaskList (mobile and email code) and admin lines; S5 proxy `"cookie"` lines |
+| PORTAL-CR-21 | LadWani served by the hub (`portal/ladwani.js`): behind the access gate since D-039 (CR-28; its signed headers are the only identity it gets), never the old hub token; no path, however encoded, reaches a file outside the export; a build-asset miss is a bare 404; any id is answered by its `_` page; the hub names the visitor to LadWani's rate limits by address (`ip:<req.ip>`, trust-proxy aware) and drops any visitor header or token a client sent; the API off or failing to start is a 503 while the hub and the pages stay up; the engine's worker-thread cap is set before it loads; `lw_sid` is scoped to `/ladwani` | `ladwani.test.js` (all 16); S5 LadWani step; S6 LadWani loop |
+| PORTAL-CR-22 | **Per-project sign-in.** Each project's session cookie is its own (`tl_sid` Path=/tasklist, `hub_admin_sid` Path=/), HttpOnly, SameSite=Lax, Secure except plain http to localhost; signing in or out of one never affects another; one project's session grants nothing in another; the hub admin's two cookies (Path=/) are removed before a request is forwarded to a project app, whose own cookies pass as sent (D-027). The built-in administrators (`smorankar`, `sonalimorankar`, D-036) are an account of each project's own like anyone's: their username signs them in to the hub admin (owner, ATIP), TaskList (owner) and LadWani (ADMIN) one project at a time, each with that project's own cookie, and none of those sessions opens another project; their rows never stand in for the first hub admin (`HUB_ADMIN_EMAIL` still makes it at start); the old shared-ID sign-in (`/auth/builtin/*`, the `bk_builtin` cookie, the hub token) stays gone | `tasklist.pg.test.js` :: mobile + OTP…; email + code: a new address gets an account…; accounts are isolated…; `hub.pg.test.js` :: the hub admin has its own login…; `ladwani.test.js` :: LadWani's own session cookie…; `proxy.test.js` :: the hub admin's session cookie never reaches a project app…; `builtin-admins.pg.test.js` :: each signs in to the hub admin as owner…, each signs in to TaskList as its owner…, a built-in administrator's row is not a first hub admin…; #6a `auth.http.spec.ts` :: sign in with the username, however it is typed: LadWani's ADMIN, with LadWani's own session; S5 bkesari ID (`bk_sid` Path=/) and admin lines; S5 proxy `"cookie"` lines |
 | PORTAL-CR-23 | **Sign-in protections.** 5 wrong passwords lock for 15 minutes (even against the right password); unknown accounts answer like a wrong password; one-time codes, by email or SMS, are single use, 5 tries, hashed, and rate-limited (5 an hour per address, also when the requests arrive together); **a code or link is shown on screen only on the dev tier, and only when no provider is set; never on test or production**, which answer 503 "could not send" without one (D-029); an email nobody has confirmed signs in to nothing by code (TaskList), and LadWani's first code to an address ends the sessions and the password set before it; resets are single use and end every session; session tokens are stored hashed. **The built-in sign-in** takes the username only (never their address), with the one password checked against `BUILTIN_ADMIN_PASSWORD_HASH` (unset or malformed: off, answered like a wrong password); each try is counted before the check, 10 per address and 50 per name every 15 minutes, also when the tries arrive together (LadWani in the hub: its route limiter, 5 per address, answers first); their domain `@builtin.bkesari.com` is refused at every way in (sign-up, codes, resets, adding an email) in the hub admin, TaskList and LadWani; their accounts set no password or email of their own (403 `builtin`); a row with their address that the built-in sign-in did not make (one from before the address was reserved) is taken over at their first sign-in: its earlier sessions end, and its password and mobile open nothing; no password or hash is in the repository, a log, an answer or a stored row | `tasklist.pg.test.js` (sign-in tests, among them: on test and production … only dev shows it; on dev a mail provider that fails …; an email nobody has confirmed opens nothing by code …; email codes sent together …); `hub.pg.test.js` (admin lockout); `hub.test.js` (helpers); `notify.test.js` (all 6); #6a `auth.http.spec.ts` (when the code is shown on screen …; an address someone else registered with a password …) and `tier.spec.ts`; S5 tier step. The built-in sign-in: `builtin-admins.test.js` (all 4: names and domain, no hash in the repository, the hash round trip and cost floor, the script's two lines); `builtin-admins.pg.test.js` (all 9, among them: tries sent together are held to 10 per address…; nobody can sign up with, get a code for, reset or add a built-in address; a row with a built-in address from before the address was reserved…); #6a `builtin-admins.spec.ts` and `auth.http.spec.ts` :: the built-in administrators (D-036) (among them: counts each try before the check…; its domain is reserved everywhere…; takes over a row with its address from before the address was reserved…) |
 | PORTAL-CR-24 | **CSRF and cross-site.** Every state-changing request carries the session's (or, signed out, the double-submit) token; JSON only; a foreign `Origin` is refused; the contact form's token, signed time stamp, honeypot and rate limit hold | `tasklist.pg.test.js` :: cross-site and non-JSON requests are refused; `hub.pg.test.js` :: the contact form…; S6 cross-site line |
 | PORTAL-CR-25 | **Kesari.** The committed build matches the source; ≤ 30 KB gzipped with the shell; every text pair AA in light and dark; system and pinned dark identical; fonts swap and include Devanagari; the hub and TaskList pages carry no inline script | `kesari-ui.test.js` (all 11); `menu.test.js` :: every hub page carries the shell…; S1 #5 |
 | PORTAL-CR-26 | **The migration** (`tools/migrate_shared_id.mjs`): a dry run changes nothing; `--apply` creates TaskList accounts (no password invented, the owner as owner), gives the old tracker's rows to the owner, and is safe to re-run; `--notify` only with `--apply` | `migrate.pg.test.js` (all 3) |
+| PORTAL-CR-27 | **The bkesari ID's Google sign-in (D-039).** An ID token is accepted only with a signature by a key from Google's JWKS (RS256 only; `none`, HS256, an unknown kid, a changed payload refused), Google's issuer, our client as audience (and `azp` when there are several), not expired (60 s skew), not issued in the future, the nonce of this sign-in, and `email_verified`; code + PKCE S256, state and nonce in a signed 10-minute cookie on `/auth/google`, cleared at the callback; a callback without the cookie, with another state, cancelled, or with a code Google refuses opens nothing and lands on `/auth/sign-in?error=google_*`; an unverified Google email makes no account; an account is found by `google_sub`, else by email **only when that email is confirmed** (else `unconfirmed`), a different Google account with that email is a `conflict`; built-in addresses and suspended accounts are refused; the session `bk_sid` is Path=/, HttpOnly, SameSite=Lax, 30 days, and never forwarded to a project app; `next` is a path on this site only; Google is off (404, no button) without both client values | `bkesari-id.test.js` (all 7); `access.pg.test.js` :: Google sign-in…; no automatic linking…; `proxy.test.js` :: the hub admin's session cookie never reaches a project app… (the `bk_sid` line); `hub.pg.test.js` :: the bkesari ID's sign-in page… |
+| PORTAL-CR-28 | **Project access and the gate (D-039).** `/ladwani/`, `/edu/` and `/tasklist/` (any spelling) need a bkesari ID session (pages 302 to `/auth/sign-in?next=`, APIs 401) and an active grant read from the database on that request (pages 302 to `/access/request?project=`, APIs 403); only LadWani's `/_next/static/` is exempt; a client's `X-Bkesari-*` headers are removed and the gate's own are signed with `HUB_PROXY_SECRET`; only a **confirmed** email is anyone's identity (a person whose address was added without a code to it opens no project and cannot ask for one: 403 `unconfirmed`, pages to `/account`), as the projects join their own accounts by it; a HEAD is answered like the page (HMAC-SHA256 over `bkesari-id-v1`, project, user, email, role, base64url name, time; 60 s; one project); one pending request per project, a role from the project's list, the admins emailed; approve (with a role), decline (reason required), revoke, change role, direct grant, suspend (ends every session; not the owner, not oneself) each written to `audit_log`, emailed, and in force on the very next request; a declined person may ask again after 24 hours (the answer says when, in IST); only a confirmed `HUB_OWNER_EMAILS` address or a built-in administrator is admin, and every admin action carries the session's CSRF token; LadWani's grant is "awaiting LadWani verification" until LadWani answers `X-Bkesari-Project-State: verified` (only `verified`/`pending` believed; the header is removed from the request and the response); the built-in administrators are owners at the hub: every project with its top role (LadWani and Education `admin`, TaskList `owner`), ATIP, `/admin/access` | `access.pg.test.js` (all 9, among them: an address nobody confirmed is no one's identity in a project…); `bkesari-id.test.js` :: the identity headers…; S5 (the member's request, approval and grants; the signed identity Education gets, forged headers sent; LadWani's second step with its real API) and S6 (the path loop with a forged `bk_sid`); `tasklist.pg.test.js` and `builtin-admins.pg.test.js` drive TaskList on its own (`enforceAccess: false`); smoke-dev.sh *Access control* and `/edu/ is behind the bkesari ID`; #6a `hub-identity.spec.ts`, `hub-identity.http.spec.ts` (LadWani's side); the edu-tester's `HubIdentitySignInTest` (Education's side) |
+| PORTAL-CR-29 | **The bkesari app's hand-off.** `/mobile-auth/start` only for an allowed scheme (`in.bkesari.app`, `MOBILE_APP_SCHEMES`) and a 43-character S256 challenge; `/mobile-auth/complete` hands the app a two-minute code bound to that challenge (a failed Google sign-in hands it `?error=` instead); `/mobile-auth/finish` opens a session only with the matching verifier; inside the app the sign-in page's Google button opens the app's own start screen, and other WebViews get none | `bkesari-id.test.js` :: the mobile hand-off code…; `access.pg.test.js` :: the mobile app…; `mobile/` `npm test` |
+| PORTAL-CR-30 | **Day one** (`tools/link_accounts_to_hub.mjs`): a dry run changes nothing; `--apply` gives a bkesari ID and the matching grant only to accounts with a confirmed email that are active and hold a role with a hub equivalent; built-in addresses are left alone; an existing grant, revoked included, is never touched; each grant is in `audit_log`; safe to re-run | `link-accounts.pg.test.js` (both) |
 
 ### R3 — change-area map
 
@@ -512,7 +580,9 @@ fails on a skip.
 | `portal/hub.js`, `portal/hub-pages.js`, `portal/i18n/**` | `hub.pg.test.js`, `hub.test.js`; S5; CR-02, CR-12, CR-15, CR-24 |
 | `packages/kesari-ui/**`, `portal/public/kesari-ui/**` | `kesari-ui.test.js` (run `npm run build:kesari` first); S1 #5; CR-25 |
 | `tools/migrate_shared_id.mjs` | `migrate.pg.test.js`; CR-26 |
-| `mobile/**` | `mobile.test.js` |
+| `portal/bkesari-id.js`, `portal/access.js`, `portal/public/shared/signin.js`, `access.js`, `access-admin.js` | `bkesari-id.test.js`, `access.pg.test.js`, `hub.pg.test.js`, `tasklist.pg.test.js`, `builtin-admins.pg.test.js`, `proxy.test.js`; S5 (smoke-dev.sh *Access control*); CR-22 to CR-24, CR-27 to CR-29. A change to the identity headers also: LadWani's `hub-identity.ts` (#6a) and Education's `HubIdentity.php` (the edu-tester), and `docs/design/bkesari-id.md` §3 read against it |
+| `tools/link_accounts_to_hub.mjs` | `link-accounts.pg.test.js`; CR-30 |
+| `mobile/**` | `mobile.test.js`; `cd mobile && npm ci && npm test`; CR-29 |
 | `portal/db.js`, `portal/sql/**`, `database/portal/**`, `package.json`, `package-lock.json` | R1; S3 #8; S4; **S7**; CR-07 to CR-10, CR-20 |
 | `portal/proxy.js` | `proxy.test.js`; S5 proxy step; CR-11 to CR-14, CR-22. A change to what the app is told (the forwarded headers, `HUB_PROXY_SECRET`) also: Education's `TrustHubProxy` (the edu-tester), and DEPLOY.md Part 1 and Part 2 read against it |
 | `portal/ladwani.js` | `ladwani.test.js`; S5 LadWani step; S6 LadWani loop; CR-11, CR-21. A change to a setting it gives LadWani (`ENGINE_THREADS`, `LADWANI_*`) also: DEPLOY.md Part 7 and section 2.3 read against it |
@@ -628,7 +698,7 @@ PostgreSQL suites. #6a LadWani Jest **252** in **31** suites (its own auth: +27)
 rewritten for the new routes; their probe counts are the new baseline once first run (R4 compares
 from then).
 
-Expected, and only these: in S2 the six PostgreSQL suites skip, because S2 runs without
+Expected, and only these: in S2 the eight PostgreSQL suites skip, because S2 runs without
 `TEST_DATABASE_URL` on purpose (node lists them as `# SKIP` lines under `# suites`, not
 `# skipped`); #6c (and #9a's build) print LadWani's two lint warnings named
 above. Anything else skipping or warning is a regression (R4). (`smoke-dev.sh`'s old warning,
@@ -679,6 +749,22 @@ ok (+2 in the proxy step, with `HUB_PROXY_SECRET` set: a client's chain arrives 
 the secret replaces a forged one, also with `Expect: 100-continue`); smoke-dev.sh 33 / 0 / 0; CI's smoke step
 33 / 0 / 0. #6a (364 in 35), #6b, #6c (the two warnings), #9a (46 pages), S6 (27), #12 (root 0; LadWani 11) and
 S7 (18) unchanged.
+
+**The bkesari ID (D-039)** (branch `claude/gracious-lamport-xdf1en`, portal-tester, 17 Nov 2026: first run on
+`7cf16c0`, final run on `6e48919` plus the working tree; Linux container, Node 22.23.4, PostgreSQL 16.15 on
+`:5432` with TLS, PgBouncer 1.22.0 on `:6432`, role `pt_portal`, not a superuser, member of `neon_superuser`).
+R1 **205**: `access.pg` **9** (new: 8, +1 from portal-tester: an address nobody confirmed is no one's identity
+in a project), `bkesari-id` **7** (new), `link-accounts.pg` **2** (new), every other file as above (`server`
+6: its PWA test now also checks TaskList's manifest link), plus **32** guard cases; S2 **151** with **eight**
+suites skipped (`access.pg` and `link-accounts.pg` joined the PostgreSQL suites). #6a LadWani Jest **439** in
+**37** suites (`hub-identity.spec.ts` and `hub-identity.http.spec.ts` are new). #6b clean; #6c the two
+warnings; #9a 46 pages, the ten `[param]` pages each once as `_`. S5 and S6 rewritten for the gate:
+smoke-dev.sh **32 / 0 / 0** (Education's two Livewire checks became one gate check; see Known gaps),
+**81** probes ok; S6 **32** ok; S7 **18** passed (TaskList through the bkesari ID and a grant); `mobile/`
+`npm test` **29** pass (new). #12: root **3 high** (picomatch's ReDoS advisory, reached through
+http-proxy-middleware → micromatch; published since the last run, with no lockfile change; report only),
+LadWani 11 (unchanged), mobile 0. First run, before the fix loop: R1 204, S2 151; S5 and S6 as then written
+35 and 3 FAIL, and S7 14 passed / 4 failed, every one of them the gate, which those commands predated.
 
 For reference, the suite as merged (before this spec, the same commit, clean tree): 80 tests,
 63 pass, 9 fail, 8 skip, all from the MySQL/SQLite `tests/db-dialects.test.js` that the move to
@@ -810,6 +896,26 @@ VERDICT: PASS | FAIL | BLOCKED
   Prisma's pool bounds: LadWani sets `connection_limit=5` (`CONNECTION_DEFAULTS` in
   `ladwani/apps/api/src/prisma/prisma.service.ts`; Prisma's own default is physical cores × 2 + 1,
   whatever the affinity or the cap). Its spec checks the parameter; no suite counts the threads.
+- **LadWani's payment webhook is behind the gate** (D-039 §3: only `/ladwani/_next/static/` is
+  exempt). A payment gateway carries no bkesari ID, so its own `POST /ladwani/api/v1/webhooks/payments`
+  meets the gate's 401; S5 checks both sides (with a session the raw body still reaches the API,
+  CR-11; without one, 401). The gateway is a dev stub today (Razorpay is not wired,
+  `payments/payment-dispatch.service.ts`), so nothing is refused now; before Razorpay goes live
+  that one path needs an exemption in the contract, which is the owner's decision.
+- **smoke-dev.sh no longer sees Education's markup.** An anonymous visitor meets the gate at
+  `/edu/`, so its Livewire prefix checks (APP_URL on the Education site) no longer run in CI, the dev
+  deploy or S5; the edu-tester's suite and TESTING.md section 4 cover them.
+- **The gate lets a project through when its `hub_projects` row is missing.** The hub writes the
+  rows at every start (`hub_schema.sql`) and nothing removes them; `server.test.js` runs on a stub
+  database with no rows, which is why its TaskList checks reach TaskList directly. Failing closed
+  for `ladwani`, `edu` and `tasklist` would be hardening (S4).
+- **The bkesari ID also takes SMS codes** (`project-auth.js` accepts `{ mobile }`), which the
+  contract does not list (Google, the email code, the built-in usernames). Where a code is shown
+  (dev) or `SMS_WEBHOOK_URL` is set, that makes an account with no email. Since the portal-tester's
+  fix of 17 Nov 2026 such an account opens no project and cannot ask for one, even after adding an
+  address; switching SMS off for the bkesari ID is the owner's call.
+- **Native mobile builds are not run** here (no access to dl.google.com, no macOS); `mobile/`'s
+  `npm test` checks the web layer and the hand-off.
 - **LadWani's own depth.** Its integration tests (`npm run test:integration` in `ladwani/apps/api`,
   a database of their own) and its screens in a browser are not part of this suite.
 - **Draft PR sanjaymorankar-debug/bkesari-platform#10** (Neon services) is not on this branch.

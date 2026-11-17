@@ -6,7 +6,7 @@ production (bkesari.com) on 17 Nov 2026 for public pages, and `main` run locally
 pages; a new screen's "before" is what production answered at that address (usually its 404).
 Status values follow the product tracker: Not started / In progress / Done / Blocked.
 
-Design system: [design-system.md](design-system.md). Decisions: [decisions.md](decisions.md) D-039 onward.
+Design system: [design-system.md](design-system.md). Decisions: [decisions.md](decisions.md) D-039 (the bkesari ID) and D-040 onward (this redesign).
 
 ## bkesari.com hub and shared screens
 

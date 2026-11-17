@@ -10,6 +10,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
+import type { Prisma } from '@prisma/client'
 import { compare, hash } from 'bcryptjs'
 import { PrismaService } from '../prisma/prisma.service'
 import { RegisterDto } from './dto/register.dto'
@@ -23,9 +24,11 @@ import {
   BUILTIN_TRIES_PER_IP,
   BUILTIN_TRIES_PER_NAME,
   BUILTIN_WINDOW_MINUTES,
+  RESERVED_EMAIL_MESSAGE,
   type BuiltinUsername,
   builtinEmail,
   builtinPasswordRefused,
+  builtinUsernameOf,
   configuredBuiltinHash,
   isBuiltinAccount,
   isReservedEmail,
@@ -33,6 +36,7 @@ import {
   refuseReservedEmail,
   verifyBuiltinPassword,
 } from './builtin-admins'
+import { HUB_OTHER_SESSION, HUB_ROLE_CODES, type HubIdentity, splitHubName } from './hub-identity'
 
 const ACCESS_TOKEN_TTL = '15m'
 const REFRESH_TOKEN_TTL_DAYS = 30
@@ -109,7 +113,16 @@ export interface SessionOwner {
   person: SessionPerson
 }
 
-const SESSION_USER_INCLUDE = { userRoles: { include: { role: true } }, member: { select: { id: true } } } as const
+const SESSION_USER_INCLUDE = { userRoles: { include: { role: true } }, member: { select: { id: true } } } satisfies Prisma.UserInclude
+/** A user row with what a session needs: its roles and its member id. */
+type SessionUser = Prisma.UserGetPayload<{ include: typeof SESSION_USER_INCLUDE }>
+
+/** What findHubUser found, and what it did to get there. */
+interface FoundHubUser {
+  user: SessionUser
+  via: HubSignInVia
+  rolesAdded: string[]
+}
 
 const BLOCKED_STATUSES = new Set(['SUSPENDED', 'BLOCKED'])
 
@@ -132,6 +145,46 @@ export const BUILTIN_AUDIT = {
   limited: 'auth.builtin.sign_in_limited',
 } as const
 type BuiltinOutcome = 'signed-in' | 'wrong-password' | 'off' | 'limited'
+
+/**
+ * The hub sign-in's audit_logs rows (POST /auth/hub, hubSignIn): entityType
+ * HUB_ENTITY, entityId the hub user id, newValue what happened (never a
+ * secret). `sign_in` when a session starts for someone who had none in this
+ * browser, or the account was linked, made or given a role; a page load that
+ * only renews the person's own session is not written. `refused` for every
+ * refusal.
+ */
+export const HUB_ENTITY = 'hub_user'
+export const HUB_AUDIT = {
+  signedIn: 'auth.hub.sign_in',
+  refused: 'auth.hub.refused',
+} as const
+/** How hubSignIn found the account: by hub id, by a confirmed email (now linked), made now, or the built-in administrator's row. */
+export type HubSignInVia = 'hub_user_id' | 'email' | 'created' | 'builtin'
+/** `reason` in a refused hub sign-in's answer (and its audit row). */
+export type HubRefusal = 'SUSPENDED' | 'REMOVED' | 'RESERVED_EMAIL' | 'HUB_EMAIL_UNCONFIRMED' | 'HUB_EMAIL_TAKEN' | 'HUB_ID_TAKEN'
+
+export const HUB_REFUSAL_MESSAGE: Record<HubRefusal, string> = {
+  SUSPENDED: 'Account suspended. Contact an administrator.',
+  REMOVED: 'This LadWani account was removed. Contact a LadWani administrator.',
+  RESERVED_EMAIL: RESERVED_EMAIL_MESSAGE,
+  HUB_EMAIL_UNCONFIRMED:
+    'A LadWani account already uses this email address, but the address was never confirmed in LadWani, so it cannot be joined to your bkesari ID. ' +
+    'Sign in below once with a code sent to that address (this confirms it), or ask a LadWani administrator.',
+  HUB_EMAIL_TAKEN: 'This email address belongs to a LadWani account joined to another bkesari ID. Ask a LadWani administrator.',
+  HUB_ID_TAKEN: 'Your bkesari ID is already joined to another LadWani account. Ask a LadWani administrator.',
+}
+
+export interface HubSignInResult extends LoginResult {
+  /** True when this sign-in made the LadWani account. */
+  created: boolean
+}
+
+/** Labels for a role row made where the seed has not run (as prisma/seed.ts names them). */
+const ROLE_LABELS = { MEMBER: 'Member', KARTA: 'Family Head (Karta)', OPERATOR: 'Operator', ADMIN: 'Administrator' } as const
+type RoleCode = keyof typeof ROLE_LABELS
+/** The most senior first, for an audit row's actorRole. */
+const ROLE_RANK: RoleCode[] = ['ADMIN', 'OPERATOR', 'KARTA', 'MEMBER']
 
 /** Emails are stored lower-cased and trimmed; null when absent. */
 export function normalizeEmail(email: string | null | undefined): string | null {
@@ -183,7 +236,7 @@ export class AuthService {
     // No password yet: a random one nobody knows. Email + code signs this
     // account in, and "Forgot password" sets a real one.
     const passwordHash = await hash(dto.password ?? randomBytes(32).toString('hex'), BCRYPT_COST)
-    const memberRole = await this.getOrCreateRole('MEMBER', 'Member')
+    const memberRole = await this.getOrCreateRole('MEMBER')
 
     const otp = this.newOtp()
     const otpHash = await hash(otp, BCRYPT_COST)
@@ -331,7 +384,7 @@ export class AuthService {
    */
   private async builtinAccount(username: BuiltinUsername) {
     const email = builtinEmail(username)
-    const admin = await this.getOrCreateRole('ADMIN', 'Administrator')
+    const admin = await this.getOrCreateRole('ADMIN')
     let found = await this.prisma.user.findUnique({ where: { email }, select: { id: true } })
     if (!found) {
       try {
@@ -366,6 +419,169 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, include: SESSION_USER_INCLUDE })
     if (!user) throw new UnauthorizedException(INVALID_CREDENTIALS)
     return user
+  }
+
+  // ── The bkesari hub's sign-in (D-039, docs/design/bkesari-id.md §3) ──
+
+  /**
+   * POST /auth/hub: signs in, with no password, the person the hub vouches for
+   * on this request (`identity`, already verified: hub-identity.ts). Their
+   * LadWani account is found by hub id, else by a CONFIRMED email (and then
+   * joined to the hub id), else made (findHubUser). The hub's role is granted
+   * on top of what they hold, never in place of it.
+   *
+   * `presented` is the lw_sid token this browser sent, if any. That session
+   * ends whatever happens: another person's ends before this one starts, the
+   * person's own is replaced (as a refresh would), and after a refusal none is
+   * left, because the hub says someone else is at this browser. `ip` is for
+   * the audit row.
+   */
+  async hubSignIn(identity: HubIdentity, presented: string | undefined, ip = 'unknown'): Promise<HubSignInResult> {
+    const before = presented ? await this.sessionUserId(presented) : null
+    let found: FoundHubUser
+    try {
+      found = await this.findHubUser(identity)
+    } catch (err) {
+      if (presented) await this.logout(presented)
+      await this.auditHub(HUB_AUDIT.refused, identity, ip, { reason: refusalOf(err), endedSession: Boolean(before) })
+      throw err
+    }
+    if (presented) await this.logout(presented)
+    const { user, via, rolesAdded } = found
+    const renewed = before === user.id
+    if (!renewed || via !== 'hub_user_id' || rolesAdded.length) {
+      await this.auditHub(HUB_AUDIT.signedIn, identity, ip, { via, rolesAdded, endedOtherSession: Boolean(before) && !renewed }, user)
+    }
+    return { ...(await this.issueSession(user)), created: via === 'created' }
+  }
+
+  /**
+   * The person's LadWani account, ready to sign in:
+   *
+   *   - A built-in administrator's address (<name>@builtin.bkesari.com): that
+   *     administrator's own LadWani row (builtinAccount: found by its address
+   *     or made, ACTIVE, ADMIN), joined to the hub id. Any other address on
+   *     the reserved domain is refused (403 RESERVED_EMAIL).
+   *   - Else the account joined to this hub id (403 when it is suspended,
+   *     blocked or removed).
+   *   - Else the account with this email, only when LadWani has confirmed that
+   *     email itself (email_verified), and not joined to another hub id: it is
+   *     joined to this one now. An unconfirmed one is NOT joined, and no new
+   *     account is made over it either (409 HUB_EMAIL_UNCONFIRMED, D-035): the
+   *     address may have been typed by someone else, whose password still
+   *     opens it. A code sent to that address (LadWani's own sign-in) confirms
+   *     it and hands the account over; the next hub sign-in then joins it.
+   *   - Else a new account: ACTIVE, email confirmed (the hub sends only a
+   *     confirmed email), a member row named from X-Bkesari-Name (or the
+   *     email's local part) and the MEMBER role, as sign-up plus its code
+   *     would leave it; its password is random and known to nobody.
+   *
+   * Then the roles the hub's role maps to (HUB_ROLE_CODES) are added where
+   * missing. A hub `karta` gets LadWani's KARTA role without a family: the
+   * Karta-only actions on a family still need the family's own Karta row,
+   * which LadWani's family approval grants.
+   */
+  private async findHubUser(identity: HubIdentity, firstTry = true): Promise<FoundHubUser> {
+    const { email } = identity
+    const builtin = builtinUsernameOf(email)
+    if (isReservedEmail(email) && !builtin) throw hubRefused('RESERVED_EMAIL')
+
+    let user: SessionUser
+    let via: HubSignInVia
+    try {
+      const byHub = await this.prisma.user.findUnique({ where: { hubUserId: identity.user }, include: SESSION_USER_INCLUDE })
+      if (builtin) {
+        if (byHub && byHub.email !== email) throw hubRefused('HUB_ID_TAKEN')
+        const account = await this.builtinAccount(builtin)
+        user =
+          account.hubUserId === identity.user
+            ? account
+            : await this.prisma.user.update({ where: { id: account.id }, data: { hubUserId: identity.user }, include: SESSION_USER_INCLUDE })
+        via = 'builtin'
+      } else if (byHub) {
+        // A built-in administrator's row only ever opens for that administrator's address.
+        if (isBuiltinAccount(byHub)) throw hubRefused('HUB_ID_TAKEN')
+        if (byHub.deletedAt) throw hubRefused('REMOVED')
+        if (BLOCKED_STATUSES.has(byHub.status)) throw hubRefused('SUSPENDED')
+        user = byHub
+        via = 'hub_user_id'
+      } else {
+        const byEmail = await this.prisma.user.findUnique({ where: { email }, include: SESSION_USER_INCLUDE })
+        if (byEmail) {
+          if (byEmail.hubUserId) throw hubRefused('HUB_EMAIL_TAKEN')
+          if (byEmail.deletedAt) throw hubRefused('REMOVED')
+          if (!byEmail.emailVerified) throw hubRefused('HUB_EMAIL_UNCONFIRMED')
+          if (BLOCKED_STATUSES.has(byEmail.status)) throw hubRefused('SUSPENDED')
+          user = await this.prisma.user.update({ where: { id: byEmail.id }, data: { hubUserId: identity.user }, include: SESSION_USER_INCLUDE })
+          via = 'email'
+        } else {
+          user = await this.createHubUser(identity)
+          via = 'created'
+        }
+      }
+    } catch (err) {
+      // Two first visits at once (two tabs): the other one joined or made the account.
+      if (firstTry && isUniqueViolation(err)) return this.findHubUser(identity, false)
+      throw err
+    }
+
+    const rolesAdded = await this.grantRoles(user.id, HUB_ROLE_CODES[identity.role])
+    const signedIn = await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() }, include: SESSION_USER_INCLUDE })
+    return { user: signedIn, via, rolesAdded }
+  }
+
+  /** A new LadWani account for the hub's person (findHubUser), as sign-up and its code leave one. */
+  private async createHubUser(identity: HubIdentity): Promise<SessionUser> {
+    const { firstName, lastName } = splitHubName(identity.name, identity.email)
+    // A password nobody knows: this account is entered through the hub (or an email code, or "Forgot password").
+    const passwordHash = await hash(randomBytes(32).toString('hex'), BCRYPT_COST)
+    const memberRole = await this.getOrCreateRole('MEMBER')
+    const userId = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: { email: identity.email, hubUserId: identity.user, passwordHash, status: 'ACTIVE', emailVerified: true },
+      })
+      await tx.member.create({ data: { userId: user.id, firstName, lastName } })
+      await tx.userRole.create({ data: { userId: user.id, roleId: memberRole.id } })
+      return user.id
+    })
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, include: SESSION_USER_INCLUDE })
+    if (!user) throw new UnauthorizedException(INVALID_CREDENTIALS)
+    return user
+  }
+
+  /** Adds each of these roles the user does not hold in any scope; removes nothing. Returns the codes added. */
+  private async grantRoles(userId: string, codes: readonly RoleCode[]): Promise<string[]> {
+    const roles: { id: string; code: string }[] = []
+    for (const code of codes) roles.push(await this.getOrCreateRole(code))
+    return this.prisma.$transaction(async (tx) => {
+      // One sign-in at a time per account, so two page loads never add a role twice.
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`
+      const added: string[] = []
+      for (const role of roles) {
+        if (await tx.userRole.findFirst({ where: { userId, roleId: role.id } })) continue
+        await tx.userRole.create({ data: { userId, roleId: role.id } })
+        added.push(role.code)
+      }
+      return added
+    })
+  }
+
+  /** A hub sign-in's audit row (HUB_AUDIT). Never fails the sign-in it records. */
+  private async auditHub(action: string, identity: HubIdentity, ip: string, detail: Record<string, unknown>, user?: SessionUser): Promise<void> {
+    const roles = user?.userRoles.map((ur) => ur.role.code) ?? []
+    await this.prisma.auditLog
+      .create({
+        data: {
+          actorId: user?.id ?? 'anonymous',
+          actorRole: user ? (ROLE_RANK.find((code) => roles.includes(code)) ?? roles[0] ?? null) : null,
+          action,
+          entityType: HUB_ENTITY,
+          entityId: identity.user,
+          ipAddress: ip,
+          newValue: { hubUserId: identity.user, email: identity.email, hubRole: identity.role, ...detail },
+        },
+      })
+      .catch(() => undefined)
   }
 
   // ── Sign-in with a code (by email; by SMS once it is back) ─────────
@@ -483,7 +699,13 @@ export class AuthService {
 
   // ── Sessions ────────────────────────────────────────────────────────
 
-  async refresh(rawRefreshToken: string): Promise<LoginResult> {
+  /**
+   * A new access token (and a rotated session token) for the session.
+   * `onlyFor`: the request carried the hub's identity (HubRequestContext), so
+   * only the session of the LadWani user joined to that hub id may continue
+   * (null: none is joined yet). Any other session ends here, and 401.
+   */
+  async refresh(rawRefreshToken: string, onlyFor?: { userId: string | null }): Promise<LoginResult> {
     const tokenHash = this.hashToken(rawRefreshToken)
     const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash } })
 
@@ -493,6 +715,7 @@ export class AuthService {
 
     // Rotation: the presented token is single-use regardless of outcome.
     await this.prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } })
+    if (onlyFor && stored.userId !== onlyFor.userId) throw new UnauthorizedException(HUB_OTHER_SESSION)
 
     const user = await this.prisma.user.findUnique({ where: { id: stored.userId }, include: SESSION_USER_INCLUDE })
     if (!user || user.deletedAt || BLOCKED_STATUSES.has(user.status)) {
@@ -505,16 +728,18 @@ export class AuthService {
   /**
    * Who the session cookie belongs to, for the app shell. Reads the token and
    * never rotates it: the shell asks on every page, the app refreshes on its own.
+   * `onlyFor` as for refresh: under the hub, another person's session counts as none.
    */
-  async sessionPerson(rawRefreshToken: string | undefined): Promise<SessionPerson | null> {
-    return (await this.sessionOwner(rawRefreshToken))?.person ?? null
+  async sessionPerson(rawRefreshToken: string | undefined, onlyFor?: { userId: string | null }): Promise<SessionPerson | null> {
+    return (await this.sessionOwner(rawRefreshToken, onlyFor))?.person ?? null
   }
 
   /** sessionPerson, with the account's id, for what other services add about it (GET /auth/session). */
-  async sessionOwner(rawRefreshToken: string | undefined): Promise<SessionOwner | null> {
+  async sessionOwner(rawRefreshToken: string | undefined, onlyFor?: { userId: string | null }): Promise<SessionOwner | null> {
     if (!rawRefreshToken) return null
     const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash: this.hashToken(rawRefreshToken) } })
     if (!stored || stored.revokedAt || stored.expiresAt < new Date()) return null
+    if (onlyFor && stored.userId !== onlyFor.userId) return null
     const user = await this.prisma.user.findUnique({
       where: { id: stored.userId },
       include: { member: { select: { firstName: true, lastName: true } }, userRoles: { include: { role: true } } },
@@ -524,6 +749,12 @@ export class AuthService {
     // A Karta of two families holds KARTA twice (one row per family): listed once.
     const roles = Array.from(new Set((user.userRoles ?? []).map((ur) => ur.role.code)))
     return { userId: user.id, person: { name: name || user.email || user.mobile || '', email: user.email, mobile: user.mobile, roles, status: user.status } }
+  }
+
+  /** The user a live session token belongs to, or null (unknown, ended or expired). */
+  private async sessionUserId(rawRefreshToken: string): Promise<string | null> {
+    const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash: this.hashToken(rawRefreshToken) } })
+    return stored && !stored.revokedAt && stored.expiresAt > new Date() ? stored.userId : null
   }
 
   async logout(rawRefreshToken: string): Promise<{ loggedOut: true }> {
@@ -667,11 +898,11 @@ export class AuthService {
   }
 
   /** The role row; made (without permissions: the seed gives them) where the seed has not run. */
-  private async getOrCreateRole(code: 'MEMBER' | 'ADMIN', label: string) {
+  private async getOrCreateRole(code: RoleCode) {
     const existing = await this.prisma.role.findUnique({ where: { code } })
     if (existing) return existing
     try {
-      return await this.prisma.role.create({ data: { code, label, isSystem: true } })
+      return await this.prisma.role.create({ data: { code, label: ROLE_LABELS[code], isSystem: true } })
     } catch (err) {
       const made = isUniqueViolation(err) ? await this.prisma.role.findUnique({ where: { code } }) : null
       if (made) return made
@@ -693,6 +924,20 @@ function isUniqueViolation(err: unknown): boolean {
 function refuseBuiltinPasswordChange(identifier: string): void {
   refuseReservedEmail(identifier)
   if (normalizeBuiltinUsername(identifier)) throw builtinPasswordRefused()
+}
+
+/** A refused hub sign-in: 409 when the account is someone else's to settle, 403 otherwise, with `reason`. */
+function hubRefused(reason: HubRefusal): HttpException {
+  const conflict = reason === 'HUB_EMAIL_UNCONFIRMED' || reason === 'HUB_EMAIL_TAKEN' || reason === 'HUB_ID_TAKEN'
+  const body = { statusCode: conflict ? 409 : 403, error: conflict ? 'Conflict' : 'Forbidden', message: HUB_REFUSAL_MESSAGE[reason], reason }
+  return conflict ? new ConflictException(body) : new ForbiddenException(body)
+}
+
+/** The `reason` of a hubRefused error, for the audit row; 'ERROR' for anything else. */
+function refusalOf(err: unknown): string {
+  const body = err instanceof HttpException ? err.getResponse() : null
+  const reason = body && typeof body === 'object' ? (body as { reason?: unknown }).reason : undefined
+  return typeof reason === 'string' ? reason : 'ERROR'
 }
 
 /** 409 naming which of the two is taken, for the web's sign-up (reason EMAIL_TAKEN or MOBILE_TAKEN). */
