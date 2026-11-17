@@ -213,7 +213,7 @@ that stopped at migration 40):
 ```bash
 psql -d postgres -c 'DROP DATABASE IF EXISTS bk_edu_sql' -c 'CREATE DATABASE bk_edu_sql OWNER bk_edu'   # as a superuser
 export DB_CONNECTION=pgsql DB_URL="$PG:5432/bk_edu_sql"
-php artisan migrate --force && php artisan migrate:rollback --step=28 --force   # 40 migrations left
+php artisan migrate --force && php artisan migrate:rollback --step=29 --force   # 40 migrations left (69 - 29)
 for f in 2026_09_02_student_growth_career_modules 2026_09_03_school_core_udise_fees_facilities \
          2026_09_03_safeguarding_exams_health 2026_09_03_benchmark_references \
          2026_09_03_courses_and_ratings 2026_09_03_replies_and_data_rights; do
