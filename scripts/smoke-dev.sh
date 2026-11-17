@@ -200,7 +200,14 @@ case "$STATUS" in
   404) ok "the ATIP viewer is hidden from visitors (404, owner only)" ;;
   503) caution "the ATIP viewer is not configured yet (503)" \
                 "set ATIP_USER and ATIP_PASSWORD on the server. It is refusing everyone, so this is safe." ;;
-  200) bad "THE ATIP VIEWER IS OPEN TO THE INTERNET" "/atip/ answered 200 with no login." ;;
+  200)
+    # On the VPS (DEPLOY.md Part 10) /atip/ is the full ATIP app, which sends a
+    # visitor to its own login page: a password form is a login, not an open viewer.
+    if grep -qiE '<input[^>]+type="password"' "$BODY"; then
+      ok "the ATIP app asks for its own login"
+    else
+      bad "THE ATIP VIEWER IS OPEN TO THE INTERNET" "/atip/ answered 200 with no login."
+    fi ;;
   *)   caution "/atip/ answered $STATUS" "expected 401 or 404 (owner only)" ;;
 esac
 
@@ -216,6 +223,7 @@ case "$UP" in
                 "set ATIP_PUBLISH_TOKEN before pointing the ATIP machine at this tier." ;;
   2*)  bad "THE ATIP UPLOAD ENDPOINT ACCEPTED AN UNAUTHENTICATED POST" \
             "it answered $UP. Anyone could replace the published dashboard." ;;
+  4*)  ok "the ATIP upload endpoint refuses an unauthenticated POST ($UP)" ;;
   *)   caution "the ATIP upload endpoint answered $UP" "expected 401, or 503 if not configured" ;;
 esac
 
