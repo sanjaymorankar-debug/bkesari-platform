@@ -226,3 +226,12 @@ from the site. What lives in the apps themselves was updated for 1.1.0:
 redraws the PNGs from `packages/kesari-ui/src/icons.json`; `tests/mobile.test.js`
 checks every app has them. `npm run assets` (below) turns them into every
 Android density and iOS size.
+
+### The bkesari app's icons and splash (17 Nov 2026)
+
+`mobile/bkesari` shipped Capacitor's placeholder images. Its launcher icons (every Android
+density: square, round and the adaptive foreground on `@color/ic_launcher_background` = saffron
+`#C2560A`; the iOS 1024 px app icon) and its splash screens (Android portrait and landscape, iOS)
+now carry the bkesari mark: a white "b" in Mukta, Kesari's face, on saffron, as in the site's
+header. `node mobile/tools/render-bkesari-app.js` (from the repository root; Playwright and
+Pillow) redraws them at the sizes and colour modes the native projects already use.
