@@ -750,6 +750,22 @@ the secret replaces a forged one, also with `Expect: 100-continue`); smoke-dev.s
 33 / 0 / 0. #6a (364 in 35), #6b, #6c (the two warnings), #9a (46 pages), S6 (27), #12 (root 0; LadWani 11) and
 S7 (18) unchanged.
 
+**The bkesari ID (D-039)** (branch `claude/gracious-lamport-xdf1en`, portal-tester, 17 Nov 2026: first run on
+`7cf16c0`, final run on `6e48919` plus the working tree; Linux container, Node 22.23.4, PostgreSQL 16.15 on
+`:5432` with TLS, PgBouncer 1.22.0 on `:6432`, role `pt_portal`, not a superuser, member of `neon_superuser`).
+R1 **205**: `access.pg` **9** (new: 8, +1 from portal-tester: an address nobody confirmed is no one's identity
+in a project), `bkesari-id` **7** (new), `link-accounts.pg` **2** (new), every other file as above (`server`
+6: its PWA test now also checks TaskList's manifest link), plus **32** guard cases; S2 **151** with **eight**
+suites skipped (`access.pg` and `link-accounts.pg` joined the PostgreSQL suites). #6a LadWani Jest **439** in
+**37** suites (`hub-identity.spec.ts` and `hub-identity.http.spec.ts` are new). #6b clean; #6c the two
+warnings; #9a 46 pages, the ten `[param]` pages each once as `_`. S5 and S6 rewritten for the gate:
+smoke-dev.sh **32 / 0 / 0** (Education's two Livewire checks became one gate check; see Known gaps),
+**81** probes ok; S6 **32** ok; S7 **18** passed (TaskList through the bkesari ID and a grant); `mobile/`
+`npm test` **29** pass (new). #12: root **3 high** (picomatch's ReDoS advisory, reached through
+http-proxy-middleware → micromatch; published since the last run, with no lockfile change; report only),
+LadWani 11 (unchanged), mobile 0. First run, before the fix loop: R1 204, S2 151; S5 and S6 as then written
+35 and 3 FAIL, and S7 14 passed / 4 failed, every one of them the gate, which those commands predated.
+
 For reference, the suite as merged (before this spec, the same commit, clean tree): 80 tests,
 63 pass, 9 fail, 8 skip, all from the MySQL/SQLite `tests/db-dialects.test.js` that the move to
 PostgreSQL left behind; its assertions now live in `tracker.pg.test.js`.
