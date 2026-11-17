@@ -297,7 +297,8 @@ function createAccess({ db, id, env = process.env, notify = {}, log = console, p
   }
 
   /* ---------- the gate (contract §3) ---------- */
-  const wantsJson = (req) => /\/api(\/|$)/.test(req.path) || /\bjson\b/.test(String(req.headers.accept || '')) || req.method !== 'GET';
+  // A HEAD asks about the page a GET would get, so it is answered the same way.
+  const wantsJson = (req) => /\/api(\/|$)/.test(req.path) || /\bjson\b/.test(String(req.headers.accept || '')) || !['GET', 'HEAD'].includes(req.method);
 
   function stripIdentity(req) { for (const h of IDENTITY_HEADERS) delete req.headers[h]; }
 

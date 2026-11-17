@@ -427,7 +427,9 @@ has "$(curl -s -b $TL "$BASE/ladwani/sign-in/")" 'This is a separate account for
 has "$(curl -s -b $TL "$BASE/ladwani/family/cmv7x2/")" 'app/family/%5Bid%5D/page-'
 has "$(curl -s -b $TL "$BASE/ladwani/api/v1/health")" '"database":"ok"'
 has "$(curl -s -b $TL "$BASE/ladwani/api/v1/auth/session")" '"user":null'
-want 404 -b $TL -X POST "$BASE/ladwani/api/v1/auth/hub"          # the hub login is gone
+# POST /auth/hub is LadWani's sign-in from the gate's signed headers (D-039); the old hub token opens
+# nothing, and without HUB_PROXY_SECRET nothing at all is believed.
+has "$(curl -s -b $TL -X POST -H 'authorization: Bearer forged-hub-token' "$BASE/ladwani/api/v1/auth/hub")" '{"data":null}'
 has "$(curl -s -b $TL -H "$J" -H 'x-webhook-signature: s5' -d "{\"id\":\"evt_s5_$(date +%s%N)\",\"event\":\"payment.captured\"}" "$BASE/ladwani/api/v1/webhooks/payments")" '"received":true'
 # A caller with no bkesari ID (a payment gateway's own webhook) meets the gate (contract §3; see Known gaps).
 want 401 -H "$J" -H 'x-webhook-signature: s5' -d '{"id":"evt_s5_anon","event":"payment.captured"}' "$BASE/ladwani/api/v1/webhooks/payments"
@@ -435,13 +437,15 @@ want 404 -b $TL --path-as-is "$BASE/ladwani/%2e%2e/%2e%2e/%2e%2e/package.json"
 kill $HUB; wait $HUB 2>/dev/null
 
 # LadWani's second step, with its real API (D-039): given HUB_PROXY_SECRET it signs the member in from
-# the gate's headers and answers X-Bkesari-Project-State, which the hub stores on the grant (the
-# member stays "awaiting LadWani verification") and never passes to the browser.
+# the gate's headers (POST /auth/hub, as its web app does on every load), links its account to the
+# hub id, and answers X-Bkesari-Project-State, which the hub stores on the grant (the member stays
+# "awaiting LadWani verification") and never passes to the browser.
 start_hub LADWANI_DATABASE_URL="$LADWANI_SMOKE_DATABASE_URL" HUB_PROXY_SECRET=s5-local-only-proxy-secret
 for i in $(seq 1 40); do grep -q 'LadWani API:' "$HUBLOG" && break; sleep 0.25; done
 psql "$SMOKE_DATABASE_URL" -XAq -c "UPDATE project_access SET project_state = NULL WHERE email = 's5@example.com' AND project_key = 'ladwani'"
-L=$(curl -s -D - -b $TL "$BASE/ladwani/api/v1/auth/session" | tr -d '\r')
-has "$L" '"email":"s5@example.com"'
+L=$(curl -s -D - -b $TL -X POST "$BASE/ladwani/api/v1/auth/hub" | tr -d '\r')
+has "$L" '"accessToken":'
+has "$(psql "$LADWANI_SMOKE_DATABASE_URL" -XAtc "SELECT 'linked ' || email FROM users WHERE hub_user_id = '$U5'")" 'linked s5@example.com'
 case "$L" in *[Pp]roject-[Ss]tate*) echo "FAIL  LadWani's project state reached the browser"; F=$((F+1));; *) echo "ok    LadWani's project state stays at the hub";; esac
 sleep 0.5; has "$(psql "$SMOKE_DATABASE_URL" -XAtc "SELECT 'state=' || project_state FROM project_access WHERE email = 's5@example.com' AND project_key = 'ladwani'")" 'state=pending'
 has "$(curl -s -b $TL "$BASE/hub/api/me")" '"state":"awaiting"'
@@ -457,15 +461,20 @@ nolink() { local exp=$1; shift; local b c; b=$(curl -s -w '\n%{http_code}' --max
 for TIER in test prod; do
   start_hub APP_ENV=$TIER LADWANI_DATABASE_URL="$LADWANI_SMOKE_DATABASE_URL"   # /edu/ to 3111, where nothing listens now
   for i in $(seq 1 40); do grep -q 'LadWani API:' "$HUBLOG" && break; sleep 0.25; done
-  TT=$(mktemp); C=$(curl -s -c $TT "$BASE/tasklist/api/auth/session" | json csrf); N=$(date +%s%N)
-  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"email":"s5@example.com"}' "$BASE/tasklist/api/auth/otp/send"
-  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"mobile":"9876500999"}' "$BASE/tasklist/api/auth/otp/send"
-  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"email":"s5@example.com"}' "$BASE/tasklist/api/auth/password/forgot"
-  nolink 201 -b $TT -H "$J" -H "x-csrf-token: $C" -d "{\"name\":\"S5 $TIER\",\"email\":\"s5-$TIER-$N@example.com\",\"password\":\"s5-local-only-1\"}" "$BASE/tasklist/api/auth/sign-up"
+  # The bkesari ID's own codes and links, signed out.
+  TT=$(mktemp); C=$(curl -s -c $TT "$BASE/account/api/auth/session" | json csrf); N=$(date +%s%N)
+  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"email":"s5@example.com"}' "$BASE/account/api/auth/otp/send"
+  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"mobile":"9876500999"}' "$BASE/account/api/auth/otp/send"
+  nolink 503 -b $TT -H "$J" -H "x-csrf-token: $C" -d '{"email":"s5@example.com"}' "$BASE/account/api/auth/password/forgot"
+  # TaskList's and LadWani's own, through the gate with the member's session (the database keeps it).
+  nolink 503 -b $TL -H "$J" -H "x-csrf-token: $C5" -d '{"email":"s5@example.com"}' "$BASE/tasklist/api/auth/otp/send"
+  nolink 503 -b $TL -H "$J" -H "x-csrf-token: $C5" -d '{"mobile":"9876500999"}' "$BASE/tasklist/api/auth/otp/send"
+  nolink 503 -b $TL -H "$J" -H "x-csrf-token: $C5" -d '{"email":"s5@example.com"}' "$BASE/tasklist/api/auth/password/forgot"
+  nolink 201 -b $TL -H "$J" -H "x-csrf-token: $C5" -d "{\"name\":\"S5 $TIER\",\"email\":\"s5-$TIER-$N@example.com\",\"password\":\"s5-local-only-1\"}" "$BASE/tasklist/api/auth/sign-up"
   TA=$(mktemp); C=$(curl -s -c $TA "$BASE/admin/api/auth/session" | json csrf)
   nolink 503 -b $TA -H "$J" -H "x-csrf-token: $C" -d '{"email":"smoke@example.com"}' "$BASE/admin/api/auth/password/forgot"
-  nolink 503 -H "$J" -d "{\"firstName\":\"Sfive\",\"lastName\":\"Run\",\"email\":\"s5-$TIER-$N@example.com\",\"mobile\":\"9$(printf '%09d' $((N % 1000000000)))\"}" "$BASE/ladwani/api/v1/auth/register"
-  nolink 503 -H "$J" -d '{"email":"s5@example.com"}' "$BASE/ladwani/api/v1/auth/otp/send"
+  nolink 503 -b $TL -H "$J" -d "{\"firstName\":\"Sfive\",\"lastName\":\"Run\",\"email\":\"s5-$TIER-$N@example.com\",\"mobile\":\"9$(printf '%09d' $((N % 1000000000)))\"}" "$BASE/ladwani/api/v1/auth/register"
+  nolink 503 -b $TL -H "$J" -d '{"email":"s5@example.com"}' "$BASE/ladwani/api/v1/auth/otp/send"
   kill $HUB; wait $HUB 2>/dev/null; rm -f $TT $TA
 done
 echo "S5 failures: $F"
@@ -478,31 +487,36 @@ F=0; start_hub
 # No tracked secrets.
 git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.example$' && { echo "FAIL tracked .env"; F=$((F+1)); }
 git log --all --name-only --format= | grep -E '(^|/)\.env$' && { echo "FAIL .env in history"; F=$((F+1)); }
-# TaskList's app pages and API need TaskList's own session however the path is spelled.
+# TaskList's app pages and API need a bkesari ID session and a TaskList grant (D-039) however the
+# path is spelled; a forged or another project's cookie opens nothing.
 for p in /tasklist/ /tasklist/board /tasklist/api/tasks /tasklist/api/bootstrap '/%74asklist/api/tasks' '//tasklist/api/tasks' \
          '/./tasklist/api/tasks' '/shared/../tasklist/api/tasks' '/TASKLIST/api/tasks'; do
-  c=$(code --path-as-is -H 'cookie: tl_sid=forged-forged-forged-forged; hub_admin_sid=x' "$BASE$p")
+  c=$(code --path-as-is -H 'cookie: tl_sid=forged-forged-forged-forged; hub_admin_sid=x; bk_sid=forged-forged-forged-forged' "$BASE$p")
   case "$c" in 301|302|401|404) echo "ok    $c  $p";; *) echo "FAIL  $p answered $c"; F=$((F+1));; esac; done
-# A malformed body is a 400 that names no file, line or stack frame.
-for p in /tasklist/api/tasks /tasklist/api/auth/sign-in /admin/api/auth/sign-in /ATIP/api/snapshot; do
-  b=$(curl -s -o - -w '\n%{http_code}' -H "$J" -d '{bad' "$BASE$p")
+# A malformed body is a 400 that names no file, line or stack frame. With the member's session from
+# #10, so TaskList's routes are reached past the gate.
+for p in /tasklist/api/tasks /tasklist/api/auth/sign-in /admin/api/auth/sign-in /ATIP/api/snapshot /account/api/auth/sign-in /hub/api/access/requests; do
+  b=$(curl -s -o - -w '\n%{http_code}' -b $TL -H "$J" -d '{bad' "$BASE$p")
   case "$b" in *node_modules*|*'    at '*|*'&nbsp;at '*) echo "FAIL stack trace from $p"; F=$((F+1));; *) echo "ok    no stack trace from $p";; esac
   [ "${b##*$'\n'}" = 400 ] && echo "ok    400 from $p" || { echo "FAIL want 400 from $p, got ${b##*$'\n'}"; F=$((F+1)); }
 done
 # Security headers: the hub's strict CSP, nosniff, frame denial; ATIP keeps its own policy.
 H=$(curl -sI "$BASE/" | tr -d '\r')
 has "$H" "script-src 'self';";  has "$H" 'X-Content-Type-Options: nosniff';  has "$H" 'X-Frame-Options: DENY'
-# Cross-site sign-in attempts are refused before any password is checked.
-C=$(curl -s "$BASE/tasklist/api/auth/session" | json csrf)
-want 403 -H "$J" -H 'origin: https://evil.example' -H "x-csrf-token: $C" -d '{"identifier":"a@b.co","password":"x"}' "$BASE/tasklist/api/auth/sign-in"
+# Cross-site sign-in attempts are refused before any password is checked: the bkesari ID's, and
+# TaskList's own (behind the gate, with the member's session).
+XS=$(mktemp); C=$(curl -s -c $XS "$BASE/account/api/auth/session" | json csrf)
+want 403 -b $XS -H "$J" -H 'origin: https://evil.example' -H "x-csrf-token: $C" -d '{"identifier":"a@b.co","password":"x"}' "$BASE/account/api/auth/sign-in"
+want 403 -b $TL -H "$J" -H 'origin: https://evil.example' -H "x-csrf-token: $C5" -d '{"identifier":"a@b.co","password":"x"}' "$BASE/tasklist/api/auth/sign-in"
 # No certificate checks switched off, and no local CA baked into the app (Neon uses a public CA).
 grep -rnE "rejectUnauthorized: *false|NODE_TLS_REJECT_UNAUTHORIZED|/etc/neonlike|sslmode=no-verify" portal/ \
   | grep -vF "if (v === 'no-verify') return { rejectUnauthorized: false };" && { echo "FAIL TLS weakened"; F=$((F+1)); }
 # LadWani (portal/ladwani.js, #9a's export): no spelling reaches a file outside the export, and a
-# build-asset miss is a bare 404. (package.json has "name"; the export's 404 page has a <p>.)
+# build-asset miss is a bare 404. (package.json has "name"; the export's 404 page has a <p>.) With
+# the member's session, which holds a LadWani grant from #10, so the spellings get past the gate.
 for p in '/ladwani/%2e%2e/%2e%2e/package.json' '/ladwani/_next/static/missing.js' '/ladwani/_next/static/%2e%2e/%2e%2e/index.html' \
          '/ladwani/_next/static/../../login/' '/ladwani/_next/static/chunks/..%2f..%2f..%2findex.html' '/LADWANI/..%2f..%2fpackage.json'; do
-  b=$(curl -s --path-as-is -w '\n%{http_code}' --max-time 10 "$BASE$p")
+  b=$(curl -s --path-as-is -b $TL -w '\n%{http_code}' --max-time 10 "$BASE$p")
   case "$b" in *'"name":'*) echo "FAIL  $p reached a file outside the export"; F=$((F+1));;
     *) echo "ok    $p stays inside the export (${b##*$'\n'})";; esac; done
 kill $HUB; wait $HUB 2>/dev/null

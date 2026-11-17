@@ -227,6 +227,7 @@ describe('the bkesari ID and project access on PostgreSQL', { skip }, () => {
     assert.equal((await anon.fetch('GET', '/edu/', { headers: html })).location, '/auth/sign-in?next=%2Fedu%2F');
     assert.equal((await anon.fetch('GET', '/EDU/courses', { headers: html })).location, '/auth/sign-in?next=%2FEDU%2Fcourses', 'any spelling');
     assert.equal((await anon.fetch('GET', '/ladwani/tree', { headers: html })).location, '/auth/sign-in?next=%2Fladwani%2Ftree');
+    assert.equal((await anon.fetch('HEAD', '/tasklist/', { headers: html })).location, '/auth/sign-in?next=%2Ftasklist%2F', 'a HEAD is answered like the page');
     const api = await anon.fetch('GET', '/tasklist/api/tasks');
     assert.equal(api.status, 401);
     assert.equal(api.json.signIn, '/auth/sign-in?next=%2Ftasklist%2Fapi%2Ftasks');
