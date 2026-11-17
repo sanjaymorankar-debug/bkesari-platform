@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { AuthService, BUILTIN_AUDIT, OTP_MAX_TRIES, OTP_SENDS_PER_HOUR, TOO_MANY_TRIES } from './auth.service'
 import { MAIL_UNAVAILABLE } from './code-delivery.service'
 import { BUILTIN_PASSWORD_MESSAGE, BUILTIN_TRIES_PER_IP, BUILTIN_TRIES_PER_NAME, RESERVED_EMAIL_MESSAGE, hashBuiltinPassword } from './builtin-admins'
+import { ID_PROOF_ACTION } from './sign-up.service'
 import { MAIL_TRANSPORT } from '../mail/mail-transport'
 import { FakeMailTransport } from '../mail/fake-mail-transport'
 
@@ -292,7 +293,7 @@ describe('LadWani auth over HTTP', () => {
       const r = await call('GET', '/auth/session', { headers: { cookie: `lw_sid=${sid(login)}; k_lang=mr` } })
       expect(r.status).toBe(200)
       expect(r.body).toEqual({
-        user: { name: 'Asha Ladwani', email: 'asha@example.com', mobile: '9876543210' },
+        user: { name: 'Asha Ladwani', email: 'asha@example.com', mobile: '9876543210', roles: ['MEMBER'], status: 'ACTIVE', verification: 'NOT_SUBMITTED' },
         signOut: { url: '/ladwani/api/v1/auth/logout', next: '/ladwani/sign-in' },
         links: [{ label: 'माझी प्रोफाइल', href: '/ladwani/profile/edit/' }],
         mailLive: false,
@@ -300,6 +301,50 @@ describe('LadWani auth over HTTP', () => {
       })
       expect(r.cookies).toEqual([])
       expect(db.refreshToken.rows.filter((t: Row) => !t.revokedAt)).toHaveLength(1)
+    })
+
+    it("gives the account's role codes, each once, and its status, for the hub's My projects", async () => {
+      // A PENDING account (email not verified yet) that is Karta of two families and an Operator.
+      const user = await addUser(db, { status: 'PENDING' })
+      db.role.rows.push({ id: 'r-karta', code: 'KARTA' }, { id: 'r-operator', code: 'OPERATOR' })
+      await db.userRole.create({ data: { userId: user.id, roleId: 'r-karta', familyId: 'family-1' } })
+      await db.userRole.create({ data: { userId: user.id, roleId: 'r-karta', familyId: 'family-2' } })
+      await db.userRole.create({ data: { userId: user.id, roleId: 'r-operator' } })
+      const raw = 'a-session-of-a-pending-account'
+      await db.refreshToken.create({
+        data: { userId: user.id, tokenHash: createHash('sha256').update(raw).digest('hex'), expiresAt: new Date(Date.now() + 60_000), revokedAt: null },
+      })
+      const r = await call('GET', '/auth/session', { headers: { cookie: `lw_sid=${raw}` } })
+      expect(r.status).toBe(200)
+      expect(r.body.user).toEqual({
+        name: 'Asha Ladwani', email: 'asha@example.com', mobile: '9876543210', roles: ['MEMBER', 'KARTA', 'OPERATOR'], status: 'PENDING', verification: 'NOT_SUBMITTED',
+      })
+      // Still read without rotating the cookie.
+      expect(r.cookies).toEqual([])
+    })
+
+    it("says where the operator's check of the ID proof stands (verification), as /auth/sign-up/status does", async () => {
+      const user = await addUser(db)
+      const login = await call('POST', '/auth/login', { body: { identifier: '9876543210', password: 'Correct1pass' } })
+      const cookie = `lw_sid=${sid(login)}`
+      const session = async () => (await call('GET', '/auth/session', { headers: { cookie } })).body.user
+      const pending = async () => (await call('GET', '/auth/sign-up/status', { headers: { authorization: `Bearer ${login.body.data.accessToken}` } })).body.data.idProof.state
+      expect((await session()).verification).toBe('NOT_SUBMITTED')
+
+      // Sent for review: the account is ACTIVE (its email is confirmed) while an operator still checks it.
+      const proof = await db.approval.create({
+        data: { actionCode: ID_PROOF_ACTION, entityType: 'Member', submittedBy: user.id, status: 'SUBMITTED', newValue: { fileId: 'file-1', kind: 'PAN' } },
+      })
+      expect(await session()).toMatchObject({ status: 'ACTIVE', verification: 'UNDER_REVIEW' })
+      expect(await pending()).toBe('UNDER_REVIEW')
+
+      await db.approval.update({ where: { id: proof.id }, data: { status: 'APPROVED' } })
+      expect(await session()).toMatchObject({ status: 'ACTIVE', verification: 'VERIFIED' })
+      expect(await pending()).toBe('VERIFIED')
+
+      await db.approval.update({ where: { id: proof.id }, data: { status: 'REJECTED' } })
+      expect((await session()).verification).toBe('NEEDS_ATTENTION')
+      expect(await pending()).toBe('NEEDS_ATTENTION')
     })
   })
 

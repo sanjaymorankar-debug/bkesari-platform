@@ -2,7 +2,7 @@
 
 /**
  * The Kesari runtime (window.Kesari), served by the bkesari hub at
- * /kesari-ui/1.0.0/kesari.js and loaded in <head> by app/layout.tsx. Under
+ * /kesari-ui/1.1.0/kesari.js and loaded in <head> by app/layout.tsx. Under
  * `next dev` on its own it is absent, so every use here has a plain fallback.
  */
 export type KesariLang = 'en' | 'mr' | 'hi'
@@ -47,4 +47,31 @@ export function formatDate(input: Date | string | number): string {
 /** Indian digit grouping: 130000 -> "1,30,000". */
 export function formatNumber(n: number): string {
   return kesari()?.formatNumber(n) ?? new Intl.NumberFormat('en-IN').format(n)
+}
+
+/** Where the hub serves Kesari (the same version app/layout.tsx loads). */
+export const KESARI_BASE = '/kesari-ui/1.1.0'
+
+const pad = (n: number) => String(n).padStart(2, '0')
+
+/** "3 Nov 2026, 08:42 AM IST": Kesari's format, with the same fallback when it is absent. */
+export function formatDateTime(input: Date | string | number): string {
+  const k = kesari()
+  if (k) return k.formatDateTime(input)
+  const d = new Date(new Date(input).getTime() + 330 * 60_000)
+  if (Number.isNaN(d.getTime())) return ''
+  const h = d.getUTCHours() % 12 || 12
+  return `${formatDate(input)}, ${pad(h)}:${pad(d.getUTCMinutes())} ${d.getUTCHours() < 12 ? 'AM' : 'PM'} IST`
+}
+
+/**
+ * Opens a <dialog> the Kesari way (modal on wide screens, a bottom sheet on
+ * phones; Esc closes and focus goes back to `opener`), or plainly without it.
+ */
+export function openDialog(dialog: HTMLDialogElement, opener?: Element | null): void {
+  if (dialog.open) return
+  const runtime = kesari()
+  if (runtime) runtime.openDialog(dialog, opener)
+  else if (typeof dialog.showModal === 'function') dialog.showModal()
+  else dialog.setAttribute('open', '')
 }

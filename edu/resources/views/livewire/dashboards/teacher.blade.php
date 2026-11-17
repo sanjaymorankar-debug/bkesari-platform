@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\ConsentService;
 use App\Services\DevelopmentAccessService;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 
@@ -34,86 +35,114 @@ new #[Layout('layouts.app')] class extends Component
             ->filter(fn (User $student): bool => $consent->hasConsent($student->id, 'capability_growth'))
             ->values();
 
-        return compact('mySchools', 'myEffectivenessScore', 'myStudents');
+        return [
+            'mySchools' => $mySchools,
+            'myEffectivenessScore' => $myEffectivenessScore,
+            'myStudents' => $myStudents,
+            'firstName' => Str::before(trim($user->name), ' ') ?: $user->name,
+            'today' => now('Asia/Kolkata')->format('j M Y'),
+        ];
+    }
+
+    public function rendering($view): void
+    {
+        $view->title(__('Teacher Dashboard'));
     }
 }; ?>
 
 <div>
     <x-slot name="header">
-        <h2>{{ __('Teacher Dashboard') }}</h2>
+        <p class="k-eyebrow"><x-k-icon name="book" /> {{ __('Teacher Dashboard') }}</p>
+        <h1>{{ __('Namaste, :name', ['name' => $firstName]) }}</h1>
+        <p class="edu-page-head__lead">{{ $today }}</p>
     </x-slot>
 
-    <div class="max-w-5xl space-y-6">
-        <div class="grid gap-4 sm:grid-cols-2">
-            <div class="k-card">
-                <p class="text-sm text-gray-600 mb-0">{{ __('My Schools') }}</p>
-                <p class="text-3xl font-bold text-gray-900 mb-0">{{ $mySchools->where('status', 'verified')->count() }}</p>
-                <p class="text-sm text-gray-600 mb-0">{{ trans_choice(':count link waiting for approval|:count links waiting for approval', $mySchools->where('status', 'pending')->count()) }}</p>
-            </div>
-            <div class="k-card">
-                <p class="text-sm text-gray-600 mb-0">{{ __('Students with growth tracking on') }}</p>
-                <p class="text-3xl font-bold text-gray-900 mb-0">{{ $myStudents->count() }}</p>
-                <p class="text-sm text-gray-600 mb-0">{{ __('Only where a guardian has agreed.') }}</p>
-            </div>
-        </div>
+    <div class="edu-dash">
+        <ul class="k-stats edu-stats" role="list" aria-label="{{ __('At a glance') }}">
+            <li class="k-stat">
+                <span class="k-stat__value">{{ $mySchools->where('status', 'verified')->count() }}</span>
+                <span class="k-stat__label">{{ __('My Schools') }}</span>
+                <span class="k-stat__source">{{ trans_choice(':count link waiting for approval|:count links waiting for approval', $mySchools->where('status', 'pending')->count()) }}</span>
+            </li>
+            <li class="k-stat">
+                <span class="k-stat__value">{{ $myStudents->count() }}</span>
+                <span class="k-stat__label">{{ __('Students with growth tracking on') }}</span>
+                <span class="k-stat__source">{{ __('Only where a guardian has agreed.') }}</span>
+            </li>
+        </ul>
 
-        <div class="k-card">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="font-semibold text-gray-900">{{ __('My Schools') }}</h3>
-                <a href="{{ route('schools.index') }}" wire:navigate class="k-link text-sm">{{ __('Find School') }}</a>
-            </div>
-            @forelse ($mySchools as $rel)
-                <div class="flex justify-between py-2 border-b border-gray-200 last:border-0 text-sm">
-                    <a href="{{ route('schools.show', $rel->school_id) }}" wire:navigate class="k-link">{{ $rel->school->name }}</a>
-                    <span class="k-chip {{ $rel->status === 'verified' ? 'k-chip--success' : ($rel->status === 'rejected' ? 'k-chip--danger' : 'k-chip--warning') }}">{{ __(ucfirst($rel->status)) }}</span>
-                </div>
-            @empty
-                <p class="text-sm text-gray-600">{{ __('No linked school yet. Use "Find School" to link one.') }}</p>
-            @endforelse
-        </div>
-
-        <div class="k-card">
-            <h3 class="font-semibold text-gray-900 mb-1">{{ __('Student Growth') }}</h3>
-            <p class="text-sm text-gray-600 mb-4">
+        <section class="k-card edu-panel" aria-labelledby="students-title">
+            <h2 id="students-title" class="edu-panel__title">{{ __('Student Growth') }}</h2>
+            <p class="edu-panel__intro">
                 {{ __('Students whose guardian has agreed to growth tracking. A child whose family has not agreed does not appear here, and no record exists for them.') }}
             </p>
-            @forelse ($myStudents as $student)
-                <div class="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-gray-200 last:border-0">
-                    <span class="flex items-center gap-3 text-gray-800">
-                        <span class="k-avatar" aria-hidden="true">{{ mb_strtoupper(mb_substr($student->name, 0, 1)) }}</span>
-                        {{ $student->name }}
-                    </span>
-                    <div class="flex flex-wrap gap-2">
-                        <a href="{{ route('growth.show', $student->id) }}" wire:navigate class="k-btn k-btn--secondary" aria-label="{{ __('View growth record of :name', ['name' => $student->name]) }}">{{ __('View') }}</a>
-                        <a href="{{ route('growth.observe', $student->id) }}" wire:navigate class="k-btn" aria-label="{{ __('Add an observation for :name', ['name' => $student->name]) }}">{{ __('Add observation') }}</a>
-                    </div>
-                </div>
-            @empty
-                <p class="text-sm text-gray-600">{{ __('No students with growth tracking enabled yet.') }}</p>
-            @endforelse
-        </div>
-
-        <div class="k-card">
-            <h3 class="font-semibold text-gray-900 mb-2">{{ __('My Teacher Effectiveness Index') }}</h3>
-            <p class="text-sm text-gray-600 mb-4">{{ __('Private to you — never shown publicly, to the school, or to parents/students. See spec section AI.') }}</p>
-            @if ($myEffectivenessScore)
-                <div class="flex flex-wrap items-center gap-6">
-                    <div>
-                        <div class="text-3xl font-bold text-indigo-700">{{ $myEffectivenessScore->score }}</div>
-                        <div class="text-sm text-gray-600">{{ str_replace('_', ' ', $myEffectivenessScore->confidence) }} {{ __('confidence') }} &middot; {{ trans_choice(':count response|:count responses', $myEffectivenessScore->response_count) }}</div>
-                    </div>
-                    <div class="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
-                        @foreach (($myEffectivenessScore->component_breakdown ?? []) as $key => $dimension)
-                            <div class="bg-gray-100 rounded-md p-2">
-                                <div class="text-gray-600">{{ $dimension['label'] }}</div>
-                                <div class="font-semibold text-gray-800">{{ $dimension['average'] ?? '—' }} / 5</div>
+            @if ($myStudents->isEmpty())
+                <p class="edu-none">{{ __('No students with growth tracking enabled yet.') }}</p>
+            @else
+                <ul class="edu-rows" role="list">
+                    @foreach ($myStudents as $student)
+                        <li wire:key="student-{{ $student->id }}">
+                            <span class="edu-rows__main flex items-center gap-3">
+                                <span class="k-avatar" aria-hidden="true">{{ mb_strtoupper(mb_substr($student->name, 0, 1)) }}</span>
+                                <span class="edu-rows__title">{{ $student->name }}</span>
+                            </span>
+                            <div class="edu-actions">
+                                <a href="{{ route('growth.show', $student->id) }}" wire:navigate class="k-btn k-btn--secondary" aria-label="{{ __('View growth record of :name', ['name' => $student->name]) }}">{{ __('View') }}</a>
+                                <a href="{{ route('growth.observe', $student->id) }}" wire:navigate class="k-btn k-btn--soft" aria-label="{{ __('Add an observation for :name', ['name' => $student->name]) }}"><x-k-icon name="plus" /> {{ __('Add observation') }}</a>
                             </div>
-                        @endforeach
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+        </section>
+
+        <section class="k-card edu-panel" aria-labelledby="schools-title">
+            <div class="edu-panel__head">
+                <h2 id="schools-title">{{ __('My Schools') }}</h2>
+                <a href="{{ route('schools.index') }}" wire:navigate class="k-link-arrow">{{ __('Find School') }} <x-k-icon name="arrow-right" /></a>
+            </div>
+            @if ($mySchools->isEmpty())
+                <p class="edu-none">{{ __('No linked school yet. Use "Find School" to link one.') }}</p>
+            @else
+                <ul class="edu-rows" role="list">
+                    @foreach ($mySchools as $rel)
+                        <li>
+                            <div class="edu-rows__main">
+                                <a href="{{ route('schools.show', $rel->school_id) }}" wire:navigate class="edu-rows__title k-link">{{ $rel->school->name }}</a>
+                                <p class="edu-rows__sub">{{ $rel->school->city }}</p>
+                            </div>
+                            <span class="k-chip {{ $rel->status === 'verified' ? 'k-chip--success' : ($rel->status === 'rejected' ? 'k-chip--danger' : 'k-chip--warning') }}">{{ __(ucfirst($rel->status)) }}</span>
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+        </section>
+
+        <section class="k-card edu-panel" aria-labelledby="tei-title">
+            <div class="edu-panel__head">
+                <h2 id="tei-title">{{ __('My Teacher Effectiveness Index') }}</h2>
+                <span class="k-chip k-chip--plain"><x-k-icon name="lock" class="k-icon--sm" /> {{ __('Only you') }}</span>
+            </div>
+            <p class="edu-panel__intro">{{ __('Private to you — never shown publicly, to the school, or to parents/students. See spec section AI.') }}</p>
+            @if ($myEffectivenessScore)
+                <div class="edu-tei">
+                    <div>
+                        <p class="edu-score__value">{{ $myEffectivenessScore->score }}</p>
+                        <p class="edu-rows__sub">{{ str_replace('_', ' ', $myEffectivenessScore->confidence) }} {{ __('confidence') }} &middot; {{ trans_choice(':count response|:count responses', $myEffectivenessScore->response_count) }}</p>
                     </div>
+                    <ul class="k-bars edu-bars--grid" role="list">
+                        @foreach (($myEffectivenessScore->component_breakdown ?? []) as $key => $dimension)
+                            <li>
+                                <span class="k-bars__label">{{ $dimension['label'] }}</span>
+                                <span class="k-bars__value">{{ $dimension['average'] ?? '—' }}<span class="edu-of">/5</span></span>
+                                <span class="k-bars__track" aria-hidden="true"><span class="k-bars__fill" style="--v: {{ isset($dimension['average']) ? round((float) $dimension['average'] / 5 * 100) : 0 }}"></span></span>
+                            </li>
+                        @endforeach
+                    </ul>
                 </div>
             @else
-                <p class="text-sm text-gray-600">{{ __('Not enough feedback yet to calculate a score.') }}</p>
+                <p class="edu-none">{{ __('Not enough feedback yet to calculate a score.') }}</p>
             @endif
-        </div>
+        </section>
     </div>
 </div>

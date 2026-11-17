@@ -14,6 +14,11 @@ use Illuminate\Http\Request;
  * must send as X-CSRF-Token, and where to go after), and a couple of links;
  * signed out, a 401 with where to sign in. Nothing here is shared with, or
  * trusted from, any other project.
+ *
+ * user.roles lists the account's Education role names (parent, student,
+ * school_admin...), sorted, so the hub's "My projects" page can say what
+ * access the person has here. Names only: never permissions, schools or
+ * children, and never anything about anyone else.
  */
 class ShellController extends Controller
 {
@@ -27,7 +32,11 @@ class ShellController extends Controller
         }
 
         return response()->json([
-            'user' => ['name' => $user->name, 'email' => $user->email],
+            'user' => [
+                'name' => $user->name,
+                'email' => $user->email,
+                'roles' => $user->getRoleNames()->sort()->values()->all(),
+            ],
             'signOut' => [
                 'url' => route('logout'),
                 'csrf' => csrf_token(),

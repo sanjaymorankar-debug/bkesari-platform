@@ -80,6 +80,7 @@ export default function VerifyPage() {
 
   return (
     <AuthFrame
+      icon="mail"
       title={t('verify.title')}
       lead={t('verify.lead')}
       footer={

@@ -92,6 +92,21 @@ export interface SessionPerson {
   name: string
   email: string | null
   mobile: string | null
+  /** Role codes (MEMBER, KARTA, OPERATOR, ADMIN, ...), each once: the hub's "My projects" shows the access level. */
+  roles: string[]
+  /**
+   * The account's status: PENDING only means its email (or mobile) is not
+   * confirmed yet, and it turns ACTIVE when it is. It says nothing about the
+   * operator's check of the ID proof: that is the session's `verification`
+   * (SignUpService.status).
+   */
+  status: string
+}
+
+/** Whose session a cookie holds, and what the shell shows for them. */
+export interface SessionOwner {
+  userId: string
+  person: SessionPerson
 }
 
 const SESSION_USER_INCLUDE = { userRoles: { include: { role: true } }, member: { select: { id: true } } } as const
@@ -492,16 +507,23 @@ export class AuthService {
    * never rotates it: the shell asks on every page, the app refreshes on its own.
    */
   async sessionPerson(rawRefreshToken: string | undefined): Promise<SessionPerson | null> {
+    return (await this.sessionOwner(rawRefreshToken))?.person ?? null
+  }
+
+  /** sessionPerson, with the account's id, for what other services add about it (GET /auth/session). */
+  async sessionOwner(rawRefreshToken: string | undefined): Promise<SessionOwner | null> {
     if (!rawRefreshToken) return null
     const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash: this.hashToken(rawRefreshToken) } })
     if (!stored || stored.revokedAt || stored.expiresAt < new Date()) return null
     const user = await this.prisma.user.findUnique({
       where: { id: stored.userId },
-      include: { member: { select: { firstName: true, lastName: true } } },
+      include: { member: { select: { firstName: true, lastName: true } }, userRoles: { include: { role: true } } },
     })
     if (!user || user.deletedAt || BLOCKED_STATUSES.has(user.status)) return null
     const name = [user.member?.firstName, user.member?.lastName].filter(Boolean).join(' ').trim()
-    return { name: name || user.email || user.mobile || '', email: user.email, mobile: user.mobile }
+    // A Karta of two families holds KARTA twice (one row per family): listed once.
+    const roles = Array.from(new Set((user.userRoles ?? []).map((ur) => ur.role.code)))
+    return { userId: user.id, person: { name: name || user.email || user.mobile || '', email: user.email, mobile: user.mobile, roles, status: user.status } }
   }
 
   async logout(rawRefreshToken: string): Promise<{ loggedOut: true }> {

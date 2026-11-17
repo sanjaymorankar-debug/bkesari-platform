@@ -16,6 +16,12 @@
  *    #fff, which in dark mode is light text on a white box).
  * 3. The few pieces of Education's own layout: the auth card, the page
  *    heading, the side nav's sign-out button.
+ * 4. Education's screens on Kesari 1.1.0 (17 Nov 2026): the landing and
+ *    school search, the school profile, the dashboards, the profile, the
+ *    sign-in screens and the error pages. Built from Kesari's components
+ *    (.k-hero, .k-stats, .k-bars, .k-statuslist, .k-picon...); what is here
+ *    only arranges them. Every width is in rem or a fraction, never a fixed
+ *    text width, so Marathi and Hindi wrap instead of overflowing.
  */
 @layer components {
     /* 1. Tailwind's preflight clears a <button>'s background; Kesari's
@@ -108,26 +114,6 @@
         color: var(--k-ink, #1C1917);
     }
 
-    .edu-hero {
-        padding: var(--k-6, 24px);
-        border-radius: var(--k-radius-lg, 20px);
-        background: var(--k-accent-tint, #E0F5F2);
-        border: 1px solid var(--k-border, #E7E5E4);
-    }
-
-    .edu-hero h1 {
-        font-size: clamp(1.75rem, 5vw, 2.441rem);
-        font-weight: 700;
-        line-height: 1.15;
-        color: var(--k-ink, #1C1917);
-        max-width: 22ch;
-    }
-
-    .edu-hero .k-card h3 {
-        font-size: var(--k-text-lg, 1.25rem);
-        font-weight: 700;
-    }
-
     .edu-project {
         display: inline-flex;
         align-items: center;
@@ -142,6 +128,10 @@
     .edu-project__icon {
         width: 28px;
         height: 28px;
+    }
+
+    .edu-project .k-picon {
+        --_s: 36px;
     }
 
     .edu-auth {
@@ -165,16 +155,25 @@
     }
 
     .edu-auth__separate {
+        display: flex;
+        gap: var(--k-3, 12px);
+        align-items: flex-start;
         margin-top: var(--k-6, 24px);
         padding-top: var(--k-4, 16px);
         border-top: 1px solid var(--k-border, #E7E5E4);
         color: var(--k-muted, #57534E);
         font-size: var(--k-text-sm, 0.875rem);
+        max-width: none;
+    }
+
+    .edu-auth__separate > .k-icon {
+        margin-top: 3px;
+        color: var(--k-accent-ink, #0F766E);
     }
 
     .edu-auth__separate strong {
         display: block;
-        color: var(--k-accent, #0F766E);
+        color: var(--k-accent-ink, #0F766E);
         font-weight: 700;
     }
 
@@ -216,5 +215,1108 @@
        buttons the older views draw with Tailwind classes. */
     .k-main :where(a, button).inline-flex {
         min-height: var(--k-target, 48px);
+    }
+
+    /* 4. Education's screens on Kesari 1.1.0. */
+
+    /* Tailwind's preflight sets every heading to the body's size and
+       weight, which flattens the headings inside Kesari's components (the
+       hub has no preflight). Give them back here, by component, so the
+       older views that size their headings with utilities are untouched. */
+    .k-section-head h2,
+    .k-cta h2 {
+        font-size: clamp(var(--k-text-xl, 1.5625rem), 3.4vw, var(--k-text-2xl, 1.953rem));
+    }
+
+    .k-section-head h1 {
+        font-size: clamp(1.75rem, 1.35rem + 1.6vw, 2.441rem);
+    }
+
+    .k-steps h3,
+    .k-feature h3,
+    .k-statusrow h3 {
+        font-size: var(--k-text-md, 1rem);
+    }
+
+    .k-hero h1,
+    .edu-feature-title,
+    .k-section-head :where(h1, h2),
+    .k-cta h2,
+    .k-steps h3,
+    .k-feature h3,
+    .k-statusrow h3,
+    .k-empty :where(h2, h3),
+    .edu-page-head h1,
+    .edu-panel__head h2,
+    .edu-panel__title,
+    .edu-section-title,
+    .edu-section-bar h2,
+    .edu-subhead,
+    .edu-course__head h3,
+    .edu-empty-title,
+    .edu-school-card__name,
+    .edu-school-head h1,
+    .edu-next h2,
+    .edu-goals h4,
+    .edu-points h3,
+    .edu-auth-aside h2,
+    .edu-success h2,
+    .edu-error h1 {
+        font-weight: 700;
+        line-height: 1.2;
+        color: var(--k-ink, #1C1917);
+    }
+
+    /* Four steps sit on one row on a wide screen, two on a tablet. */
+    .edu-steps {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 11.5rem), 1fr));
+    }
+
+    /* Icons from the sprite inside Kesari's controls. */
+    .k-btn .k-icon,
+    .k-link-arrow .k-icon,
+    .k-pager .k-icon {
+        width: 20px;
+        height: 20px;
+    }
+
+    .k-eyebrow .k-icon,
+    .k-chip .k-icon {
+        width: 16px;
+        height: 16px;
+    }
+
+    .k-banner > .k-icon {
+        flex: none;
+        margin-top: 2px;
+    }
+
+    .k-icon--sm {
+        width: 18px;
+        height: 18px;
+    }
+
+    /* The set has "sign-in" and no "sign-out": the same arrow, leaving. */
+    .edu-flip {
+        transform: scaleX(-1);
+    }
+
+    /* Anchored sections land below the shell's sticky bar. */
+    :where(section, article)[id] {
+        scroll-margin-top: 88px;
+    }
+
+    /* Page heading (the layout's header slot): eyebrow, h1, a lead line. */
+    .edu-page-head h1 {
+        font-size: clamp(1.75rem, 1.35rem + 1.6vw, 2.441rem);
+        line-height: 1.15;
+        margin: 0 0 var(--k-2, 8px);
+    }
+
+    .edu-page-head .k-eyebrow {
+        margin-bottom: var(--k-2, 8px);
+    }
+
+    .edu-page-head__lead {
+        color: var(--k-muted, #57534E);
+        margin: 0;
+    }
+
+    .edu-page-head__row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--k-2, 8px) var(--k-4, 16px);
+    }
+
+    .edu-page-head {
+        margin-bottom: var(--k-6, 24px);
+    }
+
+    .edu-dash > * + * {
+        margin-top: var(--k-6, 24px);
+    }
+
+    .edu-dash__split {
+        display: grid;
+        gap: var(--k-6, 24px);
+    }
+
+    @media (min-width: 1024px) {
+        .edu-dash__split {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .edu-dash__split--wide {
+            grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+        }
+    }
+
+    .edu-narrow {
+        max-width: 46rem;
+    }
+
+    .edu-section-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--k-2, 8px) var(--k-4, 16px);
+        margin: 0 0 var(--k-3, 12px);
+    }
+
+    .edu-section-bar h2,
+    .edu-section-title {
+        font-size: var(--k-text-xl, 1.5625rem);
+        margin: 0;
+    }
+
+    .edu-section-title {
+        margin-bottom: var(--k-3, 12px);
+    }
+
+    /* A card with a heading row: the school profile's sections, the dashboards' lists. */
+    .edu-panel__head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--k-2, 8px) var(--k-4, 16px);
+        margin: 0 0 var(--k-2, 8px);
+    }
+
+    .edu-panel__head h2,
+    .edu-panel__title {
+        font-size: var(--k-text-lg, 1.25rem);
+        margin: 0;
+    }
+
+    .edu-panel__title {
+        margin-bottom: var(--k-2, 8px);
+    }
+
+    .edu-panel__intro {
+        color: var(--k-muted, #57534E);
+        font-size: var(--k-text-sm, 0.875rem);
+        margin: 0 0 var(--k-4, 16px);
+    }
+
+    .edu-subhead {
+        font-size: var(--k-text-md, 1rem);
+        margin: var(--k-6, 24px) 0 var(--k-3, 12px);
+    }
+
+    .edu-none {
+        display: flex;
+        align-items: center;
+        gap: var(--k-2, 8px);
+        color: var(--k-muted, #57534E);
+        margin: 0;
+    }
+
+    .edu-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--k-2, 8px);
+    }
+
+    /* Rows: one item per line, the main text left and its status right,
+       wrapping under each other on a phone. */
+    .edu-rows {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+
+    .edu-rows > li {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--k-2, 8px) var(--k-4, 16px);
+        min-height: var(--k-target, 48px);
+        padding: var(--k-3, 12px) 0;
+        border-bottom: 1px solid var(--k-border, #E7E5E4);
+    }
+
+    .edu-rows > li:last-child {
+        border-bottom: 0;
+    }
+
+    .edu-rows--tight > li {
+        min-height: 0;
+        padding: var(--k-1, 4px) 0;
+        border-color: color-mix(in srgb, var(--k-warning, #B45309) 30%, transparent);
+    }
+
+    .edu-rows__main {
+        flex: 1 1 14rem;
+        min-width: 0;
+    }
+
+    .edu-rows__main p {
+        margin: 0;
+    }
+
+    .edu-rows__title {
+        font-weight: 600;
+        color: var(--k-ink, #1C1917);
+        display: inline-flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--k-2, 8px);
+    }
+
+    a.edu-rows__title {
+        display: inline;
+    }
+
+    .edu-rows__sub {
+        color: var(--k-muted, #57534E);
+        font-size: var(--k-text-sm, 0.875rem);
+        margin: 0;
+    }
+
+    .edu-rows__end {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: var(--k-1, 4px);
+        text-align: right;
+    }
+
+    .edu-rows__amount {
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .edu-rows__item--link {
+        position: relative;
+    }
+
+    .edu-rows__item--link:hover {
+        background: var(--k-surface-2, #F5F3F0);
+    }
+
+    /* A link whose ::after covers its card or row: one target, one tab
+       stop, and a name that is just the title. */
+    .edu-stretch {
+        color: var(--k-ink, #1C1917);
+        text-decoration: none;
+    }
+
+    .edu-stretch::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+    }
+
+    .edu-stretch:hover {
+        color: var(--k-accent-ink, #0F766E);
+        text-decoration: underline;
+    }
+
+    /* The same cover for a link that keeps its link colour. */
+    .edu-cover::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+    }
+
+    .edu-cover:focus-visible::after,
+    .edu-stretch:focus-visible::after {
+        outline: 3px solid var(--k-focus, #C2560A);
+        outline-offset: 2px;
+    }
+
+    .edu-meta {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--k-2, 8px);
+        color: var(--k-muted, #57534E);
+        font-size: var(--k-text-sm, 0.875rem);
+        margin: 0;
+    }
+
+    .edu-meta > .k-icon {
+        margin-top: 2px;
+    }
+
+    .edu-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--k-2, 8px);
+        list-style: none;
+        margin: var(--k-3, 12px) 0 0;
+        padding: 0;
+    }
+
+    .edu-stats {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
+    }
+
+    .edu-stats .k-stat {
+        box-shadow: var(--k-shadow-1, 0 1px 2px rgba(28, 25, 23, .06));
+    }
+
+    .edu-stat--tint {
+        background: var(--k-accent-tint, #E0F5F2);
+        border-color: transparent;
+    }
+
+    .edu-stat--danger .k-stat__value {
+        color: var(--k-danger, #B91C1C);
+    }
+
+    .edu-empty--compact {
+        padding: var(--k-6, 24px) var(--k-4, 16px);
+    }
+
+    .edu-empty-title {
+        font-size: var(--k-text-lg, 1.25rem);
+        color: var(--k-ink, #1C1917);
+        margin: 0;
+    }
+
+    /* Landing. */
+    .edu-landing-hero {
+        padding-top: 0;
+    }
+
+    .edu-art {
+        width: 100%;
+        height: auto;
+    }
+
+    .edu-art__blob { fill: var(--k-accent-tint, #E0F5F2); }
+    .edu-art__card { fill: var(--k-surface, #FFFFFF); stroke: var(--k-border, #E7E5E4); stroke-width: 1.5; }
+    .edu-art__tile { fill: var(--k-accent-tint, #E0F5F2); }
+    .edu-art__stroke { fill: none; stroke: var(--k-accent-ink, #0F766E); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+    .edu-art__ink { fill: var(--k-ink, #1C1917); opacity: .78; }
+    .edu-art__line { fill: var(--k-border, #E7E5E4); }
+    .edu-art__track { fill: var(--k-surface-2, #F5F3F0); }
+    .edu-art__fill { fill: var(--k-accent, #0F766E); }
+    .edu-art__ok { fill: var(--k-success, #15803D); }
+    .edu-art__tick { fill: none; stroke: var(--k-surface, #FFFFFF); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+
+    .edu-feature-title {
+        font-size: var(--k-text-md, 1rem);
+        margin: var(--k-2, 8px) 0 0;
+        color: var(--k-ink, #1C1917);
+    }
+
+    /* School search. */
+    .edu-filters {
+        display: grid;
+        gap: 0 var(--k-4, 16px);
+        margin: 0 0 var(--k-4, 16px);
+    }
+
+    .edu-filters .k-field {
+        margin-bottom: var(--k-2, 8px);
+    }
+
+    @media (min-width: 768px) {
+        .edu-filters {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .edu-filters__query {
+            grid-column: 1 / -1;
+        }
+    }
+
+    .edu-results-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--k-2, 8px) var(--k-4, 16px);
+        min-height: var(--k-target, 48px);
+        margin: 0 0 var(--k-3, 12px);
+    }
+
+    .edu-results-count {
+        margin: 0;
+        font-weight: 600;
+        color: var(--k-ink, #1C1917);
+    }
+
+    .edu-school-grid {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        gap: var(--k-4, 16px);
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+    }
+
+    .edu-school-grid:not(.hidden) {
+        display: grid;
+    }
+
+    .edu-school-card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: var(--k-2, 8px);
+        height: 100%;
+        transition: border-color var(--k-motion, 160ms), box-shadow var(--k-motion, 160ms), transform var(--k-motion, 160ms);
+    }
+
+    .edu-school-card:hover {
+        border-color: var(--k-accent, #0F766E);
+        box-shadow: var(--k-shadow-2, 0 4px 12px rgba(28, 25, 23, .08));
+        transform: translateY(-2px);
+    }
+
+    .edu-school-card:focus-within {
+        border-color: var(--k-accent, #0F766E);
+    }
+
+    .edu-school-card__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--k-3, 12px);
+    }
+
+    .edu-school-card__name {
+        font-size: var(--k-text-lg, 1.25rem);
+        line-height: 1.3;
+        margin: var(--k-1, 4px) 0 0;
+    }
+
+    .edu-school-card__foot {
+        margin-top: auto;
+        padding-top: var(--k-3, 12px);
+        border-top: 1px solid var(--k-border, #E7E5E4);
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--k-2, 8px);
+    }
+
+    .edu-sqi {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0 var(--k-2, 8px);
+        margin: 0;
+    }
+
+    .edu-sqi__value {
+        font-size: var(--k-text-xl, 1.5625rem);
+        font-weight: 700;
+        line-height: 1.1;
+        color: var(--k-accent-ink, #0F766E);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .edu-sqi__label,
+    .edu-sqi--none {
+        font-size: var(--k-text-sm, 0.875rem);
+        color: var(--k-muted, #57534E);
+    }
+
+    .edu-pager {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--k-2, 8px) var(--k-4, 16px);
+        margin: var(--k-6, 24px) 0 0;
+    }
+
+    .edu-pager__summary {
+        margin: 0;
+        color: var(--k-muted, #57534E);
+        font-size: var(--k-text-sm, 0.875rem);
+    }
+
+    .edu-pager .k-pager {
+        margin: 0;
+    }
+
+    .k-pager button:disabled {
+        background: var(--k-surface-2, #F5F3F0);
+        color: var(--k-faint, #78716C);
+        cursor: not-allowed;
+    }
+
+    .k-pager button:not(:disabled):not([aria-current]):hover {
+        border-color: var(--k-accent, #0F766E);
+        color: var(--k-accent-ink, #0F766E);
+    }
+
+    /* School profile. */
+    .edu-school > * + * {
+        margin-top: var(--k-6, 24px);
+    }
+
+    .edu-school > .k-breadcrumbs + * {
+        margin-top: 0;
+    }
+
+    .edu-school-head {
+        display: grid;
+        gap: var(--k-5, 20px);
+        padding: var(--k-6, 24px);
+    }
+
+    @media (min-width: 768px) {
+        .edu-school-head {
+            grid-template-columns: minmax(0, 1fr) auto;
+        }
+    }
+
+    .edu-school-head__title {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--k-4, 16px);
+    }
+
+    /* On a phone the school's name gets the width; the icon shrinks. */
+    .edu-school-head__title .k-picon {
+        --_s: 44px;
+    }
+
+    @media (min-width: 768px) {
+        .edu-school-head__title .k-picon {
+            --_s: 64px;
+        }
+    }
+
+    .edu-school-head h1 {
+        font-size: clamp(1.5rem, 1.1rem + 1.8vw, 2.441rem);
+        line-height: 1.15;
+        margin: 0 0 var(--k-2, 8px);
+    }
+
+    .edu-school-head__actions {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--k-3, 12px) var(--k-5, 20px);
+        padding-top: var(--k-5, 20px);
+        border-top: 1px solid var(--k-border, #E7E5E4);
+    }
+
+    .edu-facts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--k-2, 8px) var(--k-6, 24px);
+        margin: var(--k-4, 16px) 0 0;
+    }
+
+    .edu-facts > div {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .edu-facts dt {
+        font-size: var(--k-text-xs, 0.8rem);
+        color: var(--k-muted, #57534E);
+        font-weight: 600;
+        letter-spacing: .02em;
+    }
+
+    .edu-facts dd {
+        margin: 0;
+        font-weight: 600;
+        color: var(--k-ink, #1C1917);
+    }
+
+    .edu-facts--stack {
+        flex-direction: column;
+        gap: var(--k-2, 8px);
+        margin-top: var(--k-3, 12px);
+    }
+
+    .edu-score {
+        align-self: start;
+        min-width: 11rem;
+        padding: var(--k-4, 16px) var(--k-5, 20px);
+        border-radius: var(--k-radius, 12px);
+        background: var(--k-accent-tint, #E0F5F2);
+    }
+
+    .edu-score p {
+        margin: 0;
+    }
+
+    .edu-score__value {
+        font-size: clamp(2rem, 1.6rem + 1.4vw, 2.75rem);
+        font-weight: 700;
+        line-height: 1.05;
+        color: var(--k-accent-ink, #0F766E);
+        font-variant-numeric: tabular-nums;
+        margin: 0;
+    }
+
+    .edu-score__label {
+        font-weight: 600;
+        color: var(--k-ink, #1C1917);
+    }
+
+    .edu-score__meta {
+        font-size: var(--k-text-sm, 0.875rem);
+        color: var(--k-ink, #1C1917);
+    }
+
+    .edu-callout {
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .edu-callout > p {
+        flex: 1 1 18rem;
+    }
+
+    .edu-callout--stack {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--k-2, 8px);
+    }
+
+    .edu-callout--stack > p {
+        flex: none;
+    }
+
+    .edu-toc {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--k-2, 8px);
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+
+    .edu-toc a {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+        padding: 0 var(--k-4, 16px);
+        border: 1px solid var(--k-border, #E7E5E4);
+        border-radius: var(--k-radius-pill, 999px);
+        background: var(--k-surface, #FFFFFF);
+        color: var(--k-ink, #1C1917);
+        font-weight: 600;
+        font-size: var(--k-text-sm, 0.875rem);
+        text-decoration: none;
+    }
+
+    .edu-toc a:hover {
+        border-color: var(--k-accent, #0F766E);
+        color: var(--k-accent-ink, #0F766E);
+    }
+
+    .edu-quote {
+        flex-basis: 100%;
+        margin: var(--k-2, 8px) 0 0;
+        padding: var(--k-3, 12px) var(--k-4, 16px);
+        border-left: 3px solid var(--k-accent, #0F766E);
+        border-radius: 0 var(--k-radius-sm, 8px) var(--k-radius-sm, 8px) 0;
+        background: var(--k-surface-2, #F5F3F0);
+    }
+
+    .edu-quote p {
+        margin: 0 0 var(--k-1, 4px);
+    }
+
+    .edu-quote__who {
+        font-size: var(--k-text-sm, 0.875rem);
+        font-weight: 700;
+        color: var(--k-accent-ink, #0F766E);
+    }
+
+    .edu-course-list > * + * {
+        margin-top: var(--k-5, 20px);
+        padding-top: var(--k-5, 20px);
+        border-top: 1px solid var(--k-border, #E7E5E4);
+    }
+
+    .edu-course__head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--k-2, 8px) var(--k-3, 12px);
+        margin: 0 0 var(--k-3, 12px);
+    }
+
+    .edu-course__head h3 {
+        font-size: var(--k-text-md, 1rem);
+        margin: 0;
+    }
+
+    .edu-bars--grid {
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+        gap: var(--k-3, 12px) var(--k-6, 24px);
+    }
+
+    .edu-of,
+    .edu-count {
+        font-weight: 400;
+        color: var(--k-muted, #57534E);
+        font-size: var(--k-text-sm, 0.875rem);
+    }
+
+    .edu-tei {
+        display: grid;
+        gap: var(--k-5, 20px);
+    }
+
+    /* Dashboards. */
+    .edu-next {
+        border-top: 4px solid var(--k-accent, #0F766E);
+    }
+
+    .edu-next h2 {
+        font-size: var(--k-text-xl, 1.5625rem);
+        margin: var(--k-3, 12px) 0 var(--k-2, 8px);
+    }
+
+    .edu-next p:not(.k-chip) {
+        color: var(--k-muted, #57534E);
+    }
+
+    .edu-setup {
+        display: flex;
+        align-items: center;
+        gap: var(--k-5, 20px);
+    }
+
+    .edu-checklist {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: var(--k-1, 4px);
+        font-size: var(--k-text-sm, 0.875rem);
+        color: var(--k-muted, #57534E);
+    }
+
+    .edu-checklist li {
+        display: flex;
+        gap: var(--k-2, 8px);
+        align-items: flex-start;
+    }
+
+    .edu-checklist .k-icon {
+        margin-top: 2px;
+    }
+
+    .edu-checklist .is-done {
+        color: var(--k-success, #15803D);
+        font-weight: 600;
+    }
+
+    .edu-goals {
+        grid-column: 1 / -1;
+        padding: var(--k-3, 12px) var(--k-4, 16px);
+        border-radius: var(--k-radius-sm, 8px);
+        background: var(--k-surface-2, #F5F3F0);
+    }
+
+    .edu-goals h4 {
+        font-size: var(--k-text-sm, 0.875rem);
+        margin: 0 0 var(--k-2, 8px);
+    }
+
+    .edu-goals ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: var(--k-2, 8px);
+    }
+
+    .edu-goals li {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--k-2, 8px);
+    }
+
+    .k-statusrow .k-statusrow__action.edu-actions .k-btn {
+        flex: 1 1 auto;
+    }
+
+    @media (min-width: 768px) {
+        .k-statusrow .k-statusrow__action.edu-actions .k-btn {
+            flex: none;
+        }
+    }
+
+    .edu-tiles {
+        display: grid;
+        gap: var(--k-3, 12px);
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+
+    .edu-tile {
+        position: relative;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: start;
+        gap: var(--k-3, 12px);
+        padding: var(--k-4, 16px);
+        transition: border-color var(--k-motion, 160ms), box-shadow var(--k-motion, 160ms);
+    }
+
+    .edu-tile:hover,
+    .edu-tile:focus-within {
+        border-color: var(--k-accent, #0F766E);
+        box-shadow: var(--k-shadow-2, 0 4px 12px rgba(28, 25, 23, .08));
+    }
+
+    .edu-tile__title {
+        font-weight: 700;
+    }
+
+    .edu-tile p {
+        margin: var(--k-1, 4px) 0 0;
+        color: var(--k-muted, #57534E);
+        font-size: var(--k-text-sm, 0.875rem);
+    }
+
+    .edu-tile__arrow {
+        width: 20px;
+        height: 20px;
+        margin-top: 4px;
+        color: var(--k-accent-ink, #0F766E);
+        transition: transform var(--k-motion, 160ms);
+    }
+
+    .edu-tile:hover .edu-tile__arrow {
+        transform: translateX(3px);
+    }
+
+    .edu-invite {
+        display: grid;
+        gap: 0 var(--k-4, 16px);
+        align-items: start;
+    }
+
+    @media (min-width: 768px) {
+        .edu-invite {
+            grid-template-columns: minmax(0, 1.4fr) minmax(0, .8fr) minmax(0, 1.2fr);
+        }
+
+        .edu-invite__submit {
+            grid-column: 1 / -1;
+        }
+    }
+
+    /* Profile. */
+    .edu-account {
+        display: flex;
+        align-items: center;
+        gap: var(--k-4, 16px);
+    }
+
+    .edu-account p {
+        margin: 0;
+    }
+
+    .edu-account__name {
+        font-size: var(--k-text-lg, 1.25rem);
+        font-weight: 700;
+    }
+
+    .edu-account .edu-chips {
+        margin-top: var(--k-2, 8px);
+    }
+
+    .edu-setting {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: var(--k-3, 12px) var(--k-4, 16px);
+        align-items: start;
+    }
+
+    .edu-setting p {
+        color: var(--k-muted, #57534E);
+        font-size: var(--k-text-sm, 0.875rem);
+        margin: 0;
+    }
+
+    .edu-setting > :last-child {
+        grid-column: 1 / -1;
+    }
+
+    @media (min-width: 768px) {
+        .edu-setting {
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            align-items: center;
+        }
+
+        .edu-setting > :last-child {
+            grid-column: auto;
+        }
+    }
+
+    .edu-danger-zone {
+        border-color: color-mix(in srgb, var(--k-danger, #B91C1C) 35%, var(--k-border, #E7E5E4));
+    }
+
+    /* Sign-in, sign-up and the rest of the guest screens. */
+    .edu-auth-main {
+        max-width: 640px;
+    }
+
+    @media (min-width: 1024px) {
+        .edu-auth-main {
+            max-width: var(--k-content, 1120px);
+        }
+
+        .edu-auth-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 34rem) minmax(0, 1fr);
+            gap: var(--k-10, 40px);
+            align-items: start;
+        }
+    }
+
+    .edu-auth-aside {
+        padding: var(--k-8, 32px);
+        border-radius: var(--k-radius-lg, 20px);
+        background: var(--k-accent-tint, #E0F5F2);
+    }
+
+    .edu-auth-aside h2 {
+        font-size: var(--k-text-2xl, 1.953rem);
+        line-height: 1.2;
+        margin: 0 0 var(--k-6, 24px);
+    }
+
+    .edu-points {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: var(--k-5, 20px);
+    }
+
+    .edu-points li {
+        display: flex;
+        gap: var(--k-4, 16px);
+        align-items: flex-start;
+    }
+
+    .edu-points h3 {
+        font-size: var(--k-text-md, 1rem);
+        margin: 0 0 var(--k-1, 4px);
+    }
+
+    .edu-points p {
+        margin: 0;
+        color: var(--k-ink, #1C1917);
+    }
+
+    .edu-points .k-picon {
+        background: var(--k-surface, #FFFFFF);
+    }
+
+    .edu-roles {
+        border: 0;
+        padding: 0;
+        min-width: 0;
+    }
+
+    .edu-roles legend {
+        margin-bottom: var(--k-1, 4px);
+    }
+
+    .edu-role-options {
+        display: grid;
+        gap: var(--k-2, 8px);
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 6.5rem), 1fr));
+    }
+
+    .edu-role-option {
+        display: flex;
+        align-items: center;
+        gap: var(--k-2, 8px);
+        min-height: var(--k-target, 48px);
+        padding: var(--k-2, 8px) var(--k-3, 12px);
+        border: 1.5px solid var(--k-border-strong, #A8A29E);
+        border-radius: var(--k-radius-sm, 8px);
+        background: var(--k-surface, #FFFFFF);
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .edu-role-option:hover {
+        border-color: var(--k-accent, #0F766E);
+    }
+
+    .edu-role-option:has(input:checked) {
+        border-color: var(--k-accent, #0F766E);
+        background: var(--k-accent-tint, #E0F5F2);
+        color: var(--k-accent-ink, #0F766E);
+    }
+
+    .edu-role-option input {
+        width: 20px;
+        height: 20px;
+        accent-color: var(--k-accent, #0F766E);
+        flex: none;
+    }
+
+    .edu-role-option .k-icon {
+        width: 20px;
+        height: 20px;
+    }
+
+    /* Onboarding. */
+    .edu-fieldset {
+        border: 0;
+        margin: var(--k-2, 8px) 0 var(--k-4, 16px);
+        padding: var(--k-3, 12px) 0 0;
+        border-top: 1px solid var(--k-border, #E7E5E4);
+        min-width: 0;
+    }
+
+    .edu-fieldset .k-field {
+        border: 0;
+        padding: 0;
+        min-width: 0;
+    }
+
+    .edu-success {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--k-3, 12px);
+    }
+
+    .edu-success h2 {
+        font-size: var(--k-text-xl, 1.5625rem);
+        margin: 0;
+    }
+
+    .edu-success p {
+        color: var(--k-muted, #57534E);
+        margin: 0;
+    }
+
+    /* Error pages. */
+    .edu-error h1 {
+        font-size: clamp(1.75rem, 1.35rem + 1.6vw, 2.441rem);
+        color: var(--k-ink, #1C1917);
+        margin: 0;
+    }
+
+    .edu-error .k-row {
+        margin-top: var(--k-2, 8px);
     }
 }

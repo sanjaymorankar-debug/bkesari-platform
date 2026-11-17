@@ -24,45 +24,75 @@ new #[Layout('layouts.app')] class extends Component
 
 <div>
     <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">System Admin</h2>
+        <p class="k-eyebrow"><x-k-icon name="shield" /> {{ __('System Admin') }}</p>
+        <h1>{{ __('System administration') }}</h1>
+        <p class="edu-page-head__lead">{{ __('How the platform is set up, and the logs that show who did what.') }}</p>
     </x-slot>
 
-    <div class="py-8 max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-6">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div class="bg-white rounded-lg shadow p-4"><div class="text-2xl font-bold text-gray-900">{{ $stats['users'] }}</div><div class="text-xs text-gray-500">Users</div></div>
-            <div class="bg-white rounded-lg shadow p-4"><div class="text-2xl font-bold text-gray-900">{{ $stats['schools'] }}</div><div class="text-xs text-gray-500">Schools</div></div>
-            <div class="bg-white rounded-lg shadow p-4"><div class="text-2xl font-bold text-gray-900">{{ $stats['complaints'] }}</div><div class="text-xs text-gray-500">Complaints</div></div>
-            <div class="bg-white rounded-lg shadow p-4"><div class="text-2xl font-bold text-gray-900">{{ $stats['identity_accesses'] }}</div><div class="text-xs text-gray-500">Identity Accesses Logged</div></div>
-        </div>
+    <div class="edu-dash">
+        <ul class="k-stats edu-stats" role="list" aria-label="{{ __('At a glance') }}">
+            <li class="k-stat">
+                <span class="k-stat__value">{{ \Illuminate\Support\Number::format($stats['users'], locale: 'en_IN') }}</span>
+                <span class="k-stat__label">{{ __('Users') }}</span>
+            </li>
+            <li class="k-stat">
+                <span class="k-stat__value">{{ \Illuminate\Support\Number::format($stats['schools'], locale: 'en_IN') }}</span>
+                <span class="k-stat__label">{{ __('Schools') }}</span>
+            </li>
+            <li class="k-stat">
+                <span class="k-stat__value">{{ \Illuminate\Support\Number::format($stats['complaints'], locale: 'en_IN') }}</span>
+                <span class="k-stat__label">{{ __('Complaints') }}</span>
+            </li>
+            <li class="k-stat">
+                <span class="k-stat__value">{{ \Illuminate\Support\Number::format($stats['identity_accesses'], locale: 'en_IN') }}</span>
+                <span class="k-stat__label">{{ __('Identity accesses logged') }}</span>
+                <span class="k-stat__source">{{ __('Every time an officer looks behind an anonymous reference') }}</span>
+            </li>
+        </ul>
 
-        <div class="bg-white rounded-lg shadow p-6">
-            <h3 class="font-semibold text-gray-900 mb-4">Admin Panel</h3>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <a href="{{ route('admin.rating-weights') }}" wire:navigate class="block border rounded-lg p-4 hover:bg-gray-50">
-                    <div class="font-medium text-gray-900">School Rating Weights</div>
-                    <div class="text-xs text-gray-500 mt-1">Configure School Quality Index dimension weights</div>
-                </a>
-                <a href="{{ route('admin.categories') }}" wire:navigate class="block border rounded-lg p-4 hover:bg-gray-50">
-                    <div class="font-medium text-gray-900">Complaint Categories</div>
-                    <div class="text-xs text-gray-500 mt-1">Add, rename, or retire complaint categories</div>
-                </a>
-                <a href="{{ route('admin.audit-log') }}" wire:navigate class="block border rounded-lg p-4 hover:bg-gray-50">
-                    <div class="font-medium text-gray-900">Audit Log</div>
-                    <div class="text-xs text-gray-500 mt-1">Review system actions and identity-access log</div>
-                </a>
-                <a href="{{ route('admin.fraud-flags') }}" wire:navigate class="block border rounded-lg p-4 hover:bg-gray-50">
-                    <div class="font-medium text-gray-900">Fraud Flags</div>
-                    <div class="text-xs text-gray-500 mt-1">Review coordinated-review / spike signals</div>
-                </a>
-                <a href="{{ route('admin.roles') }}" wire:navigate class="block border rounded-lg p-4 hover:bg-gray-50">
-                    <div class="font-medium text-gray-900">Roles & Permissions</div>
-                    <div class="text-xs text-gray-500 mt-1">Manage role permissions and user role assignments</div>
-                </a>
-                <a href="{{ route('admin.moderation') }}" wire:navigate class="block border rounded-lg p-4 hover:bg-gray-50">
-                    <div class="font-medium text-gray-900">Moderation Settings</div>
-                    <div class="text-xs text-gray-500 mt-1">Configure coordinated-review detection thresholds</div>
-                </a>
-            </div>
-        </div>
+        <section aria-labelledby="panel-title">
+            <h2 id="panel-title" class="edu-section-title">{{ __('Admin Panel') }}</h2>
+            <ul class="edu-tiles" role="list">
+                @foreach ([
+                    ['admin.rating-weights', 'School Rating Weights', 'Configure School Quality Index dimension weights', 'grid'],
+                    ['admin.categories', 'Complaint Categories', 'Add, rename, or retire complaint categories', 'book'],
+                    ['admin.audit-log', 'Audit Log', 'Review system actions and identity-access log', 'clock'],
+                    ['admin.fraud-flags', 'Fraud Flags', 'Review coordinated-review / spike signals', 'alert'],
+                    ['admin.roles', 'Roles & Permissions', 'Manage role permissions and user role assignments', 'users'],
+                    ['admin.moderation', 'Moderation Settings', 'Configure coordinated-review detection thresholds', 'shield'],
+                ] as [$route, $title, $text, $icon])
+                    <li class="k-card edu-tile">
+                        <span class="k-picon k-picon--sm"><x-k-icon :name="$icon" /></span>
+                        <div class="min-w-0">
+                            <a href="{{ route($route) }}" wire:navigate class="edu-stretch edu-tile__title">{{ __($title) }}</a>
+                            <p>{{ __($text) }}</p>
+                        </div>
+                        <x-k-icon name="arrow-right" class="edu-tile__arrow" />
+                    </li>
+                @endforeach
+            </ul>
+        </section>
+
+        <section aria-labelledby="queues-title">
+            <h2 id="queues-title" class="edu-section-title">{{ __('Queues') }}</h2>
+            <ul class="edu-tiles" role="list">
+                <li class="k-card edu-tile">
+                    <span class="k-picon k-picon--sm"><x-k-icon name="check" /></span>
+                    <div class="min-w-0">
+                        <a href="{{ route('verification.queue') }}" wire:navigate class="edu-stretch edu-tile__title">{{ __('Verification') }}</a>
+                        <p>{{ __('Schools and claims waiting for an officer to confirm them.') }}</p>
+                    </div>
+                    <x-k-icon name="arrow-right" class="edu-tile__arrow" />
+                </li>
+                <li class="k-card edu-tile">
+                    <span class="k-picon k-picon--sm"><x-k-icon name="lock" /></span>
+                    <div class="min-w-0">
+                        <a href="{{ route('privacy.queue') }}" wire:navigate class="edu-stretch edu-tile__title">{{ __('Data requests') }}</a>
+                        <p>{{ __('Requests to see, correct or erase personal data (DPDP Act 2023).') }}</p>
+                    </div>
+                    <x-k-icon name="arrow-right" class="edu-tile__arrow" />
+                </li>
+            </ul>
+        </section>
     </div>
 </div>

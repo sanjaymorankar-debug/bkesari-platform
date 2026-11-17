@@ -227,13 +227,38 @@ class OwnAccountTest extends TestCase
         $user = User::factory()->create(['name' => 'Asha Patil', 'email' => 'asha@example.com']);
         $response = $this->actingAs($user)->getJson('/shell/me')->assertOk();
 
-        $response->assertJsonPath('user', ['name' => 'Asha Patil', 'email' => 'asha@example.com'])
+        $response->assertJsonPath('user', ['name' => 'Asha Patil', 'email' => 'asha@example.com', 'roles' => []])
             ->assertJsonPath('signOut.url', route('logout'))
             ->assertJsonPath('signOut.next', route('sign-in'))
             ->assertJsonPath('signOut.csrf', session()->token())
             ->assertJsonPath('links.0', ['label' => 'Profile', 'href' => route('profile')])
             ->assertJsonPath('links.1', ['label' => 'Dashboard', 'href' => route('dashboard')]);
         $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
+    }
+
+    public function test_the_shell_is_told_the_education_roles_and_nothing_more(): void
+    {
+        // The hub's "My projects" page shows the access level from these.
+        $parent = User::factory()->create(['name' => 'Asha Patil', 'email' => 'asha@example.com']);
+        $parent->assignRole('parent');
+
+        $this->actingAs($parent)->getJson('/shell/me')->assertOk()
+            ->assertJsonPath('user', ['name' => 'Asha Patil', 'email' => 'asha@example.com', 'roles' => ['parent']])
+            ->assertJsonMissingPath('user.permissions')
+            ->assertJsonMissingPath('permissions');
+
+        // Several roles come back sorted, as role names only.
+        $staff = User::factory()->create();
+        $staff->assignRole('teacher');
+        $staff->assignRole('school_admin');
+
+        $this->actingAs($staff)->getJson('/shell/me')->assertOk()
+            ->assertJsonPath('user.roles', ['school_admin', 'teacher']);
+
+        // A guest still learns nothing but where to sign in.
+        auth()->logout();
+        $this->getJson('/shell/me')->assertStatus(401)
+            ->assertExactJson(['user' => null, 'signInUrl' => route('sign-in')]);
     }
 
     public function test_the_shell_signs_out_with_a_json_post(): void
@@ -259,8 +284,8 @@ class OwnAccountTest extends TestCase
         $html = $this->get('/login')->assertOk()->getContent();
 
         $this->assertStringContainsString('data-project="education"', $html);
-        $this->assertStringContainsString('<link rel="stylesheet" href="/kesari-ui/1.0.0/kesari.css">', $html);
-        $this->assertStringContainsString('<script src="/kesari-ui/1.0.0/kesari.js"></script>', $html);
+        $this->assertStringContainsString('<link rel="stylesheet" href="/kesari-ui/1.1.0/kesari.css">', $html);
+        $this->assertStringContainsString('<script src="/kesari-ui/1.1.0/kesari.js"></script>', $html);
         $this->assertStringContainsString('<script src="/shared/menu.js" defer></script>', $html);
         $this->assertStringContainsString('data-bkesari-menu data-me-url="'.url('/shell/me').'"', $html);
 
@@ -274,8 +299,8 @@ class OwnAccountTest extends TestCase
         config(['services.hub.asset_origin' => 'https://bkesari.com']);
 
         $this->get('/login')->assertOk()
-            ->assertSee('href="https://bkesari.com/kesari-ui/1.0.0/kesari.css"', false)
-            ->assertSee('src="https://bkesari.com/kesari-ui/1.0.0/kesari.js"', false)
+            ->assertSee('href="https://bkesari.com/kesari-ui/1.1.0/kesari.css"', false)
+            ->assertSee('src="https://bkesari.com/kesari-ui/1.1.0/kesari.js"', false)
             ->assertSee('src="https://bkesari.com/shared/menu.js"', false);
     }
 

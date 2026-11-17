@@ -8,7 +8,7 @@ import { AuthProvider } from '../lib/auth-context'
  * boxes, toasts, dialogs). Pinned to a version, like every project's copy.
  * Under `next dev` on its own these do not exist; the app still works, plainly.
  */
-const KESARI = '/kesari-ui/1.0.0'
+const KESARI = '/kesari-ui/1.1.0'
 // The shell's own footer markup, from the one file that defines it (the hub's
 // portal/public/shared/menu.js), rendered at build time.
 const FOOTER: string = require('../../../../../portal/public/shared/menu.js').renderFooter({ lang: 'en' })

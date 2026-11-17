@@ -20,8 +20,8 @@
      tab lists useless. --}}
 <title>{{ isset($title) ? $title.' — '.config('app.name') : config('app.name', 'Laravel') }}</title>
 
-<link rel="stylesheet" href="{{ $hubAssets }}/kesari-ui/1.0.0/kesari.css">
-<script src="{{ $hubAssets }}/kesari-ui/1.0.0/kesari.js"></script>
+<link rel="stylesheet" href="{{ $hubAssets }}/kesari-ui/1.1.0/kesari.css">
+<script src="{{ $hubAssets }}/kesari-ui/1.1.0/kesari.js"></script>
 <script>
     // The page is rendered on the server in the language of the k_lang
     // cookie (App\Http\Middleware\SetLocale). When the shell's language

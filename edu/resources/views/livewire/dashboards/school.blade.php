@@ -144,164 +144,203 @@ new #[Layout('layouts.app')] class extends Component
 
         return compact('school', 'complaints', 'stats', 'pendingParents', 'pendingStudents', 'pendingTeachers', 'sentInvitations');
     }
+
+    public function rendering($view): void
+    {
+        $view->title(__('School Dashboard'));
+    }
 }; ?>
 
 <div>
     <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">School Dashboard{{ $school ? ' — '.$school->name : '' }}</h2>
+        <p class="k-eyebrow"><x-k-icon name="school" /> {{ __('School Dashboard') }}</p>
+        <h1>{{ $school?->name ?? __('School Dashboard') }}</h1>
+        @if ($school)
+            <div class="edu-page-head__row">
+                <span class="k-chip {{ $school->recognition_status === 'verified' ? 'k-chip--success' : 'k-chip--warning' }}">{{ __(ucfirst(str_replace('_', ' ', $school->recognition_status))) }}</span>
+                <a href="{{ route('schools.show', $school) }}" wire:navigate class="k-link-arrow">{{ __('View public profile') }} <x-k-icon name="arrow-right" /></a>
+            </div>
+        @endif
     </x-slot>
 
-    <div class="py-8 max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-6">
+    <div class="edu-dash">
         @if (! $school)
-            <div class="bg-white rounded-lg shadow p-6 text-gray-500">No school is linked to your account yet.</div>
+            <div class="k-card k-empty">
+                <span class="k-picon k-picon--lg"><x-k-icon name="school" /></span>
+                <h2 class="edu-empty-title">{{ __('No school is linked to your account yet.') }}</h2>
+                <p>{{ __('Register your school, or ask the person who registered it to add you as staff.') }}</p>
+                <a href="{{ route('schools.register') }}" wire:navigate class="k-btn">{{ __('Register a School') }}</a>
+            </div>
         @else
             @if ($school->recognition_status !== 'verified')
-                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
-                    This school is <strong>{{ str_replace('_', ' ', $school->recognition_status) }}</strong> — it won't
-                    appear in public search or ratings until a District/State Officer verifies it. You can still
-                    manage its profile and respond to complaints in the meantime.
+                <div class="k-banner k-banner--warning" role="status">
+                    <x-k-icon name="pending" />
+                    <p>{{ __('This school is not verified yet, so it won’t appear in public search or ratings until a District or State Officer verifies it. You can still manage its profile and respond to complaints in the meantime.') }}</p>
                 </div>
             @endif
 
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div class="bg-white rounded-lg shadow p-4">
-                    <div class="text-2xl font-bold text-indigo-600">{{ $school->latestQualityScore?->score ?? '—' }}</div>
-                    <div class="text-xs text-gray-500">School Quality Index</div>
-                </div>
-                <div class="bg-white rounded-lg shadow p-4">
-                    <div class="text-2xl font-bold text-gray-900">{{ $stats['open'] }}</div>
-                    <div class="text-xs text-gray-500">Open Complaints</div>
-                </div>
-                <div class="bg-white rounded-lg shadow p-4">
-                    <div class="text-2xl font-bold text-red-600">{{ $stats['overdue'] }}</div>
-                    <div class="text-xs text-gray-500">Overdue (&gt;7 days, no response)</div>
-                </div>
-                <div class="bg-white rounded-lg shadow p-4">
-                    <div class="text-2xl font-bold text-green-600">{{ $stats['resolved'] }}</div>
-                    <div class="text-xs text-gray-500">Resolved</div>
-                </div>
-            </div>
-
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="font-semibold text-gray-900 mb-3">Manage this school</h3>
-                <div class="flex flex-wrap gap-3">
-                    <a href="{{ route('fees.manage', $school) }}" wire:navigate
-                        class="px-4 py-2 text-sm rounded bg-indigo-600 text-white hover:bg-indigo-700">Fees &amp; charges</a>
-                    <a href="{{ route('facilities.manage', $school) }}" wire:navigate
-                        class="px-4 py-2 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50">Facilities</a>
-                    <a href="{{ route('courses.manage', $school) }}" wire:navigate
-                        class="px-4 py-2 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50">Courses</a>
-                    <a href="{{ route('exams.manage', $school) }}" wire:navigate
-                        class="px-4 py-2 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50">Exams &amp; coaching</a>
-                    <a href="{{ route('academic-records.index', $school) }}" wire:navigate
-                        class="px-4 py-2 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50">Academic records</a>
-                    <a href="{{ route('improvement.show', $school) }}" wire:navigate
-                        class="px-4 py-2 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50">Improvement over time</a>
-                    <a href="{{ route('schools.show', $school) }}" wire:navigate
-                        class="px-4 py-2 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50">View public profile</a>
-                </div>
-            </div>
+            <ul class="k-stats edu-stats" role="list" aria-label="{{ __('At a glance') }}">
+                <li class="k-stat">
+                    <span class="k-stat__value">{{ $school->latestQualityScore?->score ?? '—' }}</span>
+                    <span class="k-stat__label">{{ __('School Quality Index') }}</span>
+                </li>
+                <li class="k-stat">
+                    <span class="k-stat__value">{{ $stats['open'] }}</span>
+                    <span class="k-stat__label">{{ __('Open complaints') }}</span>
+                </li>
+                <li class="k-stat {{ $stats['overdue'] > 0 ? 'edu-stat--danger' : '' }}">
+                    <span class="k-stat__value">{{ $stats['overdue'] }}</span>
+                    <span class="k-stat__label">{{ __('Overdue') }}</span>
+                    <span class="k-stat__source">{{ __('No response for more than 7 days') }}</span>
+                </li>
+                <li class="k-stat">
+                    <span class="k-stat__value">{{ $stats['resolved'] }}</span>
+                    <span class="k-stat__label">{{ __('Resolved') }}</span>
+                </li>
+            </ul>
 
             @php $pendingTotal = $pendingParents->count() + $pendingStudents->count() + $pendingTeachers->count(); @endphp
-            @if ($pendingTotal > 0)
-                <div class="bg-white rounded-lg shadow p-6">
-                    <h3 class="font-semibold text-gray-900 mb-4">Pending Verifications ({{ $pendingTotal }})</h3>
-
-                    @foreach ($pendingParents as $rel)
-                        <div class="flex justify-between items-center py-2 border-b text-sm">
-                            <span>{{ $rel->user->name }} — Parent</span>
-                            <span class="flex gap-2">
-                                <button wire:click="approveParent({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
-                                <button wire:click="rejectParent({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
-                            </span>
-                        </div>
-                    @endforeach
-
-                    @foreach ($pendingStudents as $rel)
-                        <div class="flex justify-between items-center py-2 border-b text-sm">
-                            <span>{{ $rel->user->name }} — Student (Class {{ $rel->class_grade }})</span>
-                            <span class="flex gap-2">
-                                <button wire:click="approveStudent({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
-                                <button wire:click="rejectStudent({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
-                            </span>
-                        </div>
-                    @endforeach
-
-                    @foreach ($pendingTeachers as $rel)
-                        <div class="flex justify-between items-center py-2 border-b text-sm">
-                            <span>{{ $rel->user->name }} — Teacher</span>
-                            <span class="flex gap-2">
-                                <button wire:click="approveTeacher({{ $rel->id }})" class="text-xs px-2 py-1 bg-green-600 text-white rounded">Approve</button>
-                                <button wire:click="rejectTeacher({{ $rel->id }})" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded">Reject</button>
-                            </span>
-                        </div>
-                    @endforeach
+            <section class="k-card edu-panel" aria-labelledby="pending-title">
+                <div class="edu-panel__head">
+                    <h2 id="pending-title">{{ __('Pending verifications') }}</h2>
+                    @if ($pendingTotal > 0)
+                        <span class="k-badge" aria-hidden="true">{{ $pendingTotal }}</span>
+                        <span class="k-sr-only">{{ trans_choice(':count person waiting|:count people waiting', $pendingTotal) }}</span>
+                    @endif
                 </div>
-            @endif
+                <p class="edu-panel__intro">{{ __('Parents, students and teachers who asked to link their account to this school. Approve only people you can confirm belong here.') }}</p>
 
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="font-semibold text-gray-900 mb-1">Invite a Member</h3>
-                <p class="text-xs text-gray-500 mb-4">School-initiated invites are trusted immediately — no separate approval step once accepted.</p>
+                @if ($pendingTotal === 0)
+                    <p class="edu-none"><x-k-icon name="check" class="k-icon--sm" /> {{ __('No one is waiting for approval.') }}</p>
+                @else
+                    <ul class="edu-rows" role="list">
+                        @foreach ([['parent', $pendingParents, 'Parent'], ['student', $pendingStudents, 'Student'], ['teacher', $pendingTeachers, 'Teacher']] as [$kind, $list, $label])
+                            @foreach ($list as $rel)
+                                <li wire:key="pending-{{ $kind }}-{{ $rel->id }}">
+                                    <div class="edu-rows__main">
+                                        <p class="edu-rows__title">{{ $rel->user->name }}</p>
+                                        <p class="edu-rows__sub">
+                                            {{ __($label) }}
+                                            @if ($kind === 'student' && $rel->class_grade)
+                                                &middot; {{ __('Class :grade', ['grade' => $rel->class_grade]) }}
+                                            @endif
+                                        </p>
+                                    </div>
+                                    <div class="edu-actions">
+                                        <button type="button" wire:click="approve{{ ucfirst($kind) }}({{ $rel->id }})" class="k-btn k-btn--soft"
+                                            aria-label="{{ __('Approve :name as :role', ['name' => $rel->user->name, 'role' => __($label)]) }}"><x-k-icon name="check" /> {{ __('Approve') }}</button>
+                                        <button type="button" wire:click="reject{{ ucfirst($kind) }}({{ $rel->id }})" class="k-btn k-btn--secondary"
+                                            aria-label="{{ __('Reject :name as :role', ['name' => $rel->user->name, 'role' => __($label)]) }}">{{ __('Reject') }}</button>
+                                    </div>
+                                </li>
+                            @endforeach
+                        @endforeach
+                    </ul>
+                @endif
+            </section>
+
+            <section aria-labelledby="manage-title">
+                <h2 id="manage-title" class="edu-section-title">{{ __('Manage this school') }}</h2>
+                <ul class="edu-tiles" role="list">
+                    @foreach ([
+                        ['fees.manage', 'Fees & charges', 'Publish this year’s fees, and give a reason for any change.', 'calendar'],
+                        ['facilities.manage', 'Facilities', 'What the school offers, next to what families report.', 'school'],
+                        ['courses.manage', 'Courses', 'The courses families can rate this year.', 'book'],
+                        ['exams.manage', 'Exams & coaching', 'External exams and coaching, with what they cost.', 'clock'],
+                        ['academic-records.index', 'Academic records', 'Results that feed teachers’ private index.', 'grid'],
+                        ['improvement.show', 'Improvement over time', 'How the school compares with its own past years.', 'repeat'],
+                    ] as [$route, $title, $text, $icon])
+                        <li class="k-card edu-tile">
+                            <span class="k-picon k-picon--sm"><x-k-icon :name="$icon" /></span>
+                            <div class="min-w-0">
+                                <a href="{{ route($route, $school) }}" wire:navigate class="edu-stretch edu-tile__title">{{ __($title) }}</a>
+                                <p>{{ __($text) }}</p>
+                            </div>
+                            <x-k-icon name="arrow-right" class="edu-tile__arrow" />
+                        </li>
+                    @endforeach
+                </ul>
+            </section>
+
+            <section class="k-card edu-panel" aria-labelledby="invite-title">
+                <h2 id="invite-title" class="edu-panel__title">{{ __('Invite a member') }}</h2>
+                <p class="edu-panel__intro">{{ __('School-initiated invites are trusted immediately — no separate approval step once accepted.') }}</p>
 
                 @if ($inviteLink)
-                    <div class="bg-green-50 rounded p-3 mb-4 text-sm">
-                        <p class="text-green-800 mb-1">Invitation created. This test environment doesn't send real email — share this link directly:</p>
-                        <p class="font-mono text-xs break-all text-green-900">{{ $inviteLink }}</p>
+                    <div class="k-banner k-banner--success" role="status">
+                        <x-k-icon name="check" />
+                        <div class="min-w-0">
+                            <p>{{ __('Invitation created. If the email does not arrive, share this link directly:') }}</p>
+                            <p class="font-mono text-sm break-all">{{ $inviteLink }}</p>
+                        </div>
                     </div>
                 @endif
 
-                <form wire:submit="sendInvite" class="flex flex-wrap gap-3 items-end">
-                    <div class="flex-1 min-w-[180px]">
-                        <x-input-label for="inviteEmail" value="Email" />
-                        <x-text-input wire:model="inviteEmail" id="inviteEmail" type="email" class="mt-1 w-full" />
-                        <x-input-error :messages="$errors->get('inviteEmail')" class="mt-2" />
+                <form wire:submit="sendInvite" class="edu-invite" novalidate>
+                    <div class="k-field">
+                        <x-input-label for="inviteEmail" :value="__('Email')" />
+                        <x-text-input wire:model="inviteEmail" id="inviteEmail" type="email" autocomplete="off" />
+                        <x-input-error :messages="$errors->get('inviteEmail')" />
                     </div>
-                    <div>
-                        <x-input-label for="inviteRole" value="Role" />
-                        <select wire:model="inviteRole" id="inviteRole" class="border-gray-300 rounded-md shadow-sm mt-1">
-                            <option value="parent">Parent</option>
-                            <option value="student">Student</option>
-                            <option value="teacher">Teacher</option>
+                    <div class="k-field">
+                        <x-input-label for="inviteRole" :value="__('Role')" />
+                        <select wire:model="inviteRole" id="inviteRole" class="k-select">
+                            <option value="parent">{{ __('Parent') }}</option>
+                            <option value="student">{{ __('Student') }}</option>
+                            <option value="teacher">{{ __('Teacher') }}</option>
                         </select>
                     </div>
-                    <div class="flex-1 min-w-[160px]">
-                        <x-input-label for="inviteStudentName" value="For student (optional)" />
-                        <x-text-input wire:model="inviteStudentName" id="inviteStudentName" class="mt-1 w-full" placeholder="Child's name, if inviting a parent" />
+                    <div class="k-field">
+                        <x-input-label for="inviteStudentName" :value="__('For student (optional)')" />
+                        <x-text-input wire:model="inviteStudentName" id="inviteStudentName" aria-describedby="inviteStudentName-hint" />
+                        <p id="inviteStudentName-hint" class="k-hint">{{ __('The child’s name, when you invite a parent.') }}</p>
                     </div>
-                    <x-primary-button>Send Invite</x-primary-button>
+                    <div class="edu-invite__submit">
+                        <button type="submit" class="k-btn" wire:loading.attr="aria-busy" wire:target="sendInvite"><x-k-icon name="mail" /> {{ __('Send invite') }}</button>
+                    </div>
                 </form>
 
                 @if ($sentInvitations->isNotEmpty())
-                    <div class="mt-4 border-t pt-4">
+                    <h3 class="edu-subhead">{{ __('Recent invitations') }}</h3>
+                    <ul class="edu-rows" role="list">
                         @foreach ($sentInvitations as $invite)
-                            <div class="flex justify-between items-center py-1.5 text-sm">
-                                <span>{{ $invite->email }} — {{ ucfirst($invite->role) }}{{ $invite->student_name ? ' ('.$invite->student_name.')' : '' }}</span>
-                                <span class="flex items-center gap-2">
-                                    <span class="text-xs px-2 py-0.5 rounded
-                                        {{ $invite->status === 'accepted' ? 'bg-green-100 text-green-700' : ($invite->status === 'revoked' ? 'bg-gray-100 text-gray-500' : 'bg-yellow-100 text-yellow-700') }}">
-                                        {{ ucfirst($invite->status) }}
-                                    </span>
+                            <li wire:key="invite-{{ $invite->id }}">
+                                <div class="edu-rows__main">
+                                    <p class="edu-rows__title break-all">{{ $invite->email }}</p>
+                                    <p class="edu-rows__sub">{{ __(ucfirst($invite->role)) }}{{ $invite->student_name ? ' · '.$invite->student_name : '' }}</p>
+                                </div>
+                                <div class="edu-actions">
+                                    <span class="k-chip {{ $invite->status === 'accepted' ? 'k-chip--success' : ($invite->status === 'revoked' ? '' : 'k-chip--warning') }}">{{ __(ucfirst($invite->status)) }}</span>
                                     @if ($invite->status === 'pending')
-                                        <button wire:click="revokeInvite({{ $invite->id }})" class="text-xs text-red-600 hover:underline">Revoke</button>
+                                        <button type="button" wire:click="revokeInvite({{ $invite->id }})" class="k-btn k-btn--ghost"
+                                            aria-label="{{ __('Revoke the invitation to :email', ['email' => $invite->email]) }}">{{ __('Revoke') }}</button>
                                     @endif
-                                </span>
-                            </div>
+                                </div>
+                            </li>
                         @endforeach
-                    </div>
+                    </ul>
                 @endif
-            </div>
+            </section>
 
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="font-semibold text-gray-900 mb-4">Complaints</h3>
-                @forelse ($complaints as $complaint)
-                    <a href="{{ route('complaints.show', $complaint) }}" wire:navigate class="flex justify-between py-2 border-b last:border-0 text-sm hover:bg-gray-50 -mx-2 px-2 rounded">
-                        <span>{{ $complaint->complaint_number }} — {{ $complaint->category->name }}</span>
-                        <span class="text-gray-400">{{ str_replace('_', ' ', $complaint->status) }}</span>
-                    </a>
-                @empty
-                    <p class="text-sm text-gray-400">No complaints yet.</p>
-                @endforelse
-            </div>
+            <section class="k-card edu-panel" aria-labelledby="complaints-title">
+                <h2 id="complaints-title" class="edu-panel__title">{{ __('Complaints') }}</h2>
+                <p class="edu-panel__intro">{{ __('The 20 most recent. You see what was raised, never who raised it.') }}</p>
+                @if ($complaints->isEmpty())
+                    <p class="edu-none">{{ __('No complaints yet.') }}</p>
+                @else
+                    <ul class="edu-rows" role="list">
+                        @foreach ($complaints as $complaint)
+                            <li class="edu-rows__item--link">
+                                <div class="edu-rows__main">
+                                    <a href="{{ route('complaints.show', $complaint) }}" wire:navigate class="edu-stretch edu-rows__title">{{ $complaint->category->name }}</a>
+                                    <p class="edu-rows__sub">{{ $complaint->complaint_number }} &middot; {{ $complaint->created_at->format('j M Y') }}</p>
+                                </div>
+                                <x-complaint-status :status="$complaint->status" />
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+            </section>
         @endif
     </div>
 </div>
