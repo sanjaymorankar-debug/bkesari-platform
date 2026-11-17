@@ -214,7 +214,7 @@ ${PUBLIC_PAGES.map((p) => `  <url><loc>${origin}${p}</loc></url>`).join('\n')}
       const c = await content();
       const user = id ? await id.currentUser(req) : null;
       const states = access ? await access.statusList(user) : [];
-      return { ...c, user, states };
+      return { ...c, user, states, google: Boolean(id && id.googleEnabled) };
     } }));
     app.get('/about', page('about.title', pages.about, { data: () => content() }));
     app.get('/privacy', page('privacy.title', pages.privacy));
