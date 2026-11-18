@@ -188,9 +188,16 @@ more than the welcome page.
       Signed in (with a long email as the account's name), at **320, 768 and 960 px**,
       the hub's pages and a project's page do not scroll sideways, and the project's
       name is whole from 375 px up. Below 960 px the account shows as its avatar,
-      and its menu names the person above the email (portal-tester O1, D-050).
+      and its menu names the person above the email, once even when the account has
+      no name of its own (portal-tester O1, D-050, U-27).
 - [ ] On a phone (320–480 px) the **All projects** panel opens inside the screen:
       every project's name is whole (U-26).
+- [ ] On **LadWani**, signed in at the hub with LadWani access, open `/ladwani/` in a
+      fresh browser: the account shows you (not "Sign in") on the first visit, and
+      after three clicks in LadWani's own side menu the bar is still there. In
+      Marathi the footer stays Marathi (U-28, U-29, D-051).
+- [ ] In **Marathi and Hindi** the account menu's links are translated: "माझे प्रकल्प"
+      on the hub, "सेटिंग्ज" in TaskList, "माझी प्रोफाइल" in LadWani (U-30).
 - [ ] At **phone width** (≈390px) the tabs collapse into a hamburger, it opens
       and closes, every tab is reachable, and no page scrolls sideways.
 - [ ] At desktop width the full row shows and the hamburger is hidden.

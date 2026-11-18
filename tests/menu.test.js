@@ -230,6 +230,54 @@ test('the account menu shows only the current project\'s own user, and signs out
   assert.equal(none.hidden, true, 'no me-url answer: nothing shown');
 });
 
+test('the account menu asks again when the project signs someone in or out after the page asked (LadWani)', async () => {
+  // A stand-in page: the bar is already there (server-rendered), so mount only wires it.
+  const account = { innerHTML: '', hidden: true, querySelector: () => null };
+  const header = { getAttribute: (n) => (n === 'data-me-url' ? '/ladwani/api/v1/auth/session' : null) };
+  const listeners = {};
+  const d = {
+    cookie: '', location: { pathname: '/ladwani/dashboard/', hostname: 'bkesari.com' },
+    documentElement: { hasAttribute: () => false, setAttribute() {} },
+    getElementById: () => ({}),
+    querySelector: (sel) => ({ '[data-bkesari-menu]': header, '[data-ks-account]': account, '[data-ks-footer]': { getAttribute: () => null } })[sel] || null,
+    querySelectorAll: () => [],
+    addEventListener() {},
+  };
+  d.defaultView = { document: d, location: {}, addEventListener: (type, fn) => { listeners[type] = fn; } };
+  // The project's answers, released one at a time.
+  const asked = [];
+  const saved = global.fetch;
+  global.fetch = (url) => new Promise((resolve) => asked.push((body) => resolve({ ok: true, status: 200, json: async () => body })));
+  const settle = () => new Promise((r) => setImmediate(r));
+  const out = { user: null, signInUrl: '/ladwani/sign-in/' };
+  const asha = { user: { name: 'Asha Patil', email: 'asha@example.com' }, signOut: { url: '/ladwani/api/v1/auth/logout' } };
+  const tell = (signedIn) => listeners['bkesari:account']({ detail: { signedIn } });
+  try {
+    menu.mount(d);
+    assert.equal(asked.length, 1, 'asked once at load');
+    asked[0](out); await settle();
+    assert.match(account.innerHTML, /ks-signin/, 'first visit: LadWani has not made its session yet');
+    tell(false);
+    assert.equal(asked.length, 1, 'the same answer: not asked again');
+    tell(true);
+    assert.equal(asked.length, 2, 'LadWani signed the person in: asked again');
+    asked[1](asha); await settle();
+    assert.match(account.innerHTML, /Asha Patil/);
+    tell(true);
+    assert.equal(asked.length, 2, 'already shown: not asked again');
+    // A change while a question is out: that answer may predate it, so it is asked again and the
+    // older answer, whenever it comes, is dropped.
+    tell(false);
+    tell(false);
+    assert.equal(asked.length, 4);
+    asked[3](out); await settle();
+    asked[2](asha); await settle();
+    assert.match(account.innerHTML, /ks-signin/, 'the latest answer wins');
+  } finally {
+    global.fetch = saved;
+  }
+});
+
 test('the bar never mentions Milk & Dairy', () => {
   assert.doesNotMatch(menu.renderHtml({ pathname: '/', isOwner: true }), /milk/i);
 });

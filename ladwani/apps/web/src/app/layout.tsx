@@ -1,5 +1,6 @@
 import './globals.css'
 import { AuthProvider } from '../lib/auth-context'
+import { ShellFooter, ShellHeader } from '../components/shell-slots'
 
 /**
  * Kesari, the bkesari design system, served by the hub on the same origin:
@@ -39,13 +40,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         {/* The bkesari app shell (/shared/menu.js) fills these two slots in the
-            browser. React leaves their contents alone: empty innerHTML of its own. */}
-        <div data-bkesari-menu="" data-me-url={`${BASE}/api/v1/auth/session`} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: '' }} />
+            browser. They are client components so that React never writes into
+            them again at an in-app move (see shell-slots.tsx). */}
+        <ShellHeader meUrl={`${BASE}/api/v1/auth/session`} />
         <AuthProvider>{children}</AuthProvider>
         {/* The footer is in the page as built (English), so the browser paints it
             straight away instead of when the shell's script arrives; the shell
             swaps it only for a visitor who reads Marathi or Hindi. */}
-        <div data-kesari-footer="" suppressHydrationWarning dangerouslySetInnerHTML={{ __html: FOOTER }} />
+        <ShellFooter html={FOOTER} />
         <script src="/shared/menu.js" defer />
       </body>
     </html>

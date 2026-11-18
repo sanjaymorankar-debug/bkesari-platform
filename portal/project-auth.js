@@ -96,7 +96,15 @@ class AuthError extends Error {
  * @param o.tables    override table names: { users, sessions, resets, otp, audit, limits } (the bkesari ID uses `users`)
  * @param o.allowPasswordSignUp  whether /sign-up with a password is open (default: allowSignUp)
  * @param o.resolveSession  async (req) => { user, sessionId: null, csrf } | null: a session established elsewhere
+ * @param o.accountLinks  [{ label, href }] for the shell's account menu; a label is a string or { en, mr, hi },
+ *                        sent in the visitor's language (the k_lang cookie)
  */
+/** The visitor's language, as the hub's pages read it (the k_lang cookie), else English. */
+function langOf(req) {
+  const m = /(?:^|;\s*)k_lang=(en|mr|hi)(?:;|$)/.exec(String((req && req.headers && req.headers.cookie) || ''));
+  return m ? m[1] : 'en';
+}
+
 function createProjectAuth(o) {
   const {
     db, key, name, base, cookie, prefix,
@@ -306,8 +314,9 @@ function createProjectAuth(o) {
     // 200 either way: a signed-out visitor is not an error, and the browser
     // would log a 401 to the console on every page.
     if (!s) return res.json({ user: null, signInUrl: `${base}/sign-in` });
+    const lang = langOf(req);
     res.json({ user: publicUser(s.user), signOut: { url: `${base}/api/auth/sign-out`, csrf: s.csrf, next: `${base}/sign-in` },
-      links: o.accountLinks || [] });
+      links: (o.accountLinks || []).map((l) => ({ label: typeof l.label === 'string' ? l.label : l.label[lang] || l.label.en, href: l.href })) });
   }));
 
   async function builtinSignIn(req, res, username, password) {

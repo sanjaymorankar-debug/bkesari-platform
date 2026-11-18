@@ -535,11 +535,34 @@
     if (!d.getElementById('main')) { const m = d.querySelector('main'); if (m) m.id = 'main'; }
     wireControls(d, win);
     const tab = tabFor(pathname);
-    if (cfg.meUrl && typeof fetch === 'function') {
+    if (!cfg.meUrl || typeof fetch !== 'function') return;
+    // Who is signed in, for the account menu. A project can sign its person in
+    // or out after this page asked (LadWani makes its session from the hub's
+    // identity once its own script runs); it says so with a 'bkesari:account'
+    // event, and the menu asks again only when its answer no longer matches, or
+    // when a question is still out (that answer may predate the change).
+    let asked = 0;
+    let waiting = false;
+    let shown = null;
+    const account = () => {
+      const n = ++asked;
+      waiting = true;
       fetch(cfg.meUrl, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
         .then((r) => (r.ok || r.status === 401 ? r.json() : null))
-        .then((me) => renderAccount(d, d.querySelector('[data-ks-account]'), me, tab, lang))
-        .catch(() => {});
+        .then((me) => {
+          if (n !== asked) return;
+          waiting = false;
+          shown = Boolean(me && me.user);
+          renderAccount(d, d.querySelector('[data-ks-account]'), me, tab, lang);
+        })
+        .catch(() => { if (n === asked) waiting = false; });
+    };
+    account();
+    if (typeof win.addEventListener === 'function') {
+      win.addEventListener('bkesari:account', (e) => {
+        const now = e && e.detail ? e.detail.signedIn : undefined;
+        if (waiting || typeof now !== 'boolean' || now !== shown) account();
+      });
     }
   }
 
