@@ -173,7 +173,7 @@ function createBkesariId({ db, env = process.env, secret, notify = {}, tier = ()
     codeNote: 'This is your bkesari ID: one sign-in for every bkesari project.',
     notify, tier, log, secret: crypto.createHash('sha256').update(`bkesari-id|${key}`).digest('hex'),
     builtinAdmins: { role: 'owner', env },
-    accountLinks: [{ label: 'My projects', href: '/account' }],
+    accountLinks: [{ label: { en: 'My projects', mr: 'माझे प्रकल्प', hi: 'मेरे प्रोजेक्ट' }, href: '/account' }],
   });
 
   const mac = (purpose, v) => crypto.createHmac('sha256', key).update(`${purpose}|${v}`).digest('base64url');

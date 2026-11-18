@@ -4,7 +4,7 @@
 Branch `claude/inspiring-cray-41q0vh`, PR [sanjaymorankar-debug/bkesari-platform#40](https://github.com/sanjaymorankar-debug/bkesari-platform/pull/40), on top of `main` 2d03d98 (the bkesari ID, D-039).
 Released to `main` by [sanjaymorankar-debug/bkesari-platform#43](https://github.com/sanjaymorankar-debug/bkesari-platform/pull/43) (`1e80125`); **live on bkesari.com since 18 Nov 2026, 02:25 AM IST** (section 9). Live checks: section 12.
 Follow-up (U-21, U-22, U-23) released to `main` by [sanjaymorankar-debug/bkesari-platform#46](https://github.com/sanjaymorankar-debug/bkesari-platform/pull/46) (`0ce20d7`); **live on bkesari.com, confirmed 18 Nov 2026, 02:56 PM IST**. Live checks: section 12.2.
-Screens: [design/screen-inventory.md](../design/screen-inventory.md). Design system: [design/design-system.md](../design/design-system.md). Decisions D-040 to D-049: [design/decisions.md](../design/decisions.md).
+Screens: [design/screen-inventory.md](../design/screen-inventory.md). Design system: [design/design-system.md](../design/design-system.md). Decisions D-040 to D-051: [design/decisions.md](../design/decisions.md).
 
 ## 1. Summary
 
@@ -14,7 +14,7 @@ Screens: [design/screen-inventory.md](../design/screen-inventory.md). Design sys
 | Test server (test.bkesari.com) | **Not testable as a separate tier**: since the move to the VPS it answers `301 → https://bkesari.com/`. Instead: the tier checks on a local production-tier build, and a rehearsal of the VPS update on the exact release (section 9) |
 | Production (bkesari.com) | **Live, PASS** — `main` 0ce20d7 (the release 1e80125 of 02:25 AM IST plus the follow-up) on the VPS, confirmed 02:56 PM IST. Journeys 56/56 at 360/768/1024/1440; the follow-up's fixes 168/168 (en, mr, hi at 320/360/768/1440); axe 0 violations (9 pages, light and dark, 360 and 1440); no overflow or target under 44 px (36/36); Lighthouse 99–100 / 100 / 100 / 100 on 6 pages, mobile and desktop (section 12). The two minor defects found live (U-21, U-22) are fixed and live |
 | Screens | 17 hub and shared screens, 2 static pages, 11 LadWani, 10 Education, 4 mobile apps: all built; see section 2 |
-| Defects | 23 found across design, build, testing and the live checks; all fixed and live, U-21 to U-23 with the follow-up (section 10) |
+| Defects | 31 found across design, build, testing and the live checks; 23 fixed and live (U-21 to U-23 with the follow-up). Fixed afterwards, waiting for their release (sections 10, 13 and 14): U-24 (portal-tester O1, dev and test), U-25 (the bar at 641–719 px, production), U-26 (the switcher's panel off screen on phones, production), U-27 (an address shown twice in the new account menu, never released), and on LadWani U-28 (the bar gone after any in-app move), U-29 ("Sign in" on a first visit) and U-30 (the menu's links in English in Marathi and Hindi), all three on production since the redesign; U-31 (found in U-29's fix before release) |
 
 ## 2. Pass / fail per screen
 
@@ -159,6 +159,14 @@ The day-one account linking (`update-bkesari.sh link`) was not needed again: it 
 | U-21 | S3 | sign-in, live | At 360 px the aside broke "Environmental" mid-word ("Environme / ntal"): the rows' grid let the name column shrink to nothing | rows wrap: the name stays whole, the chip moves to the next line; test (follow-up 1eeda7e; live with 0ce20d7, section 12.2) |
 | U-22 | S3 | sign-in and home, live | "Sign in once with Google or an email code" while production has no Google button (keys not set yet) | the wording follows the button: Google named only while it is on; 2 new strings × 3 languages; tests (follow-up 1eeda7e; live with 0ce20d7, section 12.2) |
 | U-23 | S4 | home (portal-tester D1 on the follow-up) | With Google on, inside a WebView or an in-app browser (Instagram, Facebook) the home card still named Google, though the sign-in page shows no button there | the home route asks `googleEntry` like the sign-in page; test for a browser, the bkesari app, a WebView and Instagram (0ffac9e; live with 0ce20d7) |
+| U-24 | S4 | shell, dev and test only (portal-tester O1, pre-existing) | Signed in, every page scrolled sideways below 340 px with the "dev" badge and below 350 px with "test": the hub's pages and every project's bar. The inline badge also cut the project's name at 360 px and at 481–560 px. Production has no badge and was not affected | below 960 px the badge hangs from the accent stripe above the logo, out of the row (D-050); test in `tests/menu.test.js`. Hub pages signed in: 270 of 600 checks failing → 0; every project's bar on dev and test now matches production (section 13) |
+| U-25 | S3 | shell, production (found while fixing U-24, pre-existing) | Inside projects, signed in with an email as the account's name, the bar scrolled sideways at 641–719 px: 78 px at 641 px in English, 60 in Marathi, 69 in Hindi (up to 770 px with the "test" badge). Phones held sideways are in this range. Long project names were cut up to 940 px | below 960 px the account shows as its avatar (its name is still spoken; its menu now shows the name above the address, U-27) and long project names use their short form (D-050); same test. From 641 px to 1280 px: no sideways scroll, no cut name, on every tier (section 13) |
+| U-26 | S3 | shell, production (portal-tester D1 on the U-24 change, pre-existing) | On phones the project switcher's panel ran off the left of the screen: 76 px signed out and 120 px signed in at 320–360 px, still 4 px at 480 px. LadWani's row read "i", Education's "on", ATIP's name was hidden. The panel was held to the switcher's right edge, but on phones the switcher is not the bar's last control | up to 640 px the panel is held to the bar's right edge (`.ks-switch.ks-pop{position:static}.ks-switch .ks-panel{right:6px}`); test in `tests/menu.test.js`. Both the switcher's and the account's panels inside the screen for every project, prod and test, at 320–1280 px (fc9c188) |
+| U-27 | S4 | shell account menu (portal-tester D1 on 0996de0, never released) | A LadWani account with no member name read "Signed in to LadWani / its address / its address" | LadWani's session sends the address as the name when it has none (`auth.service.ts:751`); the name line now shows only when it differs from the address (a9c6a44); test in `tests/menu.test.js`, by email and by mobile |
+| U-28 | S3 | LadWani and the shell, every tier (portal-tester D2, on production since the redesign) | The shell's bar (way home, switcher, language, theme, account) disappeared at LadWani's first in-app move and stayed gone until a reload: a member's first visit to `/ladwani/` (it moves on to `/dashboard/`) and every click in LadWani's side menu. A Marathi or Hindi footer went back to English | LadWani is a static export: each move applies the whole tree again from the root layout, with a new `dangerouslySetInnerHTML` object, and Next 14.2's React rewrites `innerHTML` whenever the object is not the same one. The slots now come from a client component whose objects keep their identity (`shell-slots.tsx`, D-051). Browser: bar, account and footer language kept in 16 of 16 steps (section 14) |
+| U-29 | S3 | LadWani and the shell (portal-tester D3, on production since the redesign) | On a first visit the shell's account said "Sign in" though the member was signed in at the hub (4 of 4); a reload showed the person | The shell asked LadWani who is signed in once, at load, before LadWani's `POST /auth/hub` made the session. LadWani now sends `bkesari:account` when it signs someone in or out, and the shell asks again when that differs from what it shows (D-051); test in `tests/menu.test.js` (fails on the old shell). Browser: the person shown from the first visit in 4 of 4 (section 14) |
+| U-30 | S4 | account menu links (portal-tester D4, on production since the redesign) | In Marathi and Hindi the account menu's links read "My projects" (hub), "Settings" (TaskList) and "Hub admin" in English | `accountLinks` labels may be `{ en, mr, hi }`; the "me" answer picks one by the `k_lang` cookie (`portal/project-auth.js`), as LadWani already did; test in `tests/tasklist.pg.test.js` |
+| U-31 | S4 | shell account menu (portal-tester D5 on `bfb8d5b`, never released) | After an answer the menu cannot use (a 429 from LadWani's limit, a 5xx while its API restarts), the menu kept the person on screen but took it as signed out, so a later "signed out" from LadWani was not followed until the next page | what the menu takes as shown changes only with an answer that changes the screen; test in `tests/menu.test.js` (a 429, then a 503) |
 
 The follow-up (1eeda7e, 0ffac9e) went through the portal-tester: **PASS**, `npm run test:pg` 219/219, all 13 levels and 30 critical checks, Google on and off in en/mr/hi at 320/360/768/1440 in light and dark (216 page loads, axe 0 in 108 runs). Report `.claude/test-runs/20261117-212853-portal-tester.md`.
 
@@ -167,7 +175,14 @@ The follow-up (1eeda7e, 0ffac9e) went through the portal-tester: **PASS**, `npm 
 1. ~~Update the VPS~~ **Done**: live since 02:25 AM IST (section 9).
 2. ~~Live checks after the update~~ **Done**: section 12.
 2a. ~~Follow-up release~~ **Done**: `main` 0ce20d7 live, confirmed 02:56 PM IST; live checks in section 12.2.
-2c. **Shell below 340 px on dev and test only (portal-tester O1, S4, pre-existing)**: with the tier badge in the brand, signed-in pages scroll 20 px sideways under 340 px. Production has no badge and is not affected. Proposed: hide the brand's name (visually) under 360 px when the badge shows; `portal/public/shared/menu.js` is shared by every project, so it is its own change.
+2c. ~~Shell below 340 px on dev and test only (portal-tester O1)~~ **Fixed** as U-24 (D-050, section 13). Hiding the wordmark, as first proposed, would have fixed only the hub's pages: inside projects the wordmark is already hidden on phones and the badge alone overflowed.
+2d. **Project names cut at 320 px when signed in (pre-existing, production too)**: at 320 px the account button leaves the project's name 64 px, and "LadWani", "Education", "TaskList", "Driving" and "Environment" lose their last letters (ATIP fits). "Environment" is also cut at 360 px. No sideways scroll. Its own change: shorter phone names or a narrower language control.
+2e. ~~Bar scrolls sideways at 641–~720 px inside projects when signed in~~ **Fixed** as U-25 (D-050, section 13). Was: above 640 px the labels come back ("All projects", "English", the account's name). With an email as the account's name, a project's bar is 78 px too wide at 641 px in English (60 Marathi, 69 Hindi) and about 19 px at 700 px; with a person's name, 2 px at 641 px. On dev and test the inline badge adds to it (and at 768 px on test). Phones held sideways (640–740 px) are in this range. Its own change: for example, keep the labels hidden up to 768 px (the badge rule moves with that block).
+2f. **Education's 502 page (portal-tester O1 of 18 Nov, pre-existing)**: the line "Everything else in the menu above still works." has 2.43:1 contrast (`portal/proxy.js:223`). Proposed: `color:#57534E`.
+2g. **ATIP viewer (portal-tester O2 and O6, pre-existing; not changed: ATIP is out of bounds)**:
+   - the banner's "← bkesari" link is 1.46:1 against the text around it, with no underline (`portal/server.js:100`);
+   - the snapshot page's own margin insets the bar 8 px.
+2h. **Dev and test only (portal-tester O4)**: the hanging badge covers 35–40 px of the top edge of the logo link's focus ring. The ring stays clearly visible. Accepted.
 2b. **Google sign-in on production** (owner): set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (and the redirect URI in Google's console); after U-22's fix the pages name Google by themselves once it is on.
 3. **Hardening (portal-tester O2)**: robots.txt and the sitemap build their URLs from the request's host and are publicly cacheable; use a fixed origin per tier. On production the host is right (`Sitemap: https://bkesari.com/sitemap.xml`, Caddy passes it through), so this is low priority.
 4. **Firefox and Safari** for real (section 7).
@@ -211,3 +226,56 @@ Release `main` 0ce20d7, confirmed live at 02:56 PM IST. Same place and tools as 
 | Screenshots | Playwright | `docs/design/screens/after-prod/hub-home-*` and `hub-signin-*` taken again on 0ce20d7 | taken |
 
 Seen on the way, not part of this release: `/ATIP/` now answers `308 → /atip/` from Caddy, and ATIP's app then sends a visitor to `/atip/login?next=/atip/`. At 06:11 AM `/ATIP/` still went straight to the hub (a single 302). `update-bkesari.sh` does not touch Caddy and the follow-up changed no ATIP route (`git diff 1e80125 0ce20d7 -- portal/server.js scripts/vps/` is empty), so this is a change to the VPS's Caddy configuration made outside this work. The ATIP tile and menu entry still link to `/ATIP/` unchanged and still arrive at ATIP's login.
+
+## 13. U-24 and U-25: the header row on phones and tablets, 18 Nov 2026, 08:15–09:30 PM IST
+
+Fix (D-050): one `@media (max-width:959px)` block in `portal/public/shared/menu.js`. Below 960 px the account shows as its avatar, long project names use their short form, and the tier badge (dev and test) hangs from the accent stripe above the logo instead of sitting in the row. The rules for the account's name and the short names moved there from the 640 px and 480 px blocks; from 960 px the full row is unchanged.
+
+Measured on a local dev-tier hub (`APP_ENV=dev`), signed in through the bkesari ID, in English, Marathi and Hindi. The scripts are in the session's scratchpad; the checks they make are in TESTING.md 4.1.
+
+| Check | Scope | Before | After |
+|---|---|---|---|
+| Hub pages signed in | `/`, `/account`, `/access/request`, `/about`, `/tasklist/` × 2 accounts × en/mr/hi × badge "dev" and "test" × 17 widths, 300–1280 px (1020 checks): sideways scroll, every bar control ≥ 44 px | 270 of 600 failing at 300–414 px: every page below 340 px ("dev") or 350 px ("test") | **0 of 1020 failing** |
+| Every project's bar signed in | the hub and the 6 projects × prod/dev/test × en/mr/hi × a person's name or an email × 20 widths, 300–1280 px: sideways scroll; badge visible, not over the logo or the project's name; project name cut | dev and test scrolled at 300–340 px; **production scrolled at 641–719 px** (dev 763, test 770) | **no scroll from 310 px to 1280 px on any tier**. At 300 px all three tiers scroll 6 px inside projects (below the 320 px target). Cut names only at 310–360 px, the same on every tier (open item 2d) |
+| Tablet widths, long email | the 7 bars × 3 tiers × 3 languages × name or a long email × 16 widths, 641–1100 px (126 configurations) | scroll up to 770 px; names cut up to 940 px | **0 with a scroll or a cut name** |
+| Unit test | `tests/menu.test.js` | — | "below 960 px the bar fits…": the account's name only spoken, the badge rule (absolute, `top:0`, `pointer-events:none`), the bar its containing block, the badge in the row from 960 px; the short names in the same block. Fails on the old file, passes on the new (18/18) |
+| Screenshots | `docs/design/screens/after/shell-tier-badge-phones.jpg` (hub on dev, LadWani and Driving on test, light and dark, 320/360/641 px) and `shell-bar-tablets.jpg` (hub on dev, LadWani on test, Driving on production, a long email as the account, 360/768/960 px) | — | taken |
+
+On production the visible changes are below 960 px only: the avatar without the name beside it (the account's menu now names the person above the email), "Driving" / "Environment" instead of the long names, and on phones the switcher's panel inside the screen (U-26). There is no badge on production.
+
+**portal-tester: PASS** on `fc9c188` (report `.claude/test-runs/20261118-160459-portal-tester.md`). All 13 levels and 30 critical regressions:
+- S2 162 pass, R1 221/221, guard 32/32. #6a 441, #9a 46 pages. S5 smoke 32/0/0 and 81 probes, S6 32, S7 18, mobile 29.
+- Its browser checks: 1332 ok and 0 failing, against 18 failing (all O1) on its previous run. axe 0 violations in 108 runs.
+- 19,656 measured states (20 real pages and every project's bar, 300–1440 px, three tiers, three languages, three themes):
+  - nothing scrolls sideways from 320 px;
+  - production's header markup is identical to `715b256` on all 51 pages;
+  - between 481 and 959 px, 199 states are better and 0 worse;
+  - the badge contrast is 15.76:1 in light and 13.47:1 in dark, and taps on it reach the logo link (1056 of 1056);
+  - every bar control is at least 44 × 44 px;
+  - in 620 axe runs, dev and test have no violation that production lacks.
+- It found and fixed U-26.
+- Its open items: O3 (the account menu showed only the email) is fixed since, by naming the person in the menu. The rest are in section 11 (items 2f–2h).
+
+**Second portal-tester run: FAIL** on `0996de0` (the account menu naming the person), report `.claude/test-runs/20261118-182400-portal-tester.md`. Every suite level was green and equal to the baseline (S2 162, R1 221, S5 32/0/0 and 81 probes, S6 32, S7 18, LadWani 441). Its browser pass measured the account panel in 6048 states (3 tiers, en/mr/hi, 3 themes, 7 widths, 8 accounts including a 120-character name, markup and Devanagari): the name line shown exactly where each project has a name, never clipped, escaped, the panel inside the window, Escape returns focus, axe 0. It fixed one defect in the change (U-27). The FAIL came from three defects on production since the redesign, which it found on LadWani: U-28, U-29 (both S3, which TEST_SPEC §6 does not let stay open) and U-30 (S4). They are fixed in section 14.
+
+## 14. U-27 to U-30: the account menu and the shell on LadWani, 18–19 Nov 2026, 11:55 PM–12:20 AM IST
+
+Fixes (D-051): U-27 in `a9c6a44`; U-28, U-29 and U-30 in `bfb8d5b`.
+
+| Check | Scope | Result |
+|---|---|---|
+| Hub suites | `npm test`; `npm run test:pg` | 163; **222 / 222** (one new test: the shell asks again on `bkesari:account`, and drops an older answer; it fails on the previous `menu.js`) |
+| LadWani | `typecheck`, `lint`, static export build (`BASE_PATH=/ladwani NEXT_OUTPUT=export`) | 0 type errors; 0 lint errors (2 known warnings); built, the slots' HTML unchanged |
+| LadWani in Chrome, the fixed build and shell | dev-tier hub with LadWani's real API and the hub's identity (`HUB_PROXY_SECRET`); 2 accounts (a member, an account without a member name) × en/mr; a first visit to `/ladwani/`, then three clicks in LadWani's side menu (16 steps) | **16 of 16**: the bar stays, the account shows the person from the first visit, the Marathi footer stays Marathi; the account menu opens, Escape closes it with focus back, the switcher opens |
+| The same, with the previous shell (`menu.js` of `a9c6a44`) on the fixed LadWani build | the same 16 steps | bar kept in 16 of 16 (U-28 is fixed in LadWani alone); account "Sign in" in 16 of 16, so U-29's fix is the shell's listener |
+| U-30 | `/account/api/auth/me` and `/tasklist/api/auth/me`, signed in, `k_lang` en/mr/hi | "My projects" / "माझे प्रकल्प" / "मेरे प्रोजेक्ट"; "Settings" / "सेटिंग्ज" / "सेटिंग्स" |
+
+On production, once released: LadWani keeps its bar and account across every click, shows the member from the first visit, and the menu's links follow the chosen language. Nothing changes on the other projects' pages.
+
+**Third portal-tester run: PASS** on `1023c90` plus its fix U-31 (report `.claude/test-runs/20261118-191127-portal-tester.md`). All 13 levels and 30 critical regressions: S2 164, R1 **223 / 223**, LadWani 441, S5 32/0/0 and 81 probes, S6 32, S7 18, mobile 29. In Chrome on LadWani, 3 tiers × en/mr/hi × 6 scenarios (a returning member, repeated loads, deep first visits for a new and a known member, sign-out from LadWani's menu and from the shell's): 207 steps in 117 documents, 0 failures, 0 console errors; on a normal load the shell asks who is signed in once (72 of 72), and every second question followed a real change. No React hydration warning in the development build; the slots' built HTML is byte-identical to before in 45 of 45 pages. The menu's links in en/mr/hi: 156 of 156 in Chrome, 81 of 81 over HTTP.
+
+Its observations, none above S4 and none changed here:
+- Signing out of LadWani inside the hub does not stick: the sign-in page signs the person straight back in from the bkesari ID (pre-existing; already an owner's decision in `docs/test-reports/auth-module-2026-11-18.md` §4).
+- After switching language with the bar's selector on TaskList or LadWani, the shell's own text stays in the old language until the next full load (pre-existing, on `main` too). Owner's choice: the shell re-renders on `kesari:lang`, or its selector reloads the page as the hub's pages do.
+- On a first visit "Sign in" shows for 0.1–0.8 s before the person (by design: LadWani signs in after the page has asked).
+- The hub admin's "Hub admin" link is answered by `/admin/api/auth/me` but no page shows it (every hub page reads the bkesari ID's).

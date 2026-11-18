@@ -112,10 +112,10 @@ test('inside every project the logo is a visible way back: "Back to bkesari home
   assert.doesNotMatch(bar({ pathname: '/' }), /ks-back/, 'the hub itself needs no way back');
 });
 
-test('long project names have a short form on phones, and the full name everywhere else', () => {
+test('long project names have a short form on tablets and phones, and the full name on wider screens', () => {
   assert.match(bar({ pathname: '/driving-simulator/' }), /<a class="ks-proj" href="\/driving-simulator\/"><span class="ks-proj-full">Driving Simulator<\/span><span class="ks-proj-short">Driving<\/span><\/a>/);
   assert.match(menu.styleTag(), /\.ks-proj-short\{display:none\}/);
-  assert.match(menu.styleTag(), /@media \(max-width:480px\)\{[^@]*\.ks-proj-full\{display:none\}\.ks-proj-short\{display:inline\}/);
+  assert.match(menu.styleTag(), /@media \(max-width:959px\)\{[^@]*\.ks-proj-full\{display:none\}\.ks-proj-short\{display:inline\}/);
 });
 
 test('the footer lists the public projects (never ATIP) and the site links', () => {
@@ -130,6 +130,35 @@ test('the tier badge shows on dev and test, never on production', () => {
   assert.match(bar({ pathname: '/', env: 'test' }), /class="ks-env">test</);
   assert.doesNotMatch(bar({ pathname: '/', env: 'prod' }), /ks-env/);
   assert.doesNotMatch(bar({ pathname: '/' }), /ks-env/, 'no env given is production');
+});
+
+test('below 960 px the bar fits: the avatar stands for the account, and the tier badge hangs from the accent stripe', () => {
+  // portal-tester O1: signed in below 340 px (350 px with "test") the badge in the row made every page scroll sideways;
+  // with an email as the account's name, projects' bars scrolled sideways at 641-770 px, production included.
+  const css = menu.styleTag();
+  const narrow = css.match(/@media \(max-width:959px\)\{([\s\S]*?\})\}/)[1];
+  assert.match(narrow, /\.ks-acct-name\{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect\(0 0 0 0\)/, 'the account\'s name is only spoken');
+  const badge = narrow.match(/\.ks-bar \.ks-env\{([^}]*)\}/);
+  assert.ok(badge, 'no phone rule for the badge');
+  for (const decl of ['position:absolute', 'top:0', 'pointer-events:none']) assert.ok(badge[1].includes(decl), decl);
+  assert.match(css, /\.ks-bar\{position:sticky;/, 'the bar is the badge\'s containing block');
+  // From 960 px the badge stays in the row, beside the logo.
+  const wide = css.replace(/@media[^{]*\{[\s\S]*?\}\}/g, '');
+  assert.doesNotMatch(wide.match(/\.ks-env\{[^}]*\}/)[0], /position/);
+  // The badge is the same element, with its text, on the hub and inside a project.
+  assert.match(bar({ pathname: '/', env: 'test' }), /<span class="ks-brand-name">bkesari<\/span> <span class="ks-env">test<\/span><\/a>/);
+  assert.match(bar({ pathname: '/ladwani/', env: 'dev' }), /<\/a> <span class="ks-env">dev<\/span>/);
+});
+
+test('up to 640 px the project switcher\'s panel stays on screen', () => {
+  // portal-tester: on phones the switcher is not the bar's last control, so its panel, held to the switcher's
+  // right edge, ran 76-120 px off the left of the screen at 320-360 px: the projects' names read "i", "on".
+  const css = menu.styleTag();
+  const phones = css.match(/@media \(max-width:640px\)\{([\s\S]*?\})\}/)[1];
+  assert.match(phones, /\.ks-switch\.ks-pop\{position:static\}/, 'the panel is placed against the bar, not the switcher');
+  assert.match(phones, /\.ks-switch \.ks-panel\{right:6px\}/, 'and against the bar\'s right edge');
+  assert.match(css, /\.ks-bar\{position:sticky;/, 'the bar is the panel\'s containing block');
+  assert.match(css, /\.ks-panel\{position:absolute;right:0;top:calc\(100% \+ 6px\);width:min\(340px,calc\(100vw - 24px\)\)/, 'never wider than the screen less 24 px');
 });
 
 test('server-rendered, the header adds no script and shows nothing that needs one', () => {
@@ -179,12 +208,113 @@ test('the account menu shows only the current project\'s own user, and signs out
   assert.match(slot.innerHTML, /<summary class="ks-btn"><span class="ks-avatar" aria-hidden="true">SM<\/span><span class="ks-acct-name">Sanjay More<\/span><span class="ks-sr">, Account<\/span><\/summary>/,
     'the spoken name begins with the visible name (WCAG 2.5.3)');
   assert.match(slot.innerHTML, /data-ks-signout/);
+  // Below 960 px the bar shows only the avatar: the menu names the person, then the address.
+  assert.match(slot.innerHTML, /<strong>Signed in to TaskList<\/strong><span class="ks-acct-who">Sanjay More<\/span><small>s@example\.com<\/small>/);
+  const anon = { innerHTML: '', hidden: true, querySelector: () => null };
+  menu.renderAccount(d, anon, { user: { email: 'a@example.com' } }, tab, 'en');
+  assert.doesNotMatch(anon.innerHTML, /ks-acct-who/, 'an account with only an email shows it once');
+  assert.match(anon.innerHTML, /<\/strong><small>a@example\.com<\/small>/);
+  // A project with no name for someone sends their address as the name (LadWani's session, for an
+  // account without a member): still shown once, by email or by mobile.
+  for (const user of [{ name: 'a@example.com', email: 'a@example.com' }, { name: '9876500999', mobile: '9876500999' }]) {
+    const same = { innerHTML: '', hidden: true, querySelector: () => null };
+    menu.renderAccount(d, same, { user }, tab, 'en');
+    assert.doesNotMatch(same.innerHTML, /ks-acct-who/, `${user.name} sent as the name is shown once`);
+    assert.equal(same.innerHTML.split(user.name).length - 1, 2, 'the address: spoken in the summary, shown once in the menu');
+  }
   const out = { innerHTML: '', hidden: true, querySelector: () => null };
   menu.renderAccount(d, out, { user: null, signInUrl: '/tasklist/sign-in' }, tab, 'en');
   assert.match(out.innerHTML, /class="ks-btn ks-signin" href="\/tasklist\/sign-in"/);
   const none = { innerHTML: '', hidden: true, querySelector: () => null };
   menu.renderAccount(d, none, null, null, 'en');
   assert.equal(none.hidden, true, 'no me-url answer: nothing shown');
+});
+
+test('the account menu asks again when the project signs someone in or out after the page asked (LadWani)', async () => {
+  // A stand-in page: the bar is already there (server-rendered), so mount only wires it.
+  const account = { innerHTML: '', hidden: true, querySelector: () => null };
+  const header = { getAttribute: (n) => (n === 'data-me-url' ? '/ladwani/api/v1/auth/session' : null) };
+  const listeners = {};
+  const d = {
+    cookie: '', location: { pathname: '/ladwani/dashboard/', hostname: 'bkesari.com' },
+    documentElement: { hasAttribute: () => false, setAttribute() {} },
+    getElementById: () => ({}),
+    querySelector: (sel) => ({ '[data-bkesari-menu]': header, '[data-ks-account]': account, '[data-ks-footer]': { getAttribute: () => null } })[sel] || null,
+    querySelectorAll: () => [],
+    addEventListener() {},
+  };
+  d.defaultView = { document: d, location: {}, addEventListener: (type, fn) => { listeners[type] = fn; } };
+  // The project's answers, released one at a time.
+  const asked = [];
+  const saved = global.fetch;
+  global.fetch = (url) => new Promise((resolve) => asked.push((body) => resolve({ ok: true, status: 200, json: async () => body })));
+  const settle = () => new Promise((r) => setImmediate(r));
+  const out = { user: null, signInUrl: '/ladwani/sign-in/' };
+  const asha = { user: { name: 'Asha Patil', email: 'asha@example.com' }, signOut: { url: '/ladwani/api/v1/auth/logout' } };
+  const tell = (signedIn) => listeners['bkesari:account']({ detail: { signedIn } });
+  try {
+    menu.mount(d);
+    assert.equal(asked.length, 1, 'asked once at load');
+    asked[0](out); await settle();
+    assert.match(account.innerHTML, /ks-signin/, 'first visit: LadWani has not made its session yet');
+    tell(false);
+    assert.equal(asked.length, 1, 'the same answer: not asked again');
+    tell(true);
+    assert.equal(asked.length, 2, 'LadWani signed the person in: asked again');
+    asked[1](asha); await settle();
+    assert.match(account.innerHTML, /Asha Patil/);
+    tell(true);
+    assert.equal(asked.length, 2, 'already shown: not asked again');
+    // A change while a question is out: that answer may predate it, so it is asked again and the
+    // older answer, whenever it comes, is dropped.
+    tell(false);
+    tell(false);
+    assert.equal(asked.length, 4);
+    asked[3](out); await settle();
+    asked[2](asha); await settle();
+    assert.match(account.innerHTML, /ks-signin/, 'the latest answer wins');
+  } finally {
+    global.fetch = saved;
+  }
+});
+
+test('the account menu: an answer that fails changes nothing it shows, so a later sign-out is still followed', async () => {
+  // A 429 (LadWani allows 60 a minute) or a 503 (its API restarting) leaves the menu as it was; what
+  // the menu believes it shows must not change either, or LadWani's "signed out" is not followed.
+  const account = { innerHTML: '', hidden: true, querySelector: () => null };
+  const header = { getAttribute: (n) => (n === 'data-me-url' ? '/ladwani/api/v1/auth/session' : null) };
+  const listeners = {};
+  const d = {
+    cookie: '', location: { pathname: '/ladwani/dashboard/', hostname: 'bkesari.com' },
+    documentElement: { hasAttribute: () => false, setAttribute() {} },
+    getElementById: () => ({}),
+    querySelector: (sel) => ({ '[data-bkesari-menu]': header, '[data-ks-account]': account, '[data-ks-footer]': { getAttribute: () => null } })[sel] || null,
+    querySelectorAll: () => [],
+    addEventListener() {},
+  };
+  d.defaultView = { document: d, location: {}, addEventListener: (type, fn) => { listeners[type] = fn; } };
+  const asked = [];
+  const saved = global.fetch;
+  global.fetch = () => new Promise((resolve) => asked.push((status, body) => resolve({ ok: status < 300, status, json: async () => body })));
+  const settle = () => new Promise((r) => setImmediate(r));
+  const tell = (signedIn) => listeners['bkesari:account']({ detail: { signedIn } });
+  try {
+    menu.mount(d);
+    asked[0](200, { user: { name: 'Asha Patil', email: 'asha@example.com' }, signOut: { url: '/ladwani/api/v1/auth/logout' } }); await settle();
+    assert.match(account.innerHTML, /Asha Patil/);
+    tell(false);
+    assert.equal(asked.length, 2, 'LadWani signed out: asked again');
+    for (const [status, body] of [[429, { message: 'Too Many Requests' }], [503, null]]) {
+      asked[asked.length - 1](status, body); await settle();
+      assert.match(account.innerHTML, /Asha Patil/, `a ${status} changes nothing on screen`);
+      tell(false);
+      assert.equal(asked.length, status === 429 ? 3 : 4, `still showing the person after a ${status}: told "signed out", it asks again`);
+    }
+    asked[3](200, { user: null, signInUrl: '/ladwani/sign-in/' }); await settle();
+    assert.match(account.innerHTML, /ks-signin/);
+  } finally {
+    global.fetch = saved;
+  }
 });
 
 test('the bar never mentions Milk & Dairy', () => {

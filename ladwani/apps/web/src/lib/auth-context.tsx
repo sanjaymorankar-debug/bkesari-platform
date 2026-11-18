@@ -67,6 +67,20 @@ function storeUser(user: AuthUser | null) {
 }
 
 /**
+ * Tells the bkesari app shell that LadWani has signed someone in or out. The
+ * shell's account menu asked who is signed in when the page loaded, which on a
+ * first visit is before POST /auth/hub has made the LadWani session; it asks
+ * again when this no longer matches what it shows (portal/public/shared/menu.js).
+ */
+function tellShell(signedIn: boolean) {
+  try {
+    window.dispatchEvent(new CustomEvent('bkesari:account', { detail: { signedIn } }))
+  } catch {
+    // no CustomEvent: the menu catches up at the next page
+  }
+}
+
+/**
  * LadWani's sign-in. The session lives in the lw_sid cookie (HttpOnly,
  * Path=/ladwani); the 15-minute access token is kept for API calls.
  *
@@ -86,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const setUser = useCallback((next: AuthUser | null) => {
     storeUser(next)
     setUserState(next)
+    tellShell(next !== null)
   }, [])
 
   const adopt = useCallback(
