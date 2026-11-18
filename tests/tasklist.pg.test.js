@@ -130,6 +130,12 @@ describe('TaskList on PostgreSQL', { skip }, () => {
     assert.equal(sid.sameSite, 'Lax');
     assert.equal(sid.secure, false, 'plain http to localhost only; Secure everywhere else');
     assert.notEqual(ok.json.csrf, s.json.csrf, 'the signed-in session has a token of its own');
+    // The shell's account menu: TaskList's link, in the visitor's language (the k_lang cookie).
+    for (const [lang, label] of [[null, 'Settings'], ['mr', 'सेटिंग्ज'], ['hi', 'सेटिंग्स'], ['en', 'Settings']]) {
+      if (lang) b.jar.set('k_lang|/', { name: 'k_lang', value: lang, path: '/' });
+      assert.deepEqual((await b.fetch('GET', '/tasklist/api/auth/me')).json.links, [{ label, href: '/tasklist/settings' }], `k_lang=${lang}`);
+    }
+    b.jar.delete('k_lang|/');
     // The code is single use.
     assert.equal((await b.fetch('POST', '/tasklist/api/auth/otp/verify', { json: { mobile: '9876500001', code }, csrf: ok.json.csrf })).status, 400);
     const stored = await db.get("SELECT token_hash FROM tl_sessions WHERE token_hash = encode(sha256($1::bytea), 'hex')", [sid.value]);

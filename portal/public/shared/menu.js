@@ -250,21 +250,34 @@
 .ks-homeitem .ks-dot{background:var(--ks-brand)}
 .ks-avatar{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--ks-accent);color:var(--ks-surface);font-weight:700;font-size:14px;flex:none}
 .ks-acct-head{padding:8px 10px 10px;border-bottom:1px solid var(--ks-line);margin-bottom:6px}
-.ks-acct-head strong{display:block}.ks-acct-head small{color:var(--ks-muted)}
+.ks-acct-head strong{display:block}.ks-acct-head small{color:var(--ks-muted)}.ks-acct-who{display:block;font-weight:600}
 .ks-panel button.ks-item,.ks-panel a.ks-plain{display:flex;width:100%;align-items:center;min-height:48px;padding:0 10px;border:0;border-radius:10px;
   background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;text-decoration:none}
 .ks-panel button.ks-item:hover,.ks-panel a.ks-plain:hover{background:var(--ks-tint)}
 .ks-label,.ks-acct-name{max-width:9em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ks-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* Below 960 px the full row does not fit: signed in with an email as the account's name it scrolled
+   sideways at 641-770 px, and long project names were cut up to 940 px. So, on tablets and phones:
+   - the avatar stands for the account (its name is still spoken, and its menu shows the name and email);
+   - long project names use their short form;
+   - the tier badge (dev and test only; production has none) leaves the row and hangs from the accent
+     stripe above the logo, so the row is exactly as wide as production's: testers see what visitors
+     get. Same element and text, so screen readers hear it as before.
+   Measured from 641 px: no sideways scroll and no cut name, every project, tier and language. */
+@media (max-width:959px){.ks-acct-name{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .ks-proj-full{display:none}.ks-proj-short{display:inline}
+  .ks-bar .ks-env{position:absolute;top:0;left:10px;z-index:1;font-size:10px;line-height:14px;padding:0 6px;border-radius:0 0 6px 6px;pointer-events:none}}
 @media (max-width:640px){.ks-label,.ks-hide-sm{display:none}.ks-in{padding:6px 6px}.ks-lang select{width:52px;padding:0;color:transparent}
   .ks-lang select option{color:#1C1917}.ks-lang .ks-ico{left:13px}.ks-bar .ks-proj{font-size:16px;padding:0 4px}.ks-brand{font-size:17px}
   .ks-account .ks-btn{padding:0 8px}
-  .ks-acct-name{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}
+  /* Here the switcher is not the bar's last control, so its panel is held to the bar's right edge, not
+     the switcher's: held to the switcher it ran 76-120 px off the left of the screen at 320-360 px. */
+  .ks-switch.ks-pop{position:static}.ks-switch .ks-panel{right:6px}}
 /* Phones: inside a project the logo alone stands for bkesari, so the
    project's own name always fits beside it. */
 @media (max-width:480px){.ks-bar[data-project] .ks-brand-name{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-  .ks-bar[data-project] .ks-brand{padding:0 4px;gap:4px}.ks-bar .ks-proj{min-width:3.5em}.ks-env{font-size:10px;padding:1px 5px}
-  .ks-proj-full{display:none}.ks-proj-short{display:inline}.ks-back .ks-ico{width:18px;height:18px}
+  .ks-bar[data-project] .ks-brand{padding:0 4px;gap:4px}.ks-bar .ks-proj{min-width:3.5em}
+  .ks-back .ks-ico{width:18px;height:18px}
   /* Signed in, four controls sit beside the logo and the project's name: at 44 px each
      (the brief's minimum target) they leave the name room at 360 px and nothing scrolls sideways. */
   .ks-tools .ks-btn{min-width:44px;min-height:44px;padding:0 6px}.ks-lang select{width:44px;min-height:44px}.ks-lang .ks-ico{left:11px}
@@ -405,6 +418,7 @@
     }
     const u = me.user;
     const display = u.name || u.email || u.mobile || '';
+    const address = u.email || u.mobile || '';
     const initials = (display.trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 2) || '?').toUpperCase();
     const links = (me.links || []).map((l) => `<a class="ks-plain" href="${escapeHtml(l.href)}">${escapeHtml(l.label)}</a>`).join('');
     // The spoken name starts with the visible text (WCAG 2.5.3); on phones the
@@ -412,7 +426,10 @@
     slot.innerHTML = `<details class="ks-pop"><summary class="ks-btn">` +
       `<span class="ks-avatar" aria-hidden="true">${escapeHtml(initials)}</span><span class="ks-acct-name">${escapeHtml(display)}</span>` +
       `<span class="ks-sr">, ${escapeHtml(s(lang, 'account'))}</span></summary>` +
-      `<div class="ks-panel"><div class="ks-acct-head"><strong>${escapeHtml(s(lang, 'signedInTo', { project }))}</strong><small>${escapeHtml(u.email || u.mobile || '')}</small><br>` +
+      `<div class="ks-panel"><div class="ks-acct-head"><strong>${escapeHtml(s(lang, 'signedInTo', { project }))}</strong>` +
+      // Below 960 px the bar shows only the avatar, so the menu names the person. Once: a project
+      // with no name for someone sends their address as the name (LadWani's session does).
+      `${u.name && u.name !== address ? `<span class="ks-acct-who">${escapeHtml(u.name)}</span>` : ''}<small>${escapeHtml(address)}</small><br>` +
       `<small>${escapeHtml(s(lang, 'separate', { project }))}</small></div>${links}` +
       (me.signOut ? `<button class="ks-item" type="button" data-ks-signout>${escapeHtml(s(lang, 'signOut'))}</button>` : '') + '</div></details>';
     slot.hidden = false;
@@ -518,11 +535,36 @@
     if (!d.getElementById('main')) { const m = d.querySelector('main'); if (m) m.id = 'main'; }
     wireControls(d, win);
     const tab = tabFor(pathname);
-    if (cfg.meUrl && typeof fetch === 'function') {
+    if (!cfg.meUrl || typeof fetch !== 'function') return;
+    // Who is signed in, for the account menu. A project can sign its person in
+    // or out after this page asked (LadWani makes its session from the hub's
+    // identity once its own script runs); it says so with a 'bkesari:account'
+    // event, and the menu asks again only when its answer no longer matches, or
+    // when a question is still out (that answer may predate the change).
+    let asked = 0;
+    let waiting = false;
+    let shown = null;
+    const account = () => {
+      const n = ++asked;
+      waiting = true;
       fetch(cfg.meUrl, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
         .then((r) => (r.ok || r.status === 401 ? r.json() : null))
-        .then((me) => renderAccount(d, d.querySelector('[data-ks-account]'), me, tab, lang))
-        .catch(() => {});
+        .then((me) => {
+          if (n !== asked) return;
+          waiting = false;
+          // An answer renderAccount cannot use (a 429, a 5xx) leaves the menu as it was, and so
+          // what it shows.
+          if (me && (me.user || me.signInUrl)) shown = Boolean(me.user);
+          renderAccount(d, d.querySelector('[data-ks-account]'), me, tab, lang);
+        })
+        .catch(() => { if (n === asked) waiting = false; });
+    };
+    account();
+    if (typeof win.addEventListener === 'function') {
+      win.addEventListener('bkesari:account', (e) => {
+        const now = e && e.detail ? e.detail.signedIn : undefined;
+        if (waiting || typeof now !== 'boolean' || now !== shown) account();
+      });
     }
   }
 

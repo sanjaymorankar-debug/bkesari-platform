@@ -71,7 +71,7 @@ function createHub({ db, env = process.env, log = console, envName = () => 'prod
     prefix: 'hub_admin_', allowSignUp: false, methods: ['password'], notify, tier: envName, log,
     builtinAdmins: { role: 'owner', env },
     secret: crypto.createHash('sha256').update(`admin|${secret}`).digest('hex'),
-    accountLinks: [{ label: 'Hub admin', href: '/admin' }],
+    accountLinks: [{ label: { en: 'Hub admin', mr: 'हब प्रशासन', hi: 'हब एडमिन' }, href: '/admin' }],
     hooks: {
       afterSignIn: (req, res, user, { setCookie }) => setCookie(`k_admin=${user.role === 'owner' ? 1 : 0}`, { httpOnly: false, path: '/', maxAge: 30 * 86400 }),
       afterSignOut: (req, res, { setCookie }) => setCookie('k_admin=', { httpOnly: false, path: '/', maxAge: 0 }),
