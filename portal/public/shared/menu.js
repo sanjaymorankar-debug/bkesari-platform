@@ -552,7 +552,9 @@
         .then((me) => {
           if (n !== asked) return;
           waiting = false;
-          shown = Boolean(me && me.user);
+          // An answer renderAccount cannot use (a 429, a 5xx) leaves the menu as it was, and so
+          // what it shows.
+          if (me && (me.user || me.signInUrl)) shown = Boolean(me.user);
           renderAccount(d, d.querySelector('[data-ks-account]'), me, tab, lang);
         })
         .catch(() => { if (n === asked) waiting = false; });

@@ -193,7 +193,8 @@ more than the welcome page.
 - [ ] On a phone (320–480 px) the **All projects** panel opens inside the screen:
       every project's name is whole (U-26).
 - [ ] On **LadWani**, signed in at the hub with LadWani access, open `/ladwani/` in a
-      fresh browser: the account shows you (not "Sign in") on the first visit, and
+      fresh browser: the account shows you on the first visit ("Sign in" may show for under
+      a second first), and
       after three clicks in LadWani's own side menu the bar is still there. In
       Marathi the footer stays Marathi (U-28, U-29, D-051).
 - [ ] In **Marathi and Hindi** the account menu's links are translated: "माझे प्रकल्प"

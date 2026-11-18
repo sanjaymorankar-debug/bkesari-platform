@@ -278,6 +278,45 @@ test('the account menu asks again when the project signs someone in or out after
   }
 });
 
+test('the account menu: an answer that fails changes nothing it shows, so a later sign-out is still followed', async () => {
+  // A 429 (LadWani allows 60 a minute) or a 503 (its API restarting) leaves the menu as it was; what
+  // the menu believes it shows must not change either, or LadWani's "signed out" is not followed.
+  const account = { innerHTML: '', hidden: true, querySelector: () => null };
+  const header = { getAttribute: (n) => (n === 'data-me-url' ? '/ladwani/api/v1/auth/session' : null) };
+  const listeners = {};
+  const d = {
+    cookie: '', location: { pathname: '/ladwani/dashboard/', hostname: 'bkesari.com' },
+    documentElement: { hasAttribute: () => false, setAttribute() {} },
+    getElementById: () => ({}),
+    querySelector: (sel) => ({ '[data-bkesari-menu]': header, '[data-ks-account]': account, '[data-ks-footer]': { getAttribute: () => null } })[sel] || null,
+    querySelectorAll: () => [],
+    addEventListener() {},
+  };
+  d.defaultView = { document: d, location: {}, addEventListener: (type, fn) => { listeners[type] = fn; } };
+  const asked = [];
+  const saved = global.fetch;
+  global.fetch = () => new Promise((resolve) => asked.push((status, body) => resolve({ ok: status < 300, status, json: async () => body })));
+  const settle = () => new Promise((r) => setImmediate(r));
+  const tell = (signedIn) => listeners['bkesari:account']({ detail: { signedIn } });
+  try {
+    menu.mount(d);
+    asked[0](200, { user: { name: 'Asha Patil', email: 'asha@example.com' }, signOut: { url: '/ladwani/api/v1/auth/logout' } }); await settle();
+    assert.match(account.innerHTML, /Asha Patil/);
+    tell(false);
+    assert.equal(asked.length, 2, 'LadWani signed out: asked again');
+    for (const [status, body] of [[429, { message: 'Too Many Requests' }], [503, null]]) {
+      asked[asked.length - 1](status, body); await settle();
+      assert.match(account.innerHTML, /Asha Patil/, `a ${status} changes nothing on screen`);
+      tell(false);
+      assert.equal(asked.length, status === 429 ? 3 : 4, `still showing the person after a ${status}: told "signed out", it asks again`);
+    }
+    asked[3](200, { user: null, signInUrl: '/ladwani/sign-in/' }); await settle();
+    assert.match(account.innerHTML, /ks-signin/);
+  } finally {
+    global.fetch = saved;
+  }
+});
+
 test('the bar never mentions Milk & Dairy', () => {
   assert.doesNotMatch(menu.renderHtml({ pathname: '/', isOwner: true }), /milk/i);
 });
