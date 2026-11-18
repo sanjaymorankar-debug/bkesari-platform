@@ -214,6 +214,14 @@ test('the account menu shows only the current project\'s own user, and signs out
   menu.renderAccount(d, anon, { user: { email: 'a@example.com' } }, tab, 'en');
   assert.doesNotMatch(anon.innerHTML, /ks-acct-who/, 'an account with only an email shows it once');
   assert.match(anon.innerHTML, /<\/strong><small>a@example\.com<\/small>/);
+  // A project with no name for someone sends their address as the name (LadWani's session, for an
+  // account without a member): still shown once, by email or by mobile.
+  for (const user of [{ name: 'a@example.com', email: 'a@example.com' }, { name: '9876500999', mobile: '9876500999' }]) {
+    const same = { innerHTML: '', hidden: true, querySelector: () => null };
+    menu.renderAccount(d, same, { user }, tab, 'en');
+    assert.doesNotMatch(same.innerHTML, /ks-acct-who/, `${user.name} sent as the name is shown once`);
+    assert.equal(same.innerHTML.split(user.name).length - 1, 2, 'the address: spoken in the summary, shown once in the menu');
+  }
   const out = { innerHTML: '', hidden: true, querySelector: () => null };
   menu.renderAccount(d, out, { user: null, signInUrl: '/tasklist/sign-in' }, tab, 'en');
   assert.match(out.innerHTML, /class="ks-btn ks-signin" href="\/tasklist\/sign-in"/);

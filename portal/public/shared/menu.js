@@ -418,6 +418,7 @@
     }
     const u = me.user;
     const display = u.name || u.email || u.mobile || '';
+    const address = u.email || u.mobile || '';
     const initials = (display.trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 2) || '?').toUpperCase();
     const links = (me.links || []).map((l) => `<a class="ks-plain" href="${escapeHtml(l.href)}">${escapeHtml(l.label)}</a>`).join('');
     // The spoken name starts with the visible text (WCAG 2.5.3); on phones the
@@ -426,8 +427,9 @@
       `<span class="ks-avatar" aria-hidden="true">${escapeHtml(initials)}</span><span class="ks-acct-name">${escapeHtml(display)}</span>` +
       `<span class="ks-sr">, ${escapeHtml(s(lang, 'account'))}</span></summary>` +
       `<div class="ks-panel"><div class="ks-acct-head"><strong>${escapeHtml(s(lang, 'signedInTo', { project }))}</strong>` +
-      // Below 960 px the bar shows only the avatar, so the menu names the person.
-      `${u.name ? `<span class="ks-acct-who">${escapeHtml(u.name)}</span>` : ''}<small>${escapeHtml(u.email || u.mobile || '')}</small><br>` +
+      // Below 960 px the bar shows only the avatar, so the menu names the person. Once: a project
+      // with no name for someone sends their address as the name (LadWani's session does).
+      `${u.name && u.name !== address ? `<span class="ks-acct-who">${escapeHtml(u.name)}</span>` : ''}<small>${escapeHtml(address)}</small><br>` +
       `<small>${escapeHtml(s(lang, 'separate', { project }))}</small></div>${links}` +
       (me.signOut ? `<button class="ks-item" type="button" data-ks-signout>${escapeHtml(s(lang, 'signOut'))}</button>` : '') + '</div></details>';
     slot.hidden = false;
