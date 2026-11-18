@@ -208,6 +208,12 @@ test('the account menu shows only the current project\'s own user, and signs out
   assert.match(slot.innerHTML, /<summary class="ks-btn"><span class="ks-avatar" aria-hidden="true">SM<\/span><span class="ks-acct-name">Sanjay More<\/span><span class="ks-sr">, Account<\/span><\/summary>/,
     'the spoken name begins with the visible name (WCAG 2.5.3)');
   assert.match(slot.innerHTML, /data-ks-signout/);
+  // Below 960 px the bar shows only the avatar: the menu names the person, then the address.
+  assert.match(slot.innerHTML, /<strong>Signed in to TaskList<\/strong><span class="ks-acct-who">Sanjay More<\/span><small>s@example\.com<\/small>/);
+  const anon = { innerHTML: '', hidden: true, querySelector: () => null };
+  menu.renderAccount(d, anon, { user: { email: 'a@example.com' } }, tab, 'en');
+  assert.doesNotMatch(anon.innerHTML, /ks-acct-who/, 'an account with only an email shows it once');
+  assert.match(anon.innerHTML, /<\/strong><small>a@example\.com<\/small>/);
   const out = { innerHTML: '', hidden: true, querySelector: () => null };
   menu.renderAccount(d, out, { user: null, signInUrl: '/tasklist/sign-in' }, tab, 'en');
   assert.match(out.innerHTML, /class="ks-btn ks-signin" href="\/tasklist\/sign-in"/);

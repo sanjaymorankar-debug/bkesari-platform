@@ -187,8 +187,10 @@ more than the welcome page.
       Below 960 px it hangs from the coloured stripe above the logo instead.
       Signed in (with a long email as the account's name), at **320, 768 and 960 px**,
       the hub's pages and a project's page do not scroll sideways, and the project's
-      name is whole from 375 px up. Below 960 px the account shows as its avatar
-      (portal-tester O1, D-050).
+      name is whole from 375 px up. Below 960 px the account shows as its avatar,
+      and its menu names the person above the email (portal-tester O1, D-050).
+- [ ] On a phone (320–480 px) the **All projects** panel opens inside the screen:
+      every project's name is whole (U-26).
 - [ ] At **phone width** (≈390px) the tabs collapse into a hamburger, it opens
       and closes, every tab is reachable, and no page scrolls sideways.
 - [ ] At desktop width the full row shows and the hamburger is hidden.

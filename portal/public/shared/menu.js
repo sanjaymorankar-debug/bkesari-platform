@@ -250,7 +250,7 @@
 .ks-homeitem .ks-dot{background:var(--ks-brand)}
 .ks-avatar{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--ks-accent);color:var(--ks-surface);font-weight:700;font-size:14px;flex:none}
 .ks-acct-head{padding:8px 10px 10px;border-bottom:1px solid var(--ks-line);margin-bottom:6px}
-.ks-acct-head strong{display:block}.ks-acct-head small{color:var(--ks-muted)}
+.ks-acct-head strong{display:block}.ks-acct-head small{color:var(--ks-muted)}.ks-acct-who{display:block;font-weight:600}
 .ks-panel button.ks-item,.ks-panel a.ks-plain{display:flex;width:100%;align-items:center;min-height:48px;padding:0 10px;border:0;border-radius:10px;
   background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;text-decoration:none}
 .ks-panel button.ks-item:hover,.ks-panel a.ks-plain:hover{background:var(--ks-tint)}
@@ -258,7 +258,7 @@
 .ks-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* Below 960 px the full row does not fit: signed in with an email as the account's name it scrolled
    sideways at 641-770 px, and long project names were cut up to 940 px. So, on tablets and phones:
-   - the avatar stands for the account (its name is still spoken, and is in its menu);
+   - the avatar stands for the account (its name is still spoken, and its menu shows the name and email);
    - long project names use their short form;
    - the tier badge (dev and test only; production has none) leaves the row and hangs from the accent
      stripe above the logo, so the row is exactly as wide as production's: testers see what visitors
@@ -425,7 +425,9 @@
     slot.innerHTML = `<details class="ks-pop"><summary class="ks-btn">` +
       `<span class="ks-avatar" aria-hidden="true">${escapeHtml(initials)}</span><span class="ks-acct-name">${escapeHtml(display)}</span>` +
       `<span class="ks-sr">, ${escapeHtml(s(lang, 'account'))}</span></summary>` +
-      `<div class="ks-panel"><div class="ks-acct-head"><strong>${escapeHtml(s(lang, 'signedInTo', { project }))}</strong><small>${escapeHtml(u.email || u.mobile || '')}</small><br>` +
+      `<div class="ks-panel"><div class="ks-acct-head"><strong>${escapeHtml(s(lang, 'signedInTo', { project }))}</strong>` +
+      // Below 960 px the bar shows only the avatar, so the menu names the person.
+      `${u.name ? `<span class="ks-acct-who">${escapeHtml(u.name)}</span>` : ''}<small>${escapeHtml(u.email || u.mobile || '')}</small><br>` +
       `<small>${escapeHtml(s(lang, 'separate', { project }))}</small></div>${links}` +
       (me.signOut ? `<button class="ks-item" type="button" data-ks-signout>${escapeHtml(s(lang, 'signOut'))}</button>` : '') + '</div></details>';
     slot.hidden = false;
