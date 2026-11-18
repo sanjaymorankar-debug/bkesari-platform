@@ -150,6 +150,17 @@ test('below 960 px the bar fits: the avatar stands for the account, and the tier
   assert.match(bar({ pathname: '/ladwani/', env: 'dev' }), /<\/a> <span class="ks-env">dev<\/span>/);
 });
 
+test('up to 640 px the project switcher\'s panel stays on screen', () => {
+  // portal-tester: on phones the switcher is not the bar's last control, so its panel, held to the switcher's
+  // right edge, ran 76-120 px off the left of the screen at 320-360 px: the projects' names read "i", "on".
+  const css = menu.styleTag();
+  const phones = css.match(/@media \(max-width:640px\)\{([\s\S]*?\})\}/)[1];
+  assert.match(phones, /\.ks-switch\.ks-pop\{position:static\}/, 'the panel is placed against the bar, not the switcher');
+  assert.match(phones, /\.ks-switch \.ks-panel\{right:6px\}/, 'and against the bar\'s right edge');
+  assert.match(css, /\.ks-bar\{position:sticky;/, 'the bar is the panel\'s containing block');
+  assert.match(css, /\.ks-panel\{position:absolute;right:0;top:calc\(100% \+ 6px\);width:min\(340px,calc\(100vw - 24px\)\)/, 'never wider than the screen less 24 px');
+});
+
 test('server-rendered, the header adds no script and shows nothing that needs one', () => {
   // The ATIP viewer's CSP allows inline scripts but not 'self'; the header is
   // rendered there on the server and must work as it is.

@@ -269,7 +269,10 @@
   .ks-bar .ks-env{position:absolute;top:0;left:10px;z-index:1;font-size:10px;line-height:14px;padding:0 6px;border-radius:0 0 6px 6px;pointer-events:none}}
 @media (max-width:640px){.ks-label,.ks-hide-sm{display:none}.ks-in{padding:6px 6px}.ks-lang select{width:52px;padding:0;color:transparent}
   .ks-lang select option{color:#1C1917}.ks-lang .ks-ico{left:13px}.ks-bar .ks-proj{font-size:16px;padding:0 4px}.ks-brand{font-size:17px}
-  .ks-account .ks-btn{padding:0 8px}}
+  .ks-account .ks-btn{padding:0 8px}
+  /* Here the switcher is not the bar's last control, so its panel is held to the bar's right edge, not
+     the switcher's: held to the switcher it ran 76-120 px off the left of the screen at 320-360 px. */
+  .ks-switch.ks-pop{position:static}.ks-switch .ks-panel{right:6px}}
 /* Phones: inside a project the logo alone stands for bkesari, so the
    project's own name always fits beside it. */
 @media (max-width:480px){.ks-bar[data-project] .ks-brand-name{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
