@@ -254,3 +254,19 @@ On production the visible changes are below 960 px only: the avatar without the 
   - in 620 axe runs, dev and test have no violation that production lacks.
 - It found and fixed U-26.
 - Its open items: O3 (the account menu showed only the email) is fixed since, by naming the person in the menu. The rest are in section 11 (items 2f–2h).
+
+**Second portal-tester run: FAIL** on `0996de0` (the account menu naming the person), report `.claude/test-runs/20261118-182400-portal-tester.md`. Every suite level was green and equal to the baseline (S2 162, R1 221, S5 32/0/0 and 81 probes, S6 32, S7 18, LadWani 441). Its browser pass measured the account panel in 6048 states (3 tiers, en/mr/hi, 3 themes, 7 widths, 8 accounts including a 120-character name, markup and Devanagari): the name line shown exactly where each project has a name, never clipped, escaped, the panel inside the window, Escape returns focus, axe 0. It fixed one defect in the change (U-27). The FAIL came from three defects on production since the redesign, which it found on LadWani: U-28, U-29 (both S3, which TEST_SPEC §6 does not let stay open) and U-30 (S4). They are fixed in section 14.
+
+## 14. U-27 to U-30: the account menu and the shell on LadWani, 18–19 Nov 2026, 11:55 PM–12:20 AM IST
+
+Fixes (D-051): U-27 in `a9c6a44`; U-28, U-29 and U-30 in `bfb8d5b`.
+
+| Check | Scope | Result |
+|---|---|---|
+| Hub suites | `npm test`; `npm run test:pg` | 163; **222 / 222** (one new test: the shell asks again on `bkesari:account`, and drops an older answer; it fails on the previous `menu.js`) |
+| LadWani | `typecheck`, `lint`, static export build (`BASE_PATH=/ladwani NEXT_OUTPUT=export`) | 0 type errors; 0 lint errors (2 known warnings); built, the slots' HTML unchanged |
+| LadWani in Chrome, the fixed build and shell | dev-tier hub with LadWani's real API and the hub's identity (`HUB_PROXY_SECRET`); 2 accounts (a member, an account without a member name) × en/mr; a first visit to `/ladwani/`, then three clicks in LadWani's side menu (16 steps) | **16 of 16**: the bar stays, the account shows the person from the first visit, the Marathi footer stays Marathi; the account menu opens, Escape closes it with focus back, the switcher opens |
+| The same, with the previous shell (`menu.js` of `a9c6a44`) on the fixed LadWani build | the same 16 steps | bar kept in 16 of 16 (U-28 is fixed in LadWani alone); account "Sign in" in 16 of 16, so U-29's fix is the shell's listener |
+| U-30 | `/account/api/auth/me` and `/tasklist/api/auth/me`, signed in, `k_lang` en/mr/hi | "My projects" / "माझे प्रकल्प" / "मेरे प्रोजेक्ट"; "Settings" / "सेटिंग्ज" / "सेटिंग्स" |
+
+On production, once released: LadWani keeps its bar and account across every click, shows the member from the first visit, and the menu's links follow the chosen language. Nothing changes on the other projects' pages.
