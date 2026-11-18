@@ -112,10 +112,10 @@ test('inside every project the logo is a visible way back: "Back to bkesari home
   assert.doesNotMatch(bar({ pathname: '/' }), /ks-back/, 'the hub itself needs no way back');
 });
 
-test('long project names have a short form on phones, and the full name everywhere else', () => {
+test('long project names have a short form on tablets and phones, and the full name on wider screens', () => {
   assert.match(bar({ pathname: '/driving-simulator/' }), /<a class="ks-proj" href="\/driving-simulator\/"><span class="ks-proj-full">Driving Simulator<\/span><span class="ks-proj-short">Driving<\/span><\/a>/);
   assert.match(menu.styleTag(), /\.ks-proj-short\{display:none\}/);
-  assert.match(menu.styleTag(), /@media \(max-width:480px\)\{[^@]*\.ks-proj-full\{display:none\}\.ks-proj-short\{display:inline\}/);
+  assert.match(menu.styleTag(), /@media \(max-width:959px\)\{[^@]*\.ks-proj-full\{display:none\}\.ks-proj-short\{display:inline\}/);
 });
 
 test('the footer lists the public projects (never ATIP) and the site links', () => {
@@ -130,6 +130,24 @@ test('the tier badge shows on dev and test, never on production', () => {
   assert.match(bar({ pathname: '/', env: 'test' }), /class="ks-env">test</);
   assert.doesNotMatch(bar({ pathname: '/', env: 'prod' }), /ks-env/);
   assert.doesNotMatch(bar({ pathname: '/' }), /ks-env/, 'no env given is production');
+});
+
+test('below 960 px the bar fits: the avatar stands for the account, and the tier badge hangs from the accent stripe', () => {
+  // portal-tester O1: signed in below 340 px (350 px with "test") the badge in the row made every page scroll sideways;
+  // with an email as the account's name, projects' bars scrolled sideways at 641-770 px, production included.
+  const css = menu.styleTag();
+  const narrow = css.match(/@media \(max-width:959px\)\{([\s\S]*?\})\}/)[1];
+  assert.match(narrow, /\.ks-acct-name\{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect\(0 0 0 0\)/, 'the account\'s name is only spoken');
+  const badge = narrow.match(/\.ks-bar \.ks-env\{([^}]*)\}/);
+  assert.ok(badge, 'no phone rule for the badge');
+  for (const decl of ['position:absolute', 'top:0', 'pointer-events:none']) assert.ok(badge[1].includes(decl), decl);
+  assert.match(css, /\.ks-bar\{position:sticky;/, 'the bar is the badge\'s containing block');
+  // From 960 px the badge stays in the row, beside the logo.
+  const wide = css.replace(/@media[^{]*\{[\s\S]*?\}\}/g, '');
+  assert.doesNotMatch(wide.match(/\.ks-env\{[^}]*\}/)[0], /position/);
+  // The badge is the same element, with its text, on the hub and inside a project.
+  assert.match(bar({ pathname: '/', env: 'test' }), /<span class="ks-brand-name">bkesari<\/span> <span class="ks-env">test<\/span><\/a>/);
+  assert.match(bar({ pathname: '/ladwani/', env: 'dev' }), /<\/a> <span class="ks-env">dev<\/span>/);
 });
 
 test('server-rendered, the header adds no script and shows nothing that needs one', () => {

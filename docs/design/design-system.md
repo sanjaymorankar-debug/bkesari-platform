@@ -148,7 +148,7 @@ All are on `/styleguide/` with their states. 1.0.0 components are unchanged.
 
 | Component | Class | States |
 |---|---|---|
-| App shell header | `/shared/menu.js` (`.ks-bar`) | hub / in-project accent and **back-to-home link**, tier badge, switcher open, signed in / out, EN / MR / HI, ≤ 360 px |
+| App shell header | `/shared/menu.js` (`.ks-bar`) | hub / in-project accent and **back-to-home link**, tier badge (beside the logo; below 960 px it hangs from the accent stripe above the logo so the row is as wide as production's), below 960 px the account as its avatar and short project names (D-050), switcher open, signed in / out, EN / MR / HI, ≤ 360 px |
 | Project switcher | `.ks-switch` (`<details>`) | closed, open; home first, current project marked, **My projects and access** last; ATIP only for the owner, opens in a new window |
 | Footer | `.ks-foot` / `.k-footer` | brand + tagline + public projects; About, Privacy, Terms, Contact; © |
 | Breadcrumbs | `nav.k-breadcrumbs > ol > li` | link, current (`aria-current="page"`) |
